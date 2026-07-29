@@ -238,7 +238,28 @@ Thawing into a subclass reattaches stratum 1: `Car.thaw(blob)` gives the
 written methods back their body; the story never contained them, only their
 effects.
 
-## Scene 12 — the fixed point: stock Python, untouched
+## Scene 12 — results are Things: chaining and schema guarantees
+
+Every imagined call returns a child `Thing` born from the call's story — so
+results chain, while still behaving as their value (`bool`, `str`, iteration,
+`.confidence`):
+
+```python
+news = bot.check_news("related to Ukraine, headlines only",
+                      returns={"headlines": [{"title": str, "url": str}]})
+news.headlines          # bare list of dicts — guaranteed by the schema
+news.keywords()         # the result is a Thing: chain another imagined call
+bool(car.can_drive())   # scalar results still work as plain values
+```
+
+`returns=` is the reserved schema kwarg on any imagined call: a template of
+types (`str`, `int`, `bool`, `float`), dicts, and lists. The runtime rejects
+any return that does not match and makes the imagination correct itself —
+within the step budget — so a value that arrives is a value that conforms.
+Dict results also land as authoritative attributes on the child (state wins
+over inference, as always).
+
+## Scene 13 — the fixed point: stock Python, untouched
 
 ```python
 class Point(Thing):
@@ -259,7 +280,7 @@ p.x                     # 3     resolves in strata 1–2, inference never runs,
 ## Acceptance checklist
 
 - [ ] A fully written subclass behaves identically to a plain `object`
-      subclass (scene 12) — zero inference calls, zero wrappers.
+      subclass (scene 13) — zero inference calls, zero wrappers.
 - [ ] `Thing(*anything, **state)` instantiates directly: positional args
       join the story; keyword args become bare authoritative state
       (scene 1). Only `stateful` and `model` are reserved.
@@ -286,5 +307,11 @@ p.x                     # 3     resolves in strata 1–2, inference never runs,
 - [ ] `freeze()`/`thaw()` round-trip the full story and state as a
       JSON-able document; `pickle` works; thawing into a subclass
       reattaches written code (scene 11).
+- [ ] Every imagined call returns a child Thing carrying `.confidence` and
+      its value (bool/str/iteration delegate to it); dict results land as
+      bare attributes; further imagined calls chain on it (scene 12).
+- [ ] A `returns=` schema is enforced: non-conforming returns are rejected
+      and corrected within the step budget, so a delivered value always
+      matches the template (scene 12).
 - [ ] The public surface is exactly one name: `Thing` (principle 5).
 - [ ] `obj.__story__` replays every event and answer in order (scene 5).

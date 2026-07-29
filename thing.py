@@ -109,9 +109,11 @@ def _make_approx(value, confidence):
 
 
 def _plain(value):
-    """Strip any Approx/_Pending wrapper down to the native value."""
+    """Strip any Approx/_Pending/Thing wrapper down to the native value."""
     if isinstance(value, _Pending):
         value = value._resolve()
+    if isinstance(value, Thing):
+        return value.__dict__.get("_thing_value", repr(value))
     if isinstance(value, _ApproxNone):
         return None
     if isinstance(value, _ApproxBool):
@@ -215,6 +217,49 @@ def _extract_json(text):
                         break
         start = text.find("{", start + 1)
     raise ValueError(f"no JSON object in model output: {text[:200]!r}")
+
+
+def _render_schema(schema):
+    if isinstance(schema, type):
+        return schema.__name__
+    if isinstance(schema, dict):
+        return "{" + ", ".join(f'"{k}": {_render_schema(v)}' for k, v in schema.items()) + "}"
+    if isinstance(schema, list):
+        return "[" + (_render_schema(schema[0]) + ", ..." if schema else "...") + "]"
+    return json.dumps(schema)
+
+
+def _matches(value, schema):
+    """Check a JSON value against a template of types/dicts/lists. -> (ok, why)"""
+    if schema is None:
+        return True, ""
+    if isinstance(schema, type):
+        if schema is float and isinstance(value, int) and not isinstance(value, bool):
+            return True, ""
+        if schema is not bool and isinstance(value, bool):
+            return False, f"expected {schema.__name__}, got bool"
+        if isinstance(value, schema):
+            return True, ""
+        return False, f"expected {schema.__name__}, got {type(value).__name__} ({value!r})"
+    if isinstance(schema, dict):
+        if not isinstance(value, dict):
+            return False, f"expected an object, got {type(value).__name__}"
+        for key, sub in schema.items():
+            if key not in value:
+                return False, f"missing key {key!r}"
+            ok, why = _matches(value[key], sub)
+            if not ok:
+                return False, f"key {key!r}: {why}"
+        return True, ""
+    if isinstance(schema, list):
+        if not isinstance(value, list):
+            return False, f"expected a list, got {type(value).__name__}"
+        for i, item in enumerate(value if schema else []):
+            ok, why = _matches(item, schema[0])
+            if not ok:
+                return False, f"item {i}: {why}"
+        return True, ""
+    return (True, "") if value == schema else (False, f"expected literal {schema!r}")
 
 
 @contextlib.contextmanager
@@ -521,6 +566,8 @@ class Thing:
         self._thing_ensure()
         if depth >= self._thing_depth_budget:
             raise ContinuationLimit(f"imagined call depth exceeded at `{name}`")
+        kwargs = dict(kwargs)
+        schema = kwargs.pop("returns", None)
         call_repr = (
             f"{name}("
             + ", ".join(
@@ -556,6 +603,12 @@ class Thing:
                 "content": (
                     f"OBJECT STORY:\n{self._thing_story()}\n\n"
                     f"Execute the call: {call_repr}"
+                    + (
+                        "\nThe final return value MUST match this schema exactly: "
+                        + _render_schema(schema)
+                        if schema is not None
+                        else ""
+                    )
                 ),
             },
         ]
@@ -564,20 +617,35 @@ class Thing:
             step = self._thing_complete_json(messages, temperature=0.3)
             action = step.get("action")
             if action == "return":
-                confidence = min(float(step.get("confidence", 0.5)), floor)
-                result = _make_approx(step.get("value"), confidence)
-                _check_required(result.confidence)
+                value = step.get("value")
+                if schema is not None:
+                    ok, why = _matches(value, schema)
+                    if not ok:
+                        messages.append({"role": "assistant", "content": json.dumps(step)})
+                        messages.append(
+                            {
+                                "role": "user",
+                                "content": (
+                                    f"return rejected — {why}. Emit a corrected "
+                                    "return matching the schema: "
+                                    + _render_schema(schema)
+                                ),
+                            }
+                        )
+                        continue
+                confidence = max(0.01, min(float(step.get("confidence", 0.5)), floor, 0.99))
+                _check_required(confidence)
                 if self._thing_stateful:
                     self._thing_log(
                         {
                             "event": "call",
                             "name": name,
                             "args": [_plain(a) for a in args],
-                            "result": _plain(result),
-                            "confidence": result.confidence,
+                            "result": value,
+                            "confidence": confidence,
                         }
                     )
-                return result
+                return self._thing_result(name, args, value, confidence)
             try:
                 feedback, floor = self._thing_step(step, floor, depth)
             except ContinuationLimit:
@@ -587,6 +655,29 @@ class Thing:
             messages.append({"role": "assistant", "content": json.dumps(step)})
             messages.append({"role": "user", "content": f"result: {feedback}"})
         raise ContinuationLimit(f"imagined plan for `{name}` exceeded its step budget")
+
+    def _thing_result(self, call, args, value, confidence):
+        """Wrap a call's return value as a child Thing, so results chain."""
+        child = type(self).__new__(type(self))
+        d = child._thing_ensure()
+        origin = " | ".join(self._thing_parts) or type(self).__name__
+        arg_repr = ", ".join(repr(_plain(a)) for a in args)
+        d["_thing_parts"] = [
+            f"the result of {call}({arg_repr}) on ({origin})",
+            "result value: " + json.dumps(value, default=repr),
+        ]
+        d["_thing_stateful"] = self._thing_stateful
+        d["_thing_model_spec"] = self._thing_model_spec
+        backend = self.__dict__.get("_thing_backend_obj")
+        if backend is not None:
+            object.__setattr__(child, "_thing_backend_obj", backend)
+        object.__setattr__(child, "_thing_value", value)
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if isinstance(key, str) and key.isidentifier() and not key.startswith("_"):
+                    object.__setattr__(child, key, item)
+        object.__setattr__(child, "confidence", confidence)
+        return child
 
     def _thing_step(self, step, floor, depth):
         action = step.get("action")
@@ -720,3 +811,37 @@ class Thing:
         described = " | ".join(self._thing_parts)
         label = f" {described!r}" if described else ""
         return f"<{type(self).__name__}{label}>"
+
+    # A Thing born from a call carries its return value; these delegate to it
+    # so results still behave like values (bool tests, printing, iteration).
+
+    def __bool__(self):
+        value = self.__dict__.get("_thing_value", _UNSET)
+        return True if value is _UNSET else bool(value)
+
+    def __str__(self):
+        value = self.__dict__.get("_thing_value", _UNSET)
+        if value is _UNSET:
+            return repr(self)
+        return value if isinstance(value, str) else json.dumps(value, default=repr)
+
+    def _thing_value_or_raise(self):
+        value = self.__dict__.get("_thing_value", _UNSET)
+        if value is _UNSET:
+            raise TypeError(f"{type(self).__name__} object carries no result value")
+        return value
+
+    def __iter__(self):
+        return iter(self._thing_value_or_raise())
+
+    def __len__(self):
+        return len(self._thing_value_or_raise())
+
+    def __getitem__(self, key):
+        return self._thing_value_or_raise()[key]
+
+    def __int__(self):
+        return int(self._thing_value_or_raise())
+
+    def __float__(self):
+        return float(self._thing_value_or_raise())

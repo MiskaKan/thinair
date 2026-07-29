@@ -46,6 +46,11 @@ class RedditBot(Thing):
 
 a = RedditBot("a bot that follows news about local LLMs and Apple MLX")
 
-print(a.check_posts())      # invented; plan calls the real search()
+mlx_posts = a.check_posts(
+    "Apple MLX only",
+    returns={"posts": [{"title": str, "url": str}], "mood": str},
+)
+print(mlx_posts.posts)          # bare list of dicts — schema-guaranteed
+print(mlx_posts.mood)           # bare str — the community mood, as one word
 print()
-print(a.read_top_post())    # invented; plan browses into a thread and reports back
+print(mlx_posts.summarize())    # the result is a Thing: chain straight into it
