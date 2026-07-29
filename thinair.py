@@ -3,7 +3,7 @@
 An object is a story. Every interaction is a continuation of that story;
 the continuation is appended. Written code and recorded state are
 authoritative (p = 1.0, bare values); inference fills only the silence,
-always returning wrapped values with confidence < 1.0.
+always returning child Things that carry a value and a confidence < 1.0.
 
 Spec: SPEC.md. The entire public surface is the single class `Thing`.
 """
@@ -16,6 +16,7 @@ import inspect
 import json
 import os
 import re
+import textwrap
 import urllib.request
 
 __all__ = ["Thing"]
@@ -36,96 +37,18 @@ class ContinuationLimit(Exception):
     """An imagined plan exceeded its step or depth budget."""
 
 
-# ---------------------------------------------------------------------------
-# Approx — the p < 1 wrapper. Duck-types as its value by subclassing it.
-# ---------------------------------------------------------------------------
-
-class Approx:
-    """Marker base for values produced by inference. Carries `.confidence`."""
-
-    confidence: float
-
-
-class _ApproxBool(int, Approx):
-    """bool cannot be subclassed; an int that prints like a bool."""
-
-    def __new__(cls, value):
-        return super().__new__(cls, 1 if value else 0)
-
-    def __repr__(self):
-        return "True" if self else "False"
-
-    __str__ = __repr__
-
-
-class _ApproxNone(Approx):
-    def __bool__(self):
-        return False
-
-    def __eq__(self, other):
-        return other is None or isinstance(other, _ApproxNone)
-
-    def __hash__(self):
-        return hash(None)
-
-    def __repr__(self):
-        return "None"
-
-
-class _ApproxOpaque(Approx):
-    """Fallback for values whose type cannot be subclassed."""
-
-    def __init__(self, value):
-        self.value = value
-
-    def __getattr__(self, name):
-        return getattr(self.value, name)
-
-    def __repr__(self):
-        return repr(self.value)
-
-
-_approx_classes: dict[type, type] = {}
-
-
-def _make_approx(value, confidence):
-    confidence = max(0.01, min(float(confidence), 0.99))
-    if value is None:
-        out = _ApproxNone()
-    elif isinstance(value, bool):
-        out = _ApproxBool(value)
-    else:
-        base = type(value)
-        cls = _approx_classes.get(base)
-        if cls is None:
-            try:
-                cls = type("Approx", (base, Approx), {"__module__": __name__})
-            except TypeError:
-                cls = _ApproxOpaque
-            _approx_classes[base] = cls
-        out = cls(value) if cls is not _ApproxOpaque else _ApproxOpaque(value)
-    out.confidence = confidence
-    return out
-
-
 def _plain(value):
-    """Strip any Approx/_Pending/Thing wrapper down to the native value."""
+    """Strip any _Pending/Thing wrapper down to the native value."""
     if isinstance(value, _Pending):
         value = value._resolve()
     if isinstance(value, Thing):
         return value.__dict__.get("_thing_value", repr(value))
-    if isinstance(value, _ApproxNone):
-        return None
-    if isinstance(value, _ApproxBool):
-        return bool(int(value))
-    if isinstance(value, _ApproxOpaque):
-        return value.value
-    if isinstance(value, Approx):
-        return type(value).__mro__[1](value)
     return value
 
 
 def _confidence_of(value):
+    if isinstance(value, Thing):
+        return value.__dict__.get("confidence", 1.0)
     return getattr(value, "confidence", 1.0)
 
 
@@ -383,7 +306,6 @@ class _Pending:
 class Thing:
     """A probabilistic object. See module docstring and SPEC.md."""
 
-    Approx = Approx
     LowConfidence = LowConfidence
     ContinuationLimit = ContinuationLimit
 
@@ -524,18 +446,22 @@ class Thing:
                 "content": (
                     "You resolve attributes of a probabilistic object by inference "
                     "over its story. Reply with exactly one JSON object, no prose: "
-                    '{"value": <json value>, "confidence": <0..1>}. Use natural JSON '
-                    "types: numbers as numbers (a year, a count, a die face are "
-                    "integers, never strings), booleans as booleans. If the story "
-                    "treats the attribute as a random outcome (a roll, a draw, a "
-                    "spin), sample one concrete outcome and set confidence to that "
-                    "outcome's probability. If it is a fixed but unstated fact, "
-                    "give your best single concrete guess with confidence matching "
-                    "how constrained it is (e.g. a specific year from a stated "
-                    'decade). Answer the string "unknown" only as a last resort '
-                    "when even a guess would be meaningless — and then confidence "
-                    "is how sure you are that it is unknowable: being certain it "
-                    "is unknown means HIGH confidence (e.g. 0.9), never low. "
+                    '{"value": <json value>, "confidence": <0..1>}. Confidence has '
+                    "exactly one meaning: the probability that the value is "
+                    "correct. Use natural JSON types: numbers as numbers (a year, "
+                    "a count, a die face are integers, never strings), booleans as "
+                    "booleans. If the story treats the attribute as a random "
+                    "outcome (a roll, a draw, a spin), sample one concrete outcome "
+                    "and set confidence to that outcome's probability. If it is a "
+                    "fixed but unstated fact, treat it as a draw from your prior: "
+                    "answer your single best concrete guess of the natural type, "
+                    "with confidence matching how constrained it is (a specific "
+                    "year from a stated decade might be 0.1; a wide-open guess "
+                    "0.02 — low confidence is honest, never evasive). If the "
+                    "attribute genuinely has no value because nothing of the kind "
+                    "exists, answer null with your confidence in that absence. "
+                    'Never answer placeholder strings such as "unknown", "n/a", '
+                    'or "unspecified". '
                     "Never contradict the story, its state, or its history."
                 ),
             },
@@ -548,19 +474,23 @@ class Thing:
             },
         ]
         data = self._thing_complete_json(messages, temperature=0.8)
-        value = _make_approx(data.get("value"), data.get("confidence", 0.5))
-        _check_required(value.confidence)
+        confidence = max(0.01, min(float(data.get("confidence", 0.5)), 0.99))
+        _check_required(confidence)
+        origin = " | ".join(self._thing_parts) or type(self).__name__
+        child = self._thing_child(
+            f"the attribute `{name}` of ({origin})", data.get("value"), confidence
+        )
         if self._thing_stateful:
-            object.__setattr__(self, name, value)
+            object.__setattr__(self, name, child)
             self._thing_log(
                 {
                     "event": "observe",
                     "name": name,
-                    "value": _plain(value),
-                    "confidence": value.confidence,
+                    "value": _plain(child),
+                    "confidence": confidence,
                 }
             )
-        return value
+        return child
 
     def _thing_call(self, name, args, kwargs, depth=0):
         self._thing_ensure()
@@ -658,14 +588,17 @@ class Thing:
 
     def _thing_result(self, call, args, value, confidence):
         """Wrap a call's return value as a child Thing, so results chain."""
-        child = type(self).__new__(type(self))
-        d = child._thing_ensure()
         origin = " | ".join(self._thing_parts) or type(self).__name__
         arg_repr = ", ".join(repr(_plain(a)) for a in args)
-        d["_thing_parts"] = [
-            f"the result of {call}({arg_repr}) on ({origin})",
-            "result value: " + json.dumps(value, default=repr),
-        ]
+        return self._thing_child(
+            f"the result of {call}({arg_repr}) on ({origin})", value, confidence
+        )
+
+    def _thing_child(self, described, value, confidence):
+        """A Thing born from inference: carries its value and `.confidence`."""
+        child = type(self).__new__(type(self))
+        d = child._thing_ensure()
+        d["_thing_parts"] = [described, "value: " + json.dumps(value, default=repr)]
         d["_thing_stateful"] = self._thing_stateful
         d["_thing_model_spec"] = self._thing_model_spec
         backend = self.__dict__.get("_thing_backend_obj")
@@ -717,6 +650,14 @@ class Thing:
     def __getattr__(self, name):
         if name.startswith("_"):
             raise AttributeError(name)
+        value = object.__getattribute__(self, "__dict__").get("_thing_value", _UNSET)
+        if value is not _UNSET:
+            # Code before inference: the carried value's real attributes and
+            # methods win; only names the value lacks fall to imagination.
+            try:
+                return getattr(value, name)
+            except AttributeError:
+                pass
         return _Pending(self, name)
 
     def __setattr__(self, name, value):
@@ -749,19 +690,113 @@ class Thing:
         self._thing_ensure()
         return list(self._thing_journal)
 
+    @property
+    def __source__(self):
+        """The object rendered as Python-like source, as it looks right now.
+
+        Written code appears verbatim; written state, imagined state, and
+        `define`d vocabulary appear as annotated assignments and stubs.
+        A view for humans, not round-trippable source.
+        """
+        self._thing_ensure()
+        cls = type(self)
+        pad = "    "
+        carried = self.__dict__.get("_thing_value", _UNSET)
+
+        def emit(block):
+            sections.append("\n".join(pad + line if line.strip() else "" for line in block.split("\n")))
+
+        sections = []
+
+        doc = inspect.getdoc(cls) if cls is not Thing else None
+        value_part = (
+            "value: " + json.dumps(carried, default=repr) if carried is not _UNSET else None
+        )
+        story_bits = ([doc] if doc else []) + [
+            p.strip() for p in self._thing_parts if p != value_part
+        ]
+        if story_bits:
+            text = "\n\n".join(story_bits)
+            if "\n" in text:
+                emit('"""\n' + text + '\n"""')
+            else:
+                emit(f'"""{text}"""')
+
+        if carried is not _UNSET:
+            confidence = self.__dict__.get("confidence", 0.5)
+            emit(f"# carries value: {carried!r} (p = {confidence:.2f})")
+
+        _, attrs, _ = self._thing_surface()
+        if attrs:
+            emit("\n".join(f"{name} = {value!r}" for name, value in attrs.items()))
+
+        state_lines = []
+        for name, value in self.__dict__.items():
+            if name.startswith("_"):
+                continue
+            if carried is not _UNSET and name == "confidence":
+                continue
+            if isinstance(value, _Pending):
+                continue
+            if isinstance(value, Thing) and "_thing_value" in value.__dict__:
+                inner = value.__dict__["_thing_value"]
+                confidence = value.__dict__.get("confidence", 0.5)
+                state_lines.append(f"{name} = {inner!r}  # imagined (p = {confidence:.2f})")
+            else:
+                state_lines.append(f"{name} = {_plain(value)!r}  # written (p = 1.0)")
+        if state_lines:
+            emit("\n".join(state_lines))
+
+        seen = set()
+        for klass in cls.__mro__:
+            if klass is Thing:
+                break
+            for name, value in vars(klass).items():
+                if name.startswith("_") or name in seen or not callable(value):
+                    continue
+                seen.add(name)
+                try:
+                    emit(textwrap.dedent(inspect.getsource(value)).rstrip())
+                except (OSError, TypeError):
+                    docstr = inspect.getdoc(value)
+                    stub = f"def {name}(self, *args, **kwargs):"
+                    if docstr:
+                        stub += f'\n    """{docstr}"""'
+                    emit(stub + "\n    ...  # written, but source unavailable")
+
+        defined = {}
+        for event in self._thing_journal:
+            if event.get("event") == "define":
+                defined[str(event.get("name"))] = str(event.get("meaning", ""))
+        for name, meaning in defined.items():
+            emit(
+                f"def {name}(self):\n"
+                f'    """{meaning}"""\n'
+                f"    ...  # imagined: no written body, a plan is inferred at call time"
+            )
+
+        bases = ", ".join(base.__name__ for base in cls.__bases__)
+        header = f"class {cls.__name__}({bases}):"
+        if not sections:
+            return header + "\n" + pad + "pass"
+        return header + "\n" + "\n\n".join(sections)
+
     def freeze(self):
         """The object as a JSON-able document: description, state, story, flags."""
         self._thing_ensure()
+        carried = self.__dict__.get("_thing_value", _UNSET)
         state = {}
         for name, value in self.__dict__.items():
             if name.startswith("_"):
                 continue
-            if isinstance(value, (Approx, _Pending)):
-                if isinstance(value, _Pending):
-                    continue
+            if carried is not _UNSET and name == "confidence":
+                continue
+            if isinstance(value, _Pending):
+                continue
+            if isinstance(value, Thing) and "_thing_value" in value.__dict__:
                 state[name] = {
-                    "__approx__": _plain(value),
-                    "confidence": value.confidence,
+                    "__imagined__": value.__dict__["_thing_value"],
+                    "confidence": value.__dict__.get("confidence", 0.5),
                 }
             else:
                 try:
@@ -770,7 +805,7 @@ class Thing:
                 except TypeError:
                     state[name] = repr(value)
         model = self._thing_model_spec
-        return {
+        blob = {
             "class": type(self).__name__,
             "description": list(self._thing_parts),
             "state": state,
@@ -778,6 +813,10 @@ class Thing:
             "stateful": self._thing_stateful,
             "model": model if isinstance(model, str) else None,
         }
+        if carried is not _UNSET:
+            blob["value"] = carried
+            blob["confidence"] = self.__dict__.get("confidence", 0.5)
+        return blob
 
     @classmethod
     def thaw(cls, blob):
@@ -793,12 +832,22 @@ class Thing:
         d["_thing_stateful"] = bool(blob.get("stateful", True))
         d["_thing_model_spec"] = blob.get("model")
         for name, value in blob.get("state", {}).items():
-            if isinstance(value, dict) and "__approx__" in value:
+            if isinstance(value, dict) and ("__imagined__" in value or "__approx__" in value):
+                inner = value.get("__imagined__", value.get("__approx__"))
                 object.__setattr__(
-                    self, name, _make_approx(value["__approx__"], value["confidence"])
+                    self,
+                    name,
+                    self._thing_child(
+                        f"the attribute `{name}` of a thawed object",
+                        inner,
+                        float(value.get("confidence", 0.5)),
+                    ),
                 )
             else:
                 object.__setattr__(self, name, value)
+        if "value" in blob:
+            object.__setattr__(self, "_thing_value", blob["value"])
+            object.__setattr__(self, "confidence", float(blob.get("confidence", 0.5)))
 
     def __getstate__(self):
         return self.freeze()
@@ -807,13 +856,17 @@ class Thing:
         self._thing_restore(blob)
 
     def __repr__(self):
+        value = self.__dict__.get("_thing_value", _UNSET)
+        if value is not _UNSET:
+            return repr(value)
         self._thing_ensure()
         described = " | ".join(self._thing_parts)
         label = f" {described!r}" if described else ""
         return f"<{type(self).__name__}{label}>"
 
-    # A Thing born from a call carries its return value; these delegate to it
-    # so results still behave like values (bool tests, printing, iteration).
+    # A Thing born from inference carries its value; these delegate to it so
+    # imagined values still behave like values (printing, arithmetic,
+    # comparison, iteration) wherever Python lets them.
 
     def __bool__(self):
         value = self.__dict__.get("_thing_value", _UNSET)
@@ -823,12 +876,30 @@ class Thing:
         value = self.__dict__.get("_thing_value", _UNSET)
         if value is _UNSET:
             return repr(self)
-        return value if isinstance(value, str) else json.dumps(value, default=repr)
+        return value if isinstance(value, str) else str(value)
+
+    def __format__(self, spec):
+        value = self.__dict__.get("_thing_value", _UNSET)
+        if value is _UNSET:
+            return format(repr(self), spec)
+        return format(value, spec)
+
+    def __eq__(self, other):
+        value = self.__dict__.get("_thing_value", _UNSET)
+        if value is _UNSET:
+            return NotImplemented
+        return value == _plain(other)
+
+    def __hash__(self):
+        value = self.__dict__.get("_thing_value", _UNSET)
+        if value is _UNSET:
+            return object.__hash__(self)
+        return hash(value)
 
     def _thing_value_or_raise(self):
         value = self.__dict__.get("_thing_value", _UNSET)
         if value is _UNSET:
-            raise TypeError(f"{type(self).__name__} object carries no result value")
+            raise TypeError(f"{type(self).__name__} object carries no value")
         return value
 
     def __iter__(self):
@@ -840,8 +911,50 @@ class Thing:
     def __getitem__(self, key):
         return self._thing_value_or_raise()[key]
 
+    def __contains__(self, item):
+        return _plain(item) in self._thing_value_or_raise()
+
     def __int__(self):
         return int(self._thing_value_or_raise())
 
     def __float__(self):
         return float(self._thing_value_or_raise())
+
+    def __index__(self):
+        return int(self._thing_value_or_raise())
+
+    def __lt__(self, other):
+        return self._thing_value_or_raise() < _plain(other)
+
+    def __le__(self, other):
+        return self._thing_value_or_raise() <= _plain(other)
+
+    def __gt__(self, other):
+        return self._thing_value_or_raise() > _plain(other)
+
+    def __ge__(self, other):
+        return self._thing_value_or_raise() >= _plain(other)
+
+    def __add__(self, other):
+        return self._thing_value_or_raise() + _plain(other)
+
+    def __radd__(self, other):
+        return _plain(other) + self._thing_value_or_raise()
+
+    def __sub__(self, other):
+        return self._thing_value_or_raise() - _plain(other)
+
+    def __rsub__(self, other):
+        return _plain(other) - self._thing_value_or_raise()
+
+    def __mul__(self, other):
+        return self._thing_value_or_raise() * _plain(other)
+
+    def __rmul__(self, other):
+        return _plain(other) * self._thing_value_or_raise()
+
+    def __truediv__(self, other):
+        return self._thing_value_or_raise() / _plain(other)
+
+    def __rtruediv__(self, other):
+        return _plain(other) / self._thing_value_or_raise()

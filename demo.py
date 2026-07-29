@@ -6,7 +6,7 @@ import pickle
 from thinair import Thing
 
 
-print("== Scene 12 — stock Python, zero inference ==")
+print("== Scene 13 — stock Python, zero inference ==")
 
 class Point(Thing):
     def __init__(self, x, y):
@@ -22,9 +22,9 @@ print(f"norm={p.norm()}  x={p.x}  type(x)={type(p.x).__name__}")
 print("\n== Scene 1 — pure invention ==")
 car = Thing("A Toyota car from the 1990s with a broken engine")
 print(f"color={car.color!r}  confidence={car.color.confidence}")
-collapsed = car.color  # second access: the stored Approx, not a proxy
-print(f"color again={collapsed!r}  type={type(collapsed).__name__}"
-      f"  base={type(collapsed).__mro__[1].__name__}  (collapsed, consistent)")
+collapsed = car.color  # second access: the stored child Thing, not a proxy
+print(f"color again={collapsed!r}  isinstance Thing={isinstance(collapsed, Thing)}"
+      f"  (collapsed, consistent)")
 year = car.year
 print(f"year={year}  confidence={year.confidence}")
 

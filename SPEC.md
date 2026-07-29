@@ -11,16 +11,16 @@ The principles:
 2. **Code before inference, at every seam.** Written code and recorded state
    are authoritative; inference is consulted only where they are silent.
 3. **Certainty is a bare value.** p = 1.0 means an ordinary `str`/`int`/`bool`
-   with no wrapper. Inference never returns exactly 1.0 — a bare value is
-   proof of provenance from code or state.
+   with no wrapper. Inference never returns exactly 1.0 — it returns a child
+   `Thing` that behaves as its value and carries `.confidence`; a bare value
+   is proof of provenance from code or state.
 4. **Closure through the protocol, never through code.** Imagined methods can
    do what written methods do, but only via a closed action vocabulary:
    *get, set, delete, call, define, return*. Imagination never writes,
    generates, or executes Python source. No exec, no eval, ever.
-5. **One class.** The entire public surface is `Thing`. Everything else —
-   the uncertainty wrapper, the guards, the exceptions — is reached through
-   it (`Thing.Approx`, `Thing.require`, `Thing.LowConfidence`,
-   `Thing.ContinuationLimit`).
+5. **One class.** The entire public surface is `Thing`. Everything inference
+   produces is another `Thing`; the guards and exceptions are reached through
+   it (`Thing.require`, `Thing.LowConfidence`, `Thing.ContinuationLimit`).
 
 ---
 
@@ -31,15 +31,21 @@ from thinair import Thing          # the only import there is
 
 car = Thing("A Toyota car from the 1990s with a broken engine")
 
-car.color               # "unknown" — duck-types as str everywhere
-car.color.confidence    # 0.94
+car.color               # "silver" — a child Thing that behaves as the str
+car.color.confidence    # 0.3 — always the probability the value is correct
 car.year                # 1994 — an int; name and usage steer the type
 car.can_drive()         # False, confidence ~0.97
 
-car.color               # "unknown" again — first read collapsed it;
+car.color               # "silver" again — first read collapsed it;
                         # the answer joined the story, so it is now consistent
 del car.color           # deletion is an event: re-opens the distribution
 ```
+
+There is no "unknown". An unstated fact is a draw from the prior: a concrete
+value of the natural type with honestly low confidence — gate it with
+`Thing.require` (scene 7) when a guess is not good enough. True absence
+("this car tows no trailer") is `None`, held with confidence like any other
+fact. Sentinel strings never travel in the value channel.
 
 The constructor absorbs anything. Positional args are woven into the story
 (strings as description, other values by their content); keyword args become
@@ -68,10 +74,10 @@ truck = Car("rusty 1970s pickup, flatbed full of firewood")
 
 truck.wheels            # 4        — bare int; machinery never even fired
 truck.honk()            # "beep"   — bare str
-truck.top_speed_kmh     # 105      — imagined, confidence ~0.6
+truck.top_speed_kmh     # 105      — imagined; a child Thing behaving as an int
 
-type(truck.wheels)          # int          — provenance: written down
-type(truck.top_speed_kmh)   # Thing.Approx — provenance: imagined
+truck.wheels.confidence          # AttributeError — bare values carry no doubt
+truck.top_speed_kmh.confidence   # ~0.6 — the wrapper IS the provenance
 ```
 
 ## Scene 3 — deterministic writes are story events
@@ -122,6 +128,10 @@ boat.fuel_litres        # 20.0 — bare float, mutated by real code that an
 boat.safety_checked     # True — persisted; visible to written code later
 boat.__story__          # full journal: every event, answer, and sub-step,
                         # in order — consistency and provenance for free
+
+print(boat.__source__)  # the object rendered as Python-like source, as it
+                        # looks right now: written code verbatim, imagined
+                        # state and vocabulary as stubs annotated with p
 ```
 
 ## Scene 6 — the action vocabulary: all an imagination may do
@@ -204,9 +214,12 @@ b = Thing("a car", model="https://my-vllm.local:8000/v1")   # any OpenAI-ish
                                                # HTTP endpoint by URL
 c = Thing("a car", model=my_client)            # any object implementing the
                                                # one-method provider protocol:
-                                               # continue_(story, event) ->
-                                               #   (value, confidence, actions)
-d = Thing("a car", model="file://models/tiny.gguf")   # future: embedded
+                                               # complete(messages) -> text
+                                               # (OpenAI-style chat messages
+                                               # in, completion text out)
+d = Thing("a car", model=lambda messages: "…") # or just a callable — handy
+                                               # for tests and stubs
+e = Thing("a car", model="file://models/tiny.gguf")   # future: embedded
                                                # in-process model, no network
 ```
 
@@ -238,11 +251,13 @@ Thawing into a subclass reattaches stratum 1: `Car.thaw(blob)` gives the
 written methods back their body; the story never contained them, only their
 effects.
 
-## Scene 12 — results are Things: chaining and schema guarantees
+## Scene 12 — reads and results are Things: chaining and schema guarantees
 
-Every imagined call returns a child `Thing` born from the call's story — so
-results chain, while still behaving as their value (`bool`, `str`, iteration,
-`.confidence`):
+Everything inference produces — an attribute read or a call result — is a
+child `Thing` born from its story. It behaves as its value (`bool`, `str`,
+arithmetic, comparison, iteration, `.confidence`), real methods of the value
+win over imagination, and anything the value lacks becomes a further
+continuation:
 
 ```python
 news = bot.check_news("related to Ukraine, headlines only",
@@ -250,6 +265,11 @@ news = bot.check_news("related to Ukraine, headlines only",
 news.headlines          # bare list of dicts — guaranteed by the schema
 news.keywords()         # the result is a Thing: chain another imagined call
 bool(car.can_drive())   # scalar results still work as plain values
+
+sedan.brands                        # ['Toyota', ...] — reads are Things too
+sedan.brands.count('Toyota')        # real list.count executes — never imagined
+sedan.brands.overlaps(suv.brands)   # no such list method: an imagined call,
+                                    # chained on the result of a read
 ```
 
 `returns=` is the reserved schema kwarg on any imagined call: a template of
@@ -292,7 +312,7 @@ p.x                     # 3     resolves in strata 1–2, inference never runs,
       execute Python source.
 - [ ] A real method reached from an imagined plan is executed, never
       simulated (scene 5, step 2).
-- [ ] Bare value ⇔ p = 1.0 ⇔ provenance is code/state; wrapper ⇔ p < 1
+- [ ] Bare value ⇔ p = 1.0 ⇔ provenance is code/state; child Thing ⇔ p < 1
       (scene 2). Inference never returns exactly 1.0.
 - [ ] Confidence of a composite action = min over its imagined steps
       (scene 5).
@@ -302,16 +322,19 @@ p.x                     # 3     resolves in strata 1–2, inference never runs,
 - [ ] `stateful=False` disables all appends by imagination — independent
       samples per read — while strata 1–2 behave normally (scene 9).
 - [ ] The backend is injectable per instance or per class as a model name,
-      URL, provider object, or (future) embedded model file (scene 10);
-      the provider protocol is a single method.
+      URL, provider object, bare callable, or (future) embedded model file
+      (scene 10); the provider protocol is a single method:
+      complete(messages) -> text.
 - [ ] `freeze()`/`thaw()` round-trip the full story and state as a
       JSON-able document; `pickle` works; thawing into a subclass
       reattaches written code (scene 11).
-- [ ] Every imagined call returns a child Thing carrying `.confidence` and
-      its value (bool/str/iteration delegate to it); dict results land as
-      bare attributes; further imagined calls chain on it (scene 12).
+- [ ] Every imagined read or call returns a child Thing carrying
+      `.confidence` and its value (bool/str/arithmetic/iteration delegate to
+      it); real methods of the value execute, never simulated; dict results
+      land as bare attributes; further imagined calls chain on it (scene 12).
 - [ ] A `returns=` schema is enforced: non-conforming returns are rejected
       and corrected within the step budget, so a delivered value always
       matches the template (scene 12).
 - [ ] The public surface is exactly one name: `Thing` (principle 5).
-- [ ] `obj.__story__` replays every event and answer in order (scene 5).
+- [ ] `obj.__story__` replays every event and answer in order;
+      `obj.__source__` renders the object as Python-like source (scene 5).
