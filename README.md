@@ -39,7 +39,11 @@ Also in the box: `stateful=False` for memoryless objects (a die that rerolls eve
 
 ## Setup
 
-No dependencies — one file, stdlib only. Point it at any OpenAI-compatible endpoint (defaults target a local server):
+```bash
+pip install thinair
+```
+
+([thinair on PyPI](https://pypi.org/project/thinair/)) — no dependencies, one file, stdlib only. Point it at any OpenAI-compatible endpoint (defaults target a local server):
 
 ```bash
 export THINAIR_BASE_URL="http://127.0.0.1:8000/v1"   # default
