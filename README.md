@@ -1,6 +1,6 @@
 # thinair
 
-Probabilistic Python objects. Invent attributes, methods — anything — out of thin air; a local LLM fills in the blanks, with confidence attached.
+Probabilistic Python objects. Invent attributes, methods, anything out of thin air; an LLM of your choice (local or hosted) fills in the blanks, with confidence attached.
 
 ```python
 from thinair import Thing
