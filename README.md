@@ -15,7 +15,7 @@ car.repair_engine()     # no such method — a plan is imagined and *acted out*
 car.can_drive()         # True — the object remembers
 ```
 
-One axiom: **an object is a story, and every interaction is a continuation of it.** Everything else falls out — see [DREAM.md](DREAM.md) for the full spec.
+One axiom: **an object is a story, and every interaction is a continuation of it.** Everything else falls out — see [SPEC.md](SPEC.md) for the full spec.
 
 ## The rules
 
@@ -52,7 +52,7 @@ or in code: `Thing.defaults(model="...", base_url="...", api_key="...")`.
 Then:
 
 ```bash
-python demo.py         # the DREAM.md scenes, live
+python demo.py         # the SPEC.md scenes, live
 python reddit_bot.py   # an agent that browses reddit through two real methods
 ```
 

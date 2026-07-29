@@ -5,7 +5,7 @@ the continuation is appended. Written code and recorded state are
 authoritative (p = 1.0, bare values); inference fills only the silence,
 always returning wrapped values with confidence < 1.0.
 
-Spec: DREAM.md. The entire public surface is the single class `Thing`.
+Spec: SPEC.md. The entire public surface is the single class `Thing`.
 """
 
 from __future__ import annotations
@@ -336,7 +336,7 @@ class _Pending:
 # ---------------------------------------------------------------------------
 
 class Thing:
-    """A probabilistic object. See module docstring and DREAM.md."""
+    """A probabilistic object. See module docstring and SPEC.md."""
 
     Approx = Approx
     LowConfidence = LowConfidence

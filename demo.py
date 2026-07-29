@@ -1,4 +1,4 @@
-"""Run the DREAM.md scenes against the real backend."""
+"""Run the SPEC.md scenes against the real backend."""
 
 import json
 import pickle
