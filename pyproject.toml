@@ -1,0 +1,23 @@
+[project]
+name = "thing-objects"
+version = "0.1.0"
+description = "Probabilistic Python objects: invent attributes and methods out of thin air, backed by an LLM, with confidence attached."
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [{ name = "Miska Kankkonen", email = "miska.kankkonen@gmail.com" }]
+requires-python = ">=3.9"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+]
+
+[project.urls]
+Homepage = "https://github.com/miskakankkonen/thing"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["thing"]
