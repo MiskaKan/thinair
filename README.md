@@ -17,67 +17,32 @@ car.can_drive()         # True — the object remembers
 
 One axiom: **an object is a story, and every interaction is a continuation of it.** Everything else falls out — see [SPEC.md](SPEC.md) for the full spec.
 
-## The principles
+## The rules
 
-**1. Written code always wins.** Real attributes and methods run as ordinary Python, byte-for-byte, zero inference. The model is consulted only where your code is silent:
+- **Written code always wins.** Subclass `Thing`, write real methods and attributes — they run as ordinary Python, byte-for-byte, zero inference. The model is only consulted where your code is silent.
+- **Certainty is a bare value.** Anything from code or explicit assignment is a plain `str`/`int`/`bool`. Anything inferred is a `Thing` that behaves as its value but carries `.confidence` — and never claims 1.0. Guard the branches that matter with `with Thing.require(0.9):` and low-confidence answers raise instead of flowing.
+- **Imagined methods act, they don't just answer.** They read state, write state, and call your real methods (which actually execute). They can never generate or run Python code.
 
-```python
-class Car(Thing):
-    """A road vehicle."""
-    wheels = 4
+## What that buys you
 
-    def honk(self):
-        return "beep"
-
-truck = Car("rusty 1970s pickup, flatbed full of firewood")
-truck.wheels            # 4 — bare int; no inference ran, nothing was billed
-truck.honk()            # "beep" — real code, really executed
-truck.top_speed_kmh     # 105 — imagined; here the class was silent
-```
-
-**2. Certainty is a bare value.** Anything from code or assignment is a plain `str`/`int`/`bool`. Anything inferred is a child `Thing` that behaves as its value but carries `.confidence` — and never claims 1.0. The wrapper *is* the provenance:
+**Objects that judge other objects.** Hand one Thing to another as an argument; its whole story travels with it:
 
 ```python
-truck.engine_ok = False          # written down: authoritative, p = 1.0
-truck.wheels.confidence          # AttributeError — bare values carry no doubt
-truck.top_speed_kmh.confidence   # 0.6
+sedan    = Car("a compact sedan: efficient, cheap to run, small trunk")
+suv      = Car("a full-size SUV: seven seats, tow hook, thirsty")
+roadster = Car("a two-seat roadster: loud, fast, no luggage space")
+
+customer = Thing("a retired couple with a caravan and two dogs, modest budget")
+
+pick = customer.prefers(sedan, suv, roadster,
+                        returns={"choice": str, "why": str})
+pick.choice      # "a full-size SUV: seven seats, tow hook, thirsty"
+pick.why         # "The caravan requires a tow hook, which only the SUV
+                 #  has, and it provides necessary space for the two dogs."
+pick.confidence  # 0.99
 ```
 
-**3. Everything imagined chains.** A read or call result is itself a `Thing`: real methods of its value execute for real, and names the value lacks continue the story:
-
-```python
-sedan.brands                        # ['Toyota', 'Honda', ...] — a child Thing
-sedan.brands.count('Toyota')        # 1 — real list.count, free and exact
-sedan.brands.overlaps(suv.brands)   # no such list method — imagined, chained
-```
-
-**4. Imagined methods act, they don't just answer.** A plan may read state, write state, and call your real methods (which actually execute) — but it can never generate or run Python source:
-
-```python
-class Boat(Thing):
-    """A small motorboat."""
-    def refuel(self, litres):
-        self.fuel_litres = getattr(self, "fuel_litres", 0) + litres
-        return self.fuel_litres
-
-boat = Boat("a dinghy, tank empty")
-boat.prepare_for_trip()   # imagined plan → calls the real refuel(20)
-boat.fuel_litres          # 20.0 — a bare float, set by real code
-```
-
-**5. There is no "unknown".** An unstated fact comes back as a concrete guess with honestly low confidence; true absence comes back as `None`. Guard the branches where a guess is not good enough:
-
-```python
-car.vin_number               # "4T1BF1FK5CU123456" (confidence 0.02)
-car.trailer_license_plate    # None (confidence 0.99 — confident absence)
-
-with Thing.require(0.9):
-    car.vin_number           # raises Thing.LowConfidence
-```
-
-## What it's for
-
-**Typed answers from messy input.** Describe the object, demand a schema. `returns=` is enforced by the runtime — the imagination is made to correct itself until the value conforms:
+**Typed answers from messy input.** Describe the object, demand a schema. `returns=` is enforced by the runtime — the imagination corrects itself until the value conforms:
 
 ```python
 invoice = Thing("an invoice", raw_email_text)
@@ -85,22 +50,18 @@ data = invoice.extract(returns={"total_eur": float, "due_date": str, "items": [s
 data.total_eur          # bare float, guaranteed by the schema
 ```
 
-**Agents from a story plus a couple of real methods.** [`reddit_bot.py`](reddit_bot.py) in this repo is a working one: two written methods that fetch reddit over plain HTTP, and everything between them imagined:
+**An agent from a story plus two real methods.** [`reddit_bot.py`](reddit_bot.py) in this repo is a working one: written methods fetch reddit over plain HTTP, imagination decides what to do with them:
 
 ```python
-class RedditBot(Thing):
-    """Checks reddit posts for the user. Browses reddit over plain HTTP."""
-    def browse(self, url): ...      # real code: fetch and parse a page
-    def search(self, query): ...    # real code: search all of reddit
-
 bot = RedditBot("a bot that follows news about local LLMs and Apple MLX")
+
 posts = bot.check_posts("Apple MLX only",
                         returns={"posts": [{"title": str, "url": str}], "mood": str})
-posts.posts             # schema-guaranteed list — the plan drove browse()/search()
-posts.summarize()       # the result is a Thing: chain straight into it
+posts.posts             # real posts — the plan drove the real browse()/search()
+posts.summarize()       # every result is a Thing: chain straight into it
 ```
 
-**Simulation and play.** Objects have memory by default and stay consistent with their own story; flip one flag for independent samples instead:
+**Simulation with memory — or without.** Objects stay consistent with their own story by default; flip one flag for independent samples:
 
 ```python
 npc = Thing("a tavern keeper who witnessed the robbery", suspicious_of="strangers")
@@ -110,7 +71,7 @@ die = Thing("a fair six-sided die, freshly rolled", stateful=False)
 die.face; die.face; die.face      # 4, 2, 5 — rerolled on every read
 ```
 
-**Sketch now, harden later.** Start with imagined names and let the story carry the prototype; when a name starts to matter, write it as real code. Call sites don't change — the answer just becomes free and certain:
+**Prototype now, promote later.** Start with imagined names; when one starts to matter, write it as real code. Call sites don't change — the answer just becomes free and certain:
 
 ```python
 overlap.is_empty()      # imagined today: one LLM call, p ≈ 0.95
@@ -122,15 +83,7 @@ class Car(Thing):
 overlap.is_empty()      # the identical call — now real code, p = 1.0, no LLM
 ```
 
-**Objects are documents.** The story is text and the state is a dict, so persistence is trivial — and thawing into a subclass reattaches the written methods:
-
-```python
-db.put("car:1", json.dumps(car.freeze()))
-car = Car.thaw(json.loads(db.get("car:1")))    # answers, story, state survive
-pickle.dumps(car)                              # also just works
-```
-
-And you can always look at what an object has become — `__story__` is the journal of every event, and `__source__` renders the class as it looks right now:
+**Objects are documents.** `freeze()` to a JSON blob, `thaw()` it back (written methods reattach), `pickle` just works. And `__source__` renders any object as the class it currently is:
 
 ```python
 print(truck.__source__)
@@ -166,7 +119,7 @@ export THINAIR_API_KEY="1234"
 export THINAIR_MODEL="Qwen3.6-35B-A3B-oQ6-mtp"
 ```
 
-or in code: `Thing.defaults(model="...", base_url="...", api_key="...")` — a URL, a provider object with `complete(messages) -> text`, or a bare callable all work per instance too: `Thing("a car", model=...)`.
+or in code: `Thing.defaults(model="...", base_url="...", api_key="...")`. A URL, a provider object with `complete(messages) -> text`, or a bare callable work per instance too: `Thing("a car", model=...)`.
 
 Then:
 
