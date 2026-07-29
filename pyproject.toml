@@ -1,6 +1,6 @@
 [project]
 name = "thinair"
-version = "0.1.0"
+version = "0.1.1"
 description = "Probabilistic Python objects: invent attributes, methods, anything out of thin air. An LLM fills the silence, every answer carries confidence, and written code always wins."
 readme = "README.md"
 license = { file = "LICENSE" }
