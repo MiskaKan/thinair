@@ -25,6 +25,23 @@ One axiom: **an object is a story, and every interaction is a continuation of it
 
 ## What that buys you
 
+**Subclass `Thing` to mix written and imagined.** Real code is the certain skeleton; the model fills only the gaps:
+
+```python
+class Car(Thing):
+    """A road vehicle."""
+    wheels = 4                      # certain by definition
+
+    def honk(self):                 # real code: runs in CPython,
+        return "beep"               # inference is never consulted
+
+truck = Car("rusty 1970s pickup, flatbed full of firewood")
+truck.wheels            # 4 — bare int; no inference ran, nothing was billed
+truck.honk()            # "beep" — real code, really executed
+truck.top_speed_kmh     # 105 — imagined (confidence 0.6); the class was silent
+truck.engine_ok = False # ordinary assignment: authoritative from now on
+```
+
 **Objects that judge other objects.** Hand one Thing to another as an argument; its whole story travels with it:
 
 ```python
@@ -53,6 +70,11 @@ data.total_eur          # bare float, guaranteed by the schema
 **An agent from a story plus two real methods.** [`reddit_bot.py`](reddit_bot.py) in this repo is a working one: written methods fetch reddit over plain HTTP, imagination decides what to do with them:
 
 ```python
+class RedditBot(Thing):
+    """Checks reddit posts for the user. Browses reddit over plain HTTP."""
+    def browse(self, url): ...      # real code: fetch and parse a page
+    def search(self, query): ...    # real code: search all of reddit
+
 bot = RedditBot("a bot that follows news about local LLMs and Apple MLX")
 
 posts = bot.check_posts("Apple MLX only",
