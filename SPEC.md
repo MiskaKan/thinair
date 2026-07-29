@@ -27,7 +27,7 @@ The principles:
 ## Scene 1 — pure invention, rich construction
 
 ```python
-from thing import Thing          # the only import there is
+from thinair import Thing          # the only import there is
 
 car = Thing("A Toyota car from the 1990s with a broken engine")
 

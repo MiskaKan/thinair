@@ -3,7 +3,7 @@
 import json
 import pickle
 
-from thing import Thing
+from thinair import Thing
 
 
 print("== Scene 12 — stock Python, zero inference ==")

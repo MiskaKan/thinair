@@ -1,9 +1,9 @@
-# Thing
+# thinair
 
 Probabilistic Python objects. Invent attributes, methods — anything — out of thin air; a local LLM fills in the blanks, with confidence attached.
 
 ```python
-from thing import Thing
+from thinair import Thing
 
 car = Thing("A Toyota car from the 1990s with a broken engine")
 
@@ -42,9 +42,9 @@ Also in the box: `stateful=False` for memoryless objects (a die that rerolls eve
 No dependencies — one file, stdlib only. Point it at any OpenAI-compatible endpoint (defaults target a local server):
 
 ```bash
-export THING_BASE_URL="http://127.0.0.1:8000/v1"   # default
-export THING_API_KEY="1234"
-export THING_MODEL="Qwen3.6-35B-A3B-oQ6-mtp"
+export THINAIR_BASE_URL="http://127.0.0.1:8000/v1"   # default
+export THINAIR_API_KEY="1234"
+export THINAIR_MODEL="Qwen3.6-35B-A3B-oQ6-mtp"
 ```
 
 or in code: `Thing.defaults(model="...", base_url="...", api_key="...")`.

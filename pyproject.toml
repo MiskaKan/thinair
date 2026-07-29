@@ -1,7 +1,7 @@
 [project]
-name = "thing-objects"
+name = "thinair"
 version = "0.1.0"
-description = "Probabilistic Python objects: invent attributes and methods out of thin air, backed by an LLM, with confidence attached."
+description = "Probabilistic Python objects: invent attributes, methods — anything — out of thin air. An LLM fills the silence, every answer carries confidence, and written code always wins."
 readme = "README.md"
 license = { file = "LICENSE" }
 authors = [{ name = "Miska Kankkonen" }]
@@ -13,11 +13,11 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/miskakankkonen/thing"
+Homepage = "https://github.com/miskakankkonen/thinair"
 
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-py-modules = ["thing"]
+py-modules = ["thinair"]

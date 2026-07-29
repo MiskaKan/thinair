@@ -3,7 +3,7 @@ import re
 import urllib.parse
 import urllib.request
 
-from thing import Thing
+from thinair import Thing
 
 UA = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
                     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"}

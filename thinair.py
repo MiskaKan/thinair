@@ -1,4 +1,4 @@
-"""thing.py — probabilistic objects with one axiom.
+"""thinair.py — probabilistic objects with one axiom.
 
 An object is a story. Every interaction is a continuation of that story;
 the continuation is appended. Written code and recorded state are
@@ -20,9 +20,9 @@ import urllib.request
 
 __all__ = ["Thing"]
 
-_DEFAULT_BASE_URL = os.environ.get("THING_BASE_URL", "http://127.0.0.1:8000/v1")
-_DEFAULT_API_KEY = os.environ.get("THING_API_KEY", "1234")
-_DEFAULT_MODEL = os.environ.get("THING_MODEL", "Qwen3.6-35B-A3B-oQ6-mtp")
+_DEFAULT_BASE_URL = os.environ.get("THINAIR_BASE_URL", "http://127.0.0.1:8000/v1")
+_DEFAULT_API_KEY = os.environ.get("THINAIR_API_KEY", "1234")
+_DEFAULT_MODEL = os.environ.get("THINAIR_MODEL", "Qwen3.6-35B-A3B-oQ6-mtp")
 
 _UNSET = object()
 _required = contextvars.ContextVar("thing_required_confidence", default=None)
