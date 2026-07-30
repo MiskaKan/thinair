@@ -37,6 +37,7 @@ _debugging = contextvars.ContextVar(
 )
 _purpose = contextvars.ContextVar("thing_purpose", default="inference")
 _op_stack = contextvars.ContextVar("thing_op_stack", default=())
+_op_debug = contextvars.ContextVar("thing_op_debug", default=None)
 
 
 class LowConfidence(Exception):
@@ -110,13 +111,9 @@ class _HTTPBackend:
         full `max_tokens` budget so the answer itself is never squeezed.
         `think_chunk=0` restores single-shot completions."""
         debug = _debugging.get()
-        purpose = _purpose.get()
-        if debug:
-            _debug_box(
-                f"{purpose} · prompt",
-                [(None, _render_messages(messages)), ("called from", _call_site())],
-                close=False,
-            )
+        st = _op_debug.get()
+        # a plan's box is closed by its final `▸` step line, not by us
+        conclude = not (st and st.get("plan"))
         if self.think_chunk <= 0:
             content, reasoning, meta = self._request(
                 messages, temperature, self.max_tokens
@@ -124,11 +121,13 @@ class _HTTPBackend:
             self.last_meta = meta
             if debug:
                 _debug_box(
-                    f"{purpose} · answer",
+                    "<<< answer",
                     ([("thoughts", reasoning)] if reasoning else [])
-                    + [("answer", content)],
+                    + [(None, content)],
                     _meta_line(meta),
                     opener="├",
+                    close=conclude,
+                    tag=False,
                 )
             return content
         thoughts = []
@@ -182,13 +181,13 @@ class _HTTPBackend:
                     carried_draft, stalled_draft = _prune_repetition(content)
             if debug:
                 if concluded:
-                    title = f"{purpose} · block {blocks_used} · answered"
+                    title = f"<<< block {blocks_used} · answered"
                 elif answer_underway:
-                    title = f"{purpose} · block {blocks_used} · answer cut by checkpoint"
+                    title = f"<<< block {blocks_used} · answer cut by checkpoint"
                 elif demanding:
-                    title = f"{purpose} · block {blocks_used} · answer demanded"
+                    title = f"<<< block {blocks_used} · answer demanded"
                 else:
-                    title = f"{purpose} · block {blocks_used} · thinking continues"
+                    title = f"<<< block {blocks_used} · thinking continues"
                 pruned = " (degenerated into repetition; pruned before carrying)"
                 sections = (
                     [("thoughts" + (pruned if stalled_reasoning else ""), reasoning)]
@@ -216,11 +215,15 @@ class _HTTPBackend:
                     sections,
                     _meta_line(meta),
                     opener="├",
+                    tag=False,
                     # the final block closes the operation's tall box: an
                     # answer, or the last demanded attempt (unless a cut
                     # answer means the full-budget block still follows)
-                    close=concluded
-                    or (demanding and demands_left <= 0 and not answer_underway),
+                    close=conclude
+                    and (
+                        concluded
+                        or (demanding and demands_left <= 0 and not answer_underway)
+                    ),
                 )
             if concluded:
                 return content  # concluded within the block: chose to answer
@@ -262,11 +265,13 @@ class _HTTPBackend:
         self.last_meta = meta
         if debug:
             _debug_box(
-                f"{purpose} · completing the answer at full budget",
+                "<<< completing the answer at full budget",
                 ([("thoughts", reasoning)] if reasoning else [])
                 + [("answer", content)],
                 _meta_line(meta),
                 opener="├",
+                close=conclude,
+                tag=False,
             )
         return content
 
@@ -496,6 +501,17 @@ def _matches(value, schema):
 
 
 @contextlib.contextmanager
+def _op_scope(plan=False):
+    """One inference operation's debug scope: its box opens on the first
+    request and everything until the scope ends belongs to it."""
+    token = _op_debug.set({"open": False, "shown": 0, "plan": plan})
+    try:
+        yield
+    finally:
+        _op_debug.reset(token)
+
+
+@contextlib.contextmanager
 def _require(threshold):
     token = _required.set(float(threshold))
     try:
@@ -557,10 +573,14 @@ def _describe_step(step):
     return str(action)
 
 
-def _debug_action(frame, index, text):
-    """One `▸` line per plan step: the action chosen and what came back."""
+def _debug_action(index, text, final=False):
+    """One `▸` line per plan step: the action chosen and what came back.
+    Steps are children of their operation, so they indent one level
+    deeper; the final step also closes the operation's box."""
     pad = "  " * len(_op_stack.get())
-    print(f"{pad}▸ {frame}() · step {index} · {text}", file=sys.stderr)
+    print(f"{pad}  ▸ step {index} · {text}", file=sys.stderr)
+    if final:
+        print(pad + "└" + "─" * 59, file=sys.stderr)
 
 
 def _call_site():
@@ -581,17 +601,20 @@ def _call_site():
     return "\n".join(lines)
 
 
-def _debug_box(title, sections, footer="", opener="┌", close=True):
+def _debug_box(title, sections, footer="", opener="┌", close=True, tag=True):
     """One titled box. `opener="├"` continues the operation above it and
-    `close=False` leaves the bottom open, so an operation's prompt and
-    thinking blocks read as a single tall structure closed by its final
-    block. Boxes born inside another operation say so in the title and
-    shift right with depth."""
+    `close=False` leaves the bottom open, so a whole operation reads as
+    a single tall structure closed by its final block (or, for plans,
+    by the final step's `▸` line). `tag=False` renders a bare segment
+    title without the `thinair ·` prefix. Boxes born inside another
+    operation say so in the title and shift right with depth."""
     chain = _op_stack.get()
-    if chain:
-        title = f"{title} · in {' › '.join(chain)}"
+    if tag:
+        if chain:
+            title = f"{title} · in {' › '.join(chain)}"
+        title = f"thinair · {title}"
     pad = "  " * len(chain)
-    lines = [f"{opener}─ thinair · {title} " + "─" * max(1, 56 - len(title))]
+    lines = [f"{opener}─ {title} " + "─" * max(1, 56 - len(title))]
     for label, body in sections:
         if label:
             lines.append(f"├─ {label} " + "─" * max(1, 56 - len(label)))
@@ -604,30 +627,34 @@ def _debug_box(title, sections, footer="", opener="┌", close=True):
     print("\n".join(pad + line for line in lines), file=sys.stderr)
 
 
-def _debug_dump(purpose, messages, text, meta=None):
-    chain = _op_stack.get()
-    if chain:
-        purpose = f"{purpose} · in {' › '.join(chain)}"
-    pad = "  " * len(chain)
-    lines = [f"┌─ thinair · {purpose} " + "─" * max(1, 56 - len(purpose))]
-    for message in messages:
-        lines.append(f"│ [{message['role']}]")
-        for line in str(message.get("content", "")).splitlines() or [""]:
-            lines.append(f"│   {line}")
-    site = _call_site()
-    if site:
-        lines.append("├─ called from " + "─" * 45)
-        for line in site.splitlines():
-            lines.append(f"│ {line}")
-    lines.append("├─ raw completion " + "─" * 42)
-    for line in str(text).splitlines() or [""]:
-        lines.append(f"│ {line}")
-    if meta:
-        summary = ", ".join(f"{k}={v}" for k, v in meta.items() if v is not None)
-        if summary:
-            lines.append(f"├─ {summary}")
-    lines.append("└" + "─" * 59)
-    print("\n".join(pad + line for line in lines), file=sys.stderr)
+def _debug_open_op(purpose, messages, st):
+    """Open an operation's box (or append the newly sent messages to one
+    already open): where it was called from first, then what goes to the
+    model, marked `>>>`. Model output arrives later, marked `<<<`."""
+    if not st["open"]:
+        _debug_box(
+            purpose,
+            [
+                ("called from", _call_site()),
+                (">>> prompt", _render_messages(messages)),
+            ],
+            close=False,
+        )
+        st["open"] = True
+    else:
+        # the model's own echo is skipped: it already appeared as `<<<`
+        fresh = [
+            m for m in messages[st["shown"]:] if m.get("role") != "assistant"
+        ]
+        if fresh:
+            _debug_box(
+                ">>> sent",
+                [(None, _render_messages(fresh))],
+                opener="├",
+                close=False,
+                tag=False,
+            )
+    st["shown"] = len(messages)
 
 
 def _check_required(confidence):
@@ -915,7 +942,10 @@ class Thing(metaclass=_ThingMeta):
     def _thing_complete_json(self, messages, temperature, purpose="inference"):
         backend = self._thing_backend()
         last_error = None
+        st = _op_debug.get()
         for _ in range(3):
+            if _debugging.get() and st is not None:
+                _debug_open_op(purpose, messages, st)
             token = _purpose.set(purpose)
             try:
                 text = backend.complete(messages, temperature=temperature)
@@ -926,7 +956,14 @@ class Thing(metaclass=_ThingMeta):
             meta = getattr(backend, "last_meta", None) or {}
             if _debugging.get() and not isinstance(backend, _HTTPBackend):
                 # HTTP backends narrate themselves block by block
-                _debug_dump(purpose, messages, text, meta)
+                _debug_box(
+                    "<<< reply",
+                    [(None, text)],
+                    _meta_line(meta),
+                    opener="├",
+                    close=not (st and st.get("plan")),
+                    tag=False,
+                )
             try:
                 return _extract_json(text)
             except ValueError as error:
@@ -977,11 +1014,12 @@ class Thing(metaclass=_ThingMeta):
                 ),
             },
         ]
-        value, confidence = _answer_shape(
-            self._thing_complete_json(
-                messages, temperature=0.8, purpose=f"read `{name}`"
+        with _op_scope():
+            value, confidence = _answer_shape(
+                self._thing_complete_json(
+                    messages, temperature=0.8, purpose=f"read `{name}`"
+                )
             )
-        )
         _check_required(confidence)
         origin = " | ".join(self._thing_parts) or type(self).__name__
         child = self._thing_child(
@@ -1028,11 +1066,12 @@ class Thing(metaclass=_ThingMeta):
                 "content": f"LEFT:\n{left}\n\nRIGHT:\n{right}\n\nIs LEFT {symbol} RIGHT?",
             },
         ]
-        value, confidence = _answer_shape(
-            self._thing_complete_json(
-                messages, temperature=0.3, purpose=f"judge `{symbol}`"
+        with _op_scope():
+            value, confidence = _answer_shape(
+                self._thing_complete_json(
+                    messages, temperature=0.3, purpose=f"judge `{symbol}`"
+                )
             )
-        )
         _check_required(confidence)
         origin = " | ".join(self._thing_parts) or type(self).__name__
         return self._thing_child(
@@ -1108,6 +1147,12 @@ class Thing(metaclass=_ThingMeta):
         # a value-carrying Thing starts with its own value as the latest
         # result, so `return_result` works before any step has run
         last_result = self.__dict__.get("_thing_value", _UNSET)
+        with _op_scope(plan=True):
+            return self._thing_plan(
+                name, args, messages, schema, floor, last_result, stack
+            )
+
+    def _thing_plan(self, name, args, messages, schema, floor, last_result, stack):
         for index in range(1, self._thing_step_budget + 1):
             step = self._thing_complete_json(
                 messages, temperature=0.3, purpose=f"imagine `{name}(...)`"
@@ -1120,7 +1165,7 @@ class Thing(metaclass=_ThingMeta):
             if action == "return_result" and last_result is _UNSET:
                 if _debugging.get():
                     _debug_action(
-                        name, index, "return_result refused: nothing produced yet"
+                        index, "return_result refused: nothing produced yet"
                     )
                 messages.append({"role": "assistant", "content": json.dumps(step, ensure_ascii=False)})
                 messages.append(
@@ -1137,7 +1182,7 @@ class Thing(metaclass=_ThingMeta):
                     if not ok:
                         if _debugging.get():
                             _debug_action(
-                                name, index, f"{action} rejected: {_snip(why)}"
+                                index, f"{action} rejected: {_snip(why)}"
                             )
                         messages.append({"role": "assistant", "content": json.dumps(step, ensure_ascii=False)})
                         messages.append(
@@ -1155,10 +1200,10 @@ class Thing(metaclass=_ThingMeta):
                 _check_required(confidence)
                 if _debugging.get():
                     _debug_action(
-                        name,
                         index,
                         f"{action} (p {confidence:.2f}) = "
                         + _snip(json.dumps(value, default=repr, ensure_ascii=False)),
+                        final=True,
                     )
                 if self._thing_stateful:
                     self._thing_log(
@@ -1182,7 +1227,7 @@ class Thing(metaclass=_ThingMeta):
                 _op_stack.reset(token)
             if _debugging.get():
                 _debug_action(
-                    name, index, f"{_describe_step(step)} → {_snip(feedback)}"
+                    index, f"{_describe_step(step)} → {_snip(feedback)}"
                 )
             if produced is not _UNSET:
                 last_result = produced
@@ -1715,13 +1760,14 @@ class Thing(metaclass=_ThingMeta):
                 ),
             },
         ]
-        value, confidence = _answer_shape(
-            self._thing_complete_json(
-                messages,
-                temperature=0.3,
-                purpose=f"collapse @ {key}" if key else "collapse",
+        with _op_scope():
+            value, confidence = _answer_shape(
+                self._thing_complete_json(
+                    messages,
+                    temperature=0.3,
+                    purpose=f"collapse @ {key}" if key else "collapse",
+                )
             )
-        )
         if schema is not None and not _matches(value, schema)[0]:
             # single shot, no retries: the mismatch itself is the answer,
             # and the model's confidence survives as the diagnosis
