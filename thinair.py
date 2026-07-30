@@ -315,10 +315,9 @@ class _HTTPBackend:
         st = _op_debug.get()
         if st and st.get("plan"):
             nudge += (
-                " The reply is one small action object; never output data "
-                "you already have, return_result returns it as-is. A value "
-                "already drafted in your thoughts is finished: put it in the "
-                "reply now instead of rehearsing it again."
+                " The reply is one small action object. A value already "
+                "drafted in your thoughts is finished: put it in the reply "
+                "now instead of rehearsing it again."
             )
         extended = list(messages)
         if thoughts:
@@ -1221,26 +1220,20 @@ class Thing(metaclass=_ThingMeta):
                     '{"action": "call", "name": "<method>", "args": [<json>...]}\n'
                     '{"action": "define", "name": "<name>", "meaning": "<text>"}\n'
                     '{"action": "return", "value": <json>, "confidence": <0..1>}\n'
-                    '{"action": "return_result", "confidence": <0..1>}\n'
                     "Facts: `call` runs the object's real, written methods. "
                     "Never write code. Bare written values are read-only; "
                     "record changes to them under new names. Values carrying "
-                    "confidence are yours to change. `return_result` finishes "
-                    "with the latest step's result exactly as it is (before "
-                    "any step: the object's own value); use it instead of "
-                    "retyping data you already have. When the job names no "
-                    "output format, return data as data, exactly as produced; "
-                    "never invent formatting or summaries. Never draft a long "
-                    "value in your thinking: write it once, directly in the "
-                    "reply. Every call ends with `return` or `return_result`.\n"
+                    "confidence are yours to change. `return` is the only way "
+                    "to finish, and its value must be written out whole, "
+                    "never abbreviated. When the job names no output format, "
+                    "return data as data, exactly as produced; never invent "
+                    "formatting or summaries. Never draft a long value in "
+                    "your thinking: write it once, directly in the reply.\n"
                     "Example turns for the job `describe_load()` on an object "
                     "with a real method `items`:\n"
                     '{"action": "call", "name": "items", "args": []}\n'
                     '-> result: ["anvil", "piano"]\n'
-                    '{"action": "return", "value": "an anvil and a piano", "confidence": 0.9}\n'
-                    "When the latest result already IS the answer, end with "
-                    "return_result instead of retyping it:\n"
-                    '{"action": "return_result", "confidence": 0.95}'
+                    '{"action": "return", "value": "an anvil and a piano", "confidence": 0.9}'
                 ),
             },
             {
@@ -1250,13 +1243,6 @@ class Thing(metaclass=_ThingMeta):
                     f"Your job: produce the result of {call_repr} and make "
                     f"any changes to the object it implies. `{name}` itself "
                     "has no code and cannot be called."
-                    + (
-                        "\nThe object's value shown above is one step away: "
-                        '{"action": "get", "name": "value"} reads it, and '
-                        "return_result returns it as-is."
-                        if self.__dict__.get("_thing_value", _UNSET) is not _UNSET
-                        else ""
-                    )
                     + (
                         "\nCall stack: "
                         + " -> ".join(f"{f}()" for f in stack)
@@ -1274,18 +1260,11 @@ class Thing(metaclass=_ThingMeta):
             },
         ]
         floor = 1.0
-        # a value-carrying Thing starts with its own value as the latest
-        # result, so `return_result` works before any step has run
-        last_result = self.__dict__.get("_thing_value", _UNSET)
         purpose = f"{type(self).__name__}.{_snip(call_repr, 60)} · imagined"
         with _op_scope(plan=True):
-            return self._thing_plan(
-                name, args, messages, schema, floor, last_result, stack, purpose
-            )
+            return self._thing_plan(name, args, messages, schema, floor, stack, purpose)
 
-    def _thing_plan(
-        self, name, args, messages, schema, floor, last_result, stack, purpose
-    ):
+    def _thing_plan(self, name, args, messages, schema, floor, stack, purpose):
         for index in range(1, self._thing_step_budget + 1):
             step = self._thing_complete_json(
                 messages, temperature=0.3, purpose=purpose
@@ -1295,45 +1274,8 @@ class Thing(metaclass=_ThingMeta):
                 # model returning its result directly; forgive it
                 step = {"action": "return", "value": step}
             action = step.get("action")
-            if (
-                action == "return_result"
-                and "value" in step
-                and step.get("value") != last_result
-            ):
-                # a value the model wrote must never be silently discarded
-                if _debugging.get():
-                    _debug_action(
-                        index,
-                        'return_result refused: it carried a new "value"',
-                    )
-                messages.append({"role": "assistant", "content": json.dumps(step, ensure_ascii=False)})
-                messages.append(
-                    {
-                        "role": "user",
-                        "content": (
-                            'refused: return_result takes no "value", it '
-                            "returns the latest result exactly as it is. To "
-                            "return the value you wrote, reply "
-                            '{"action": "return", "value": <it>, "confidence": <0..1>}'
-                        ),
-                    }
-                )
-                continue
-            if action == "return_result" and last_result is _UNSET:
-                if _debugging.get():
-                    _debug_action(
-                        index, "return_result refused: nothing produced yet"
-                    )
-                messages.append({"role": "assistant", "content": json.dumps(step, ensure_ascii=False)})
-                messages.append(
-                    {
-                        "role": "user",
-                        "content": "result: refused: no earlier step has produced a result to return",
-                    }
-                )
-                continue
-            if action in ("return", "return_result"):
-                value = last_result if action == "return_result" else step.get("value")
+            if action == "return":
+                value = step.get("value")
                 if schema is not None:
                     ok, why = _matches(value, schema)
                     if not ok:
@@ -1375,19 +1317,17 @@ class Thing(metaclass=_ThingMeta):
                 return self._thing_result(name, args, value, confidence)
             token = _op_stack.set(_op_stack.get() + (f"{name}()",))
             try:
-                feedback, floor, produced = self._thing_step(step, floor, stack)
+                feedback, floor = self._thing_step(step, floor, stack)
             except ContinuationLimit:
                 raise
             except Exception as error:
-                feedback, produced = f"error: {type(error).__name__}: {error}", _UNSET
+                feedback = f"error: {type(error).__name__}: {error}"
             finally:
                 _op_stack.reset(token)
             if _debugging.get():
                 _debug_action(
                     index, f"{_describe_step(step)} → {_snip(feedback)}"
                 )
-            if produced is not _UNSET:
-                last_result = produced
             messages.append({"role": "assistant", "content": json.dumps(step, ensure_ascii=False)})
             messages.append(
                 {
@@ -1427,18 +1367,17 @@ class Thing(metaclass=_ThingMeta):
         return child
 
     def _thing_step(self, step, floor, stack):
-        """One plan step -> (feedback, floor, produced result or _UNSET)."""
+        """One plan step -> (feedback, floor)."""
         action = step.get("action")
         target = step.get("name", "")
         if not isinstance(target, str) or target.startswith("_"):
-            return f"refused: invalid name {target!r}", floor, _UNSET
+            return f"refused: invalid name {target!r}", floor
         if action == "call" and target in stack:
             return (
                 f"refused: `{target}` is already executing (call stack: "
                 f"{' -> '.join(stack)}); produce the result yourself and "
                 "finish with a return",
                 floor,
-                _UNSET,
             )
         if action in ("set", "delete"):
             current = self.__dict__.get(target, _UNSET)
@@ -1449,7 +1388,6 @@ class Thing(metaclass=_ThingMeta):
                     f"refused: `{target}` is deterministic state the programmer "
                     "wrote; record the change under a new name instead",
                     floor,
-                    _UNSET,
                 )
         if action == "get":
             if target == "value":
@@ -1461,14 +1399,13 @@ class Thing(metaclass=_ThingMeta):
                     return (
                         json.dumps(carried, default=repr, ensure_ascii=False),
                         floor,
-                        carried,
                     )
             value = getattr(self, target)
             if isinstance(value, _Pending):
                 value = value._resolve()
             floor = min(floor, _confidence_of(value))
             plain = _plain(value)
-            return json.dumps(plain, default=repr, ensure_ascii=False), floor, plain
+            return json.dumps(plain, default=repr, ensure_ascii=False), floor
         if action == "set":
             confidence = step.get("confidence")
             confidence = max(
@@ -1481,10 +1418,10 @@ class Thing(metaclass=_ThingMeta):
                 confidence,
             )
             setattr(self, target, child)
-            return "ok", min(floor, confidence), _UNSET
+            return "ok", min(floor, confidence)
         if action == "delete":
             delattr(self, target)
-            return "ok", floor, _UNSET
+            return "ok", floor
         if action == "call":
             call_args = step.get("args") or []
             attr = getattr(self, target)
@@ -1493,18 +1430,17 @@ class Thing(metaclass=_ThingMeta):
             elif callable(attr):
                 value = attr(*call_args)
             else:
-                return f"error: `{target}` is not callable", floor, _UNSET
+                return f"error: `{target}` is not callable", floor
             floor = min(floor, _confidence_of(value))
             plain = _plain(value)
-            return json.dumps(plain, default=repr, ensure_ascii=False), floor, plain
+            return json.dumps(plain, default=repr, ensure_ascii=False), floor
         if action == "define":
             self.define(target, str(step.get("meaning", "")))
-            return "ok", floor, _UNSET
+            return "ok", floor
         return (
             f"refused: unknown action {action!r}; to return data, reply "
             '{"action": "return", "value": <the data>}',
             floor,
-            _UNSET,
         )
 
     # -- the attribute protocol seams ---------------------------------------
