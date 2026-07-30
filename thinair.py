@@ -18,6 +18,7 @@ import os
 import re
 import sys
 import textwrap
+import traceback
 import urllib.error
 import urllib.request
 
@@ -113,7 +114,7 @@ class _HTTPBackend:
         if debug:
             _debug_box(
                 f"{purpose} · prompt",
-                [(None, _render_messages(messages))],
+                [(None, _render_messages(messages)), ("called from", _call_site())],
                 close=False,
             )
         if self.think_chunk <= 0:
@@ -536,6 +537,24 @@ def _meta_line(meta):
     return " · ".join(bits)
 
 
+def _call_site():
+    """The user's own frames (thinair's filtered out), outermost first,
+    indented down to the exact line that triggered this inference."""
+    here = os.path.realpath(__file__)
+    frames = [
+        f
+        for f in traceback.extract_stack()
+        if os.path.realpath(f.filename) != here
+    ][-5:]
+    lines = []
+    for i, frame in enumerate(frames):
+        loc = f"{os.path.basename(frame.filename)}:{frame.lineno} {frame.name}"
+        if frame.line:
+            loc += f"  {frame.line.strip()}"
+        lines.append("  " * i + loc)
+    return "\n".join(lines)
+
+
 def _debug_box(title, sections, footer="", opener="┌", close=True):
     """One titled box. `opener="├"` continues the operation above it and
     `close=False` leaves the bottom open, so an operation's prompt and
@@ -569,6 +588,11 @@ def _debug_dump(purpose, messages, text, meta=None):
         lines.append(f"│ [{message['role']}]")
         for line in str(message.get("content", "")).splitlines() or [""]:
             lines.append(f"│   {line}")
+    site = _call_site()
+    if site:
+        lines.append("├─ called from " + "─" * 45)
+        for line in site.splitlines():
+            lines.append(f"│ {line}")
     lines.append("├─ raw completion " + "─" * 42)
     for line in str(text).splitlines() or [""]:
         lines.append(f"│ {line}")
