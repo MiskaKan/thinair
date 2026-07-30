@@ -124,10 +124,14 @@ class _HTTPBackend:
         thoughts = []
         blocks_used = 0
         blocks = max(1, self.max_tokens // self.think_chunk)
-        for block in range(blocks):
-            blocks_used = block + 1
+        # phase 1: thinking blocks with soft checkpoints; phase 2: allowance
+        # spent, the answer is demanded — but still capped, so a model that
+        # only keeps thinking can never capture the full budget
+        for i in range(blocks + 2):
+            blocks_used = i + 1
+            demanding = i >= blocks
             content, reasoning, meta = self._request(
-                self._with_thoughts(messages, thoughts, final=False),
+                self._with_thoughts(messages, thoughts, final=demanding),
                 temperature,
                 self.think_chunk,
             )
@@ -139,6 +143,8 @@ class _HTTPBackend:
                     title = f"{purpose} · block {blocks_used} · answered"
                 elif content:
                     title = f"{purpose} · block {blocks_used} · answer cut by checkpoint"
+                elif demanding:
+                    title = f"{purpose} · block {blocks_used} · answer demanded"
                 else:
                     title = f"{purpose} · block {blocks_used} · thinking continues"
                 sections = [("thoughts", reasoning)] if reasoning else []
@@ -157,8 +163,12 @@ class _HTTPBackend:
                 thoughts.append(reasoning)
             if content:
                 thoughts.append(content)  # a cut answer is a thought too
-                break  # it was answering: go straight to the full answer block
-        # allowance spent: the answer block, full budget, no more thinking
+                break  # the answer is underway: full budget to finish it
+        else:
+            # it never stopped thinking; the parse layer sees the length
+            # finish and raises the clear budget error instead of retrying
+            return content
+        # phase 3: full budget, granted only because the answer already began
         content, reasoning, meta = self._request(
             self._with_thoughts(messages, thoughts, final=True),
             temperature,
@@ -168,7 +178,7 @@ class _HTTPBackend:
         self.last_meta = meta
         if debug:
             _debug_box(
-                f"{purpose} · answer at full budget",
+                f"{purpose} · completing the answer at full budget",
                 ([("thoughts", reasoning)] if reasoning else [])
                 + [("answer", content)],
                 _meta_line(meta),
