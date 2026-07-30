@@ -958,10 +958,13 @@ class Thing(metaclass=_ThingMeta):
             confidence,
         )
 
-    def _thing_call(self, name, args, kwargs, depth=0):
+    def _thing_call(self, name, args, kwargs, stack=()):
         self._thing_ensure()
-        if depth >= self._thing_depth_budget:
-            raise ContinuationLimit(f"imagined call depth exceeded at `{name}`")
+        stack = tuple(stack) + (name,)
+        if len(stack) > self._thing_depth_budget:
+            raise ContinuationLimit(
+                "imagined call depth exceeded: " + " -> ".join(stack)
+            )
         kwargs = dict(kwargs)
         schema = kwargs.pop("returns", None)
         call_repr = (
@@ -1002,6 +1005,13 @@ class Thing(metaclass=_ThingMeta):
                 "content": (
                     f"OBJECT STORY:\n{self._thing_story()}\n\n"
                     f"Execute the call: {call_repr}"
+                    + (
+                        "\nCall stack: "
+                        + " -> ".join(f"{f}()" for f in stack[:-1])
+                        + " -> you. Never call anything already on the stack."
+                        if len(stack) > 1
+                        else ""
+                    )
                     + (
                         "\nThe final return value MUST match this schema exactly: "
                         + _render_schema(schema)
@@ -1064,7 +1074,7 @@ class Thing(metaclass=_ThingMeta):
                     )
                 return self._thing_result(name, args, value, confidence)
             try:
-                feedback, floor, produced = self._thing_step(step, floor, depth, name)
+                feedback, floor, produced = self._thing_step(step, floor, stack)
             except ContinuationLimit:
                 raise
             except Exception as error:
@@ -1104,16 +1114,17 @@ class Thing(metaclass=_ThingMeta):
         object.__setattr__(child, "confidence", confidence)
         return child
 
-    def _thing_step(self, step, floor, depth, executing):
+    def _thing_step(self, step, floor, stack):
         """One plan step -> (feedback, floor, produced result or _UNSET)."""
         action = step.get("action")
         target = step.get("name", "")
         if not isinstance(target, str) or target.startswith("_"):
             return f"refused: invalid name {target!r}", floor, _UNSET
-        if action == "call" and target == executing:
+        if action == "call" and target in stack:
             return (
-                f"refused: `{target}` is you — you are already executing it; "
-                "produce the result yourself and finish with a return",
+                f"refused: `{target}` is already executing (call stack: "
+                f"{' -> '.join(stack)}); produce the result yourself and "
+                "finish with a return",
                 floor,
                 _UNSET,
             )
@@ -1166,7 +1177,7 @@ class Thing(metaclass=_ThingMeta):
             call_args = step.get("args") or []
             attr = getattr(self, target)
             if isinstance(attr, _Pending):
-                value = self._thing_call(target, tuple(call_args), {}, depth + 1)
+                value = self._thing_call(target, tuple(call_args), {}, stack)
             elif callable(attr):
                 value = attr(*call_args)
             else:
