@@ -30,7 +30,9 @@ legs = spider @ int      # collapsing happens through typing: one inference
 ```python
 +(spider @ int @ 0.8)          # 8 — typed AND vouched for at p >= 0.8
 
-guess = car.price_eur @ float @ 0.9
+car = Thing("a rusty 1990 Toyota Hilux")   # attributes you never defined
+guess = car.price_eur @ float @ 0.9        # are imagined on first read —
+                                           # so this is a typed, gated guess
 +guess                         # None — didn't clear the bar...
 ~guess                         # 0.1 — ...and this is why
 if guess: ...                  # failed Things are falsy: gate whole branches
