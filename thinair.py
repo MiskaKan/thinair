@@ -537,6 +537,32 @@ def _meta_line(meta):
     return " · ".join(bits)
 
 
+def _snip(text, limit=100):
+    text = str(text).replace("\n", " ")
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def _describe_step(step):
+    """A plan step as one readable action, e.g. `call headlines("fi")`."""
+    action = step.get("action")
+    target = step.get("name", "")
+    if action == "call":
+        args = ", ".join(repr(a) for a in (step.get("args") or []))
+        return f"call {target}({_snip(args, 40)})"
+    if action == "set":
+        value = json.dumps(step.get("value"), default=repr, ensure_ascii=False)
+        return f"set {target} = {_snip(value, 40)}"
+    if action in ("get", "delete", "define"):
+        return f"{action} {target}"
+    return str(action)
+
+
+def _debug_action(frame, index, text):
+    """One `▸` line per plan step: the action chosen and what came back."""
+    pad = "  " * len(_op_stack.get())
+    print(f"{pad}▸ {frame}() · step {index} · {text}", file=sys.stderr)
+
+
 def _call_site():
     """The user's own frames (thinair's filtered out), outermost first,
     indented down to the exact line that triggered this inference."""
@@ -1082,7 +1108,7 @@ class Thing(metaclass=_ThingMeta):
         # a value-carrying Thing starts with its own value as the latest
         # result, so `return_result` works before any step has run
         last_result = self.__dict__.get("_thing_value", _UNSET)
-        for _ in range(self._thing_step_budget):
+        for index in range(1, self._thing_step_budget + 1):
             step = self._thing_complete_json(
                 messages, temperature=0.3, purpose=f"imagine `{name}(...)`"
             )
@@ -1092,6 +1118,10 @@ class Thing(metaclass=_ThingMeta):
                 step = {"action": "return", "value": step}
             action = step.get("action")
             if action == "return_result" and last_result is _UNSET:
+                if _debugging.get():
+                    _debug_action(
+                        name, index, "return_result refused: nothing produced yet"
+                    )
                 messages.append({"role": "assistant", "content": json.dumps(step, ensure_ascii=False)})
                 messages.append(
                     {
@@ -1105,6 +1135,10 @@ class Thing(metaclass=_ThingMeta):
                 if schema is not None:
                     ok, why = _matches(value, schema)
                     if not ok:
+                        if _debugging.get():
+                            _debug_action(
+                                name, index, f"{action} rejected: {_snip(why)}"
+                            )
                         messages.append({"role": "assistant", "content": json.dumps(step, ensure_ascii=False)})
                         messages.append(
                             {
@@ -1119,6 +1153,13 @@ class Thing(metaclass=_ThingMeta):
                         continue
                 confidence = max(0.01, min(float(step.get("confidence", 0.5)), floor, 0.99))
                 _check_required(confidence)
+                if _debugging.get():
+                    _debug_action(
+                        name,
+                        index,
+                        f"{action} (p {confidence:.2f}) = "
+                        + _snip(json.dumps(value, default=repr, ensure_ascii=False)),
+                    )
                 if self._thing_stateful:
                     self._thing_log(
                         {
@@ -1139,6 +1180,10 @@ class Thing(metaclass=_ThingMeta):
                 feedback, produced = f"error: {type(error).__name__}: {error}", _UNSET
             finally:
                 _op_stack.reset(token)
+            if _debugging.get():
+                _debug_action(
+                    name, index, f"{_describe_step(step)} → {_snip(feedback)}"
+                )
             if produced is not _UNSET:
                 last_result = produced
             messages.append({"role": "assistant", "content": json.dumps(step, ensure_ascii=False)})
