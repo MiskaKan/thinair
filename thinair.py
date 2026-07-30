@@ -111,7 +111,11 @@ class _HTTPBackend:
         debug = _debugging.get()
         purpose = _purpose.get()
         if debug:
-            _debug_box(f"{purpose} · prompt", [(None, _render_messages(messages))])
+            _debug_box(
+                f"{purpose} · prompt",
+                [(None, _render_messages(messages))],
+                close=False,
+            )
         if self.think_chunk <= 0:
             content, reasoning, meta = self._request(
                 messages, temperature, self.max_tokens
@@ -123,6 +127,7 @@ class _HTTPBackend:
                     ([("thoughts", reasoning)] if reasoning else [])
                     + [("answer", content)],
                     _meta_line(meta),
+                    opener="├",
                 )
             return content
         thoughts = []
@@ -205,7 +210,17 @@ class _HTTPBackend:
                     )
                 if not sections:
                     sections.append(("thoughts", "(nothing returned)"))
-                _debug_box(title, sections, _meta_line(meta))
+                _debug_box(
+                    title,
+                    sections,
+                    _meta_line(meta),
+                    opener="├",
+                    # the final block closes the operation's tall box: an
+                    # answer, or the last demanded attempt (unless a cut
+                    # answer means the full-budget block still follows)
+                    close=concluded
+                    or (demanding and demands_left <= 0 and not answer_underway),
+                )
             if concluded:
                 return content  # concluded within the block: chose to answer
             if reasoning:
@@ -250,6 +265,7 @@ class _HTTPBackend:
                 ([("thoughts", reasoning)] if reasoning else [])
                 + [("answer", content)],
                 _meta_line(meta),
+                opener="├",
             )
         return content
 
@@ -520,19 +536,26 @@ def _meta_line(meta):
     return " · ".join(bits)
 
 
-def _debug_box(title, sections, footer=""):
-    # boxes born inside another operation say so, and shift right with depth
+def _debug_box(title, sections, footer="", opener="┌", close=True):
+    """One titled box. `opener="├"` continues the operation above it and
+    `close=False` leaves the bottom open, so an operation's prompt and
+    thinking blocks read as a single tall structure closed by its final
+    block. Boxes born inside another operation say so in the title and
+    shift right with depth."""
     chain = _op_stack.get()
     if chain:
         title = f"{title} · in {' › '.join(chain)}"
     pad = "  " * len(chain)
-    lines = [f"┌─ thinair · {title} " + "─" * max(1, 56 - len(title))]
+    lines = [f"{opener}─ thinair · {title} " + "─" * max(1, 56 - len(title))]
     for label, body in sections:
         if label:
             lines.append(f"├─ {label} " + "─" * max(1, 56 - len(label)))
         for line in str(body).splitlines() or [""]:
             lines.append(f"│ {line}")
-    lines.append(f"└─ {footer}" if footer else "└" + "─" * 59)
+    if close:
+        lines.append(f"└─ {footer}" if footer else "└" + "─" * 59)
+    elif footer:
+        lines.append(f"├─ {footer}")
     print("\n".join(pad + line for line in lines), file=sys.stderr)
 
 
