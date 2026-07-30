@@ -184,29 +184,32 @@ class _HTTPBackend:
                 pruned = " (degenerated into repetition; pruned before carrying)"
                 sections = []
                 if reasoning:
-                    label = f"{k} · thoughts"
+                    label = "thoughts"
                     if demanding:
                         label += " (answer demanded)"
                     if stalled_reasoning:
                         label += pruned
                     sections.append((label, reasoning))
                 if concluded:
-                    sections.append((f"{k} · answer", content))
+                    sections.append(("answer", content))
                 elif answer_underway:
                     sections.append(
                         (
-                            f"{k} · answer, cut mid-way (completing at "
-                            "full budget next)",
+                            "answer, cut mid-way (completing at full "
+                            "budget next)",
                             content,
                         )
                     )
                 elif content:
-                    label = f"{k} · draft (arrived in the answer channel)"
+                    label = "draft (arrived in the answer channel)"
                     if stalled_draft:
                         label += pruned
                     sections.append((label, content))
                 if not sections:
-                    sections.append((f"{k} · thoughts", "(nothing returned)"))
+                    sections.append(("thoughts", "(nothing returned)"))
+                # the block identity appears once; further sections are
+                # the same response's other channel
+                sections[0] = (f"{k} · {sections[0][0]}", sections[0][1])
                 _debug_box(
                     None,
                     sections,
@@ -269,13 +272,11 @@ class _HTTPBackend:
             prefix = "<<< " + (
                 f"step {st['round']} · " if st and st.get("plan") else ""
             )
-            _debug_box(
-                None,
-                ([(f"{prefix}thoughts", reasoning)] if reasoning else [])
-                + [(f"{prefix}answer, completed at full budget", content)],
-                _meta_line(meta),
-                close=conclude,
-            )
+            fb_sections = ([("thoughts", reasoning)] if reasoning else []) + [
+                ("answer, completed at full budget", content)
+            ]
+            fb_sections[0] = (f"{prefix}{fb_sections[0][0]}", fb_sections[0][1])
+            _debug_box(None, fb_sections, _meta_line(meta), close=conclude)
         return content
 
     def _with_thoughts(self, messages, thoughts, final):
