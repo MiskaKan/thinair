@@ -1295,6 +1295,30 @@ class Thing(metaclass=_ThingMeta):
                 # model returning its result directly; forgive it
                 step = {"action": "return", "value": step}
             action = step.get("action")
+            if (
+                action == "return_result"
+                and "value" in step
+                and step.get("value") != last_result
+            ):
+                # a value the model wrote must never be silently discarded
+                if _debugging.get():
+                    _debug_action(
+                        index,
+                        'return_result refused: it carried a new "value"',
+                    )
+                messages.append({"role": "assistant", "content": json.dumps(step, ensure_ascii=False)})
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": (
+                            'refused: return_result takes no "value", it '
+                            "returns the latest result exactly as it is. To "
+                            "return the value you wrote, reply "
+                            '{"action": "return", "value": <it>, "confidence": <0..1>}'
+                        ),
+                    }
+                )
+                continue
             if action == "return_result" and last_result is _UNSET:
                 if _debugging.get():
                     _debug_action(
