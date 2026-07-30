@@ -184,7 +184,6 @@ or in code: `Thing.defaults(model="...", base_url="...", api_key="...")`. A URL,
 Then:
 
 ```bash
-python demo.py         # the SPEC.md scenes, live
 python car_chat.py     # talk to a rusty Hilux — `chat` is imagined, not written
 ```
 
