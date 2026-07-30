@@ -290,7 +290,10 @@ Everything inference produces — an attribute read or a call result — is a
 child `Thing` born from its story. It behaves as its value (`bool`, `str`,
 arithmetic, comparison, iteration, `.confidence`), real methods of the value
 win over imagination, and anything the value lacks becomes a further
-continuation:
+continuation. A child is always a plain `Thing`, never the parent's class:
+a list of headlines is not a news bot. Imagined methods may mutate their
+object, but what they return is a new Thing — recast it with `@ Class`
+(scene 13) when the class genuinely applies:
 
 ```python
 news = bot.check_news("related to Ukraine, headlines only",

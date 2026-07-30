@@ -979,8 +979,11 @@ class Thing(metaclass=_ThingMeta):
         )
 
     def _thing_child(self, described, value, confidence):
-        """A Thing born from inference: carries its value and `.confidence`."""
-        child = type(self).__new__(type(self))
+        """A Thing born from inference: carries its value and `.confidence`.
+        Always a plain Thing, never the parent's class — a result is a new
+        object, not the object it came from. Recast with `@ Class` when the
+        class genuinely applies."""
+        child = Thing.__new__(Thing)
         d = child._thing_ensure()
         d["_thing_parts"] = [described]
         d["_thing_stateful"] = self._thing_stateful
