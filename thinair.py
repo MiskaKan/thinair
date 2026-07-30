@@ -18,6 +18,7 @@ import os
 import re
 import sys
 import textwrap
+import urllib.error
 import urllib.request
 
 __all__ = ["Thing"]
@@ -25,6 +26,7 @@ __all__ = ["Thing"]
 _DEFAULT_BASE_URL = os.environ.get("THINAIR_BASE_URL", "http://127.0.0.1:8000/v1")
 _DEFAULT_API_KEY = os.environ.get("THINAIR_API_KEY", "1234")
 _DEFAULT_MODEL = os.environ.get("THINAIR_MODEL", "Qwen3.6-35B-A3B-oQ6-mtp")
+_DEFAULT_MAX_TOKENS = int(os.environ.get("THINAIR_MAX_TOKENS", "4096"))
 
 _UNSET = object()
 _required = contextvars.ContextVar("thing_required_confidence", default=None)
@@ -74,18 +76,22 @@ def _own_doc(cls):
 class _HTTPBackend:
     """Any OpenAI-compatible /chat/completions endpoint."""
 
-    def __init__(self, base_url, api_key, model):
+    def __init__(self, base_url, api_key, model, max_tokens=_DEFAULT_MAX_TOKENS):
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.model = model
+        self.max_tokens = int(max_tokens)
+        self._json_mode = True  # optimistic; dropped if the server rejects it
 
     def complete(self, messages, temperature=0.7):
         payload = {
             "model": self.model,
             "messages": messages,
             "temperature": temperature,
-            "max_tokens": 4096,
+            "max_tokens": self.max_tokens,
         }
+        if self._json_mode:
+            payload["response_format"] = {"type": "json_object"}
         request = urllib.request.Request(
             self.base_url + "/chat/completions",
             data=json.dumps(payload).encode(),
@@ -94,8 +100,14 @@ class _HTTPBackend:
                 "Authorization": f"Bearer {self.api_key}",
             },
         )
-        with urllib.request.urlopen(request, timeout=600) as response:
-            data = json.load(response)
+        try:
+            with urllib.request.urlopen(request, timeout=600) as response:
+                data = json.load(response)
+        except urllib.error.HTTPError as error:
+            if self._json_mode and error.code in (400, 404, 422):
+                self._json_mode = False  # server has no JSON mode; remember
+                return self.complete(messages, temperature=temperature)
+            raise
         return data["choices"][0]["message"].get("content") or ""
 
 
@@ -108,16 +120,17 @@ class _CallableBackend:
 
 
 def _resolve_backend(spec, cfg):
+    max_tokens = cfg.get("max_tokens", _DEFAULT_MAX_TOKENS)
     if spec is None:
-        return _HTTPBackend(cfg["base_url"], cfg["api_key"], cfg["model"])
+        return _HTTPBackend(cfg["base_url"], cfg["api_key"], cfg["model"], max_tokens)
     if isinstance(spec, str):
         if spec.startswith("file://"):
             raise NotImplementedError(
                 "embedded models are future work; point `model` at a server URL"
             )
         if spec.startswith("http://") or spec.startswith("https://"):
-            return _HTTPBackend(spec, cfg["api_key"], cfg["model"])
-        return _HTTPBackend(cfg["base_url"], cfg["api_key"], spec)
+            return _HTTPBackend(spec, cfg["api_key"], cfg["model"], max_tokens)
+        return _HTTPBackend(cfg["base_url"], cfg["api_key"], spec, max_tokens)
     if hasattr(spec, "complete"):
         return spec
     if callable(spec):
@@ -126,12 +139,16 @@ def _resolve_backend(spec, cfg):
 
 
 def _extract_json(text):
+    """All balanced JSON objects in the text; the answer is the LAST one
+    that looks like one (reasoning models explain first, answer last)."""
     text = re.sub(r"<think>.*?</think>", "", text, flags=re.S)
+    candidates = []
     start = text.find("{")
     while start != -1:
         depth = 0
         in_string = False
         escape = False
+        end = None
         for i in range(start, len(text)):
             char = text[i]
             if in_string:
@@ -149,11 +166,21 @@ def _extract_json(text):
             elif char == "}":
                 depth -= 1
                 if depth == 0:
-                    try:
-                        return json.loads(text[start : i + 1])
-                    except json.JSONDecodeError:
-                        break
-        start = text.find("{", start + 1)
+                    end = i
+                    break
+        if end is None:
+            start = text.find("{", start + 1)
+            continue
+        try:
+            candidates.append(json.loads(text[start : end + 1]))
+            start = text.find("{", end + 1)
+        except json.JSONDecodeError:
+            start = text.find("{", start + 1)
+    for candidate in reversed(candidates):
+        if isinstance(candidate, dict) and ("action" in candidate or "value" in candidate):
+            return candidate
+    if candidates:
+        return candidates[-1]
     raise ValueError(f"no JSON object in model output: {text[:200]!r}")
 
 
@@ -391,7 +418,7 @@ class Thing(metaclass=_ThingMeta):
     # -- configuration ------------------------------------------------------
 
     @classmethod
-    def defaults(cls, model=None, base_url=None, api_key=None):
+    def defaults(cls, model=None, base_url=None, api_key=None, max_tokens=None):
         """Set class-wide backend defaults; subclasses inherit via the MRO."""
         cfg = dict(cls.__dict__.get("_thing_defaults", {}))
         if model is not None:
@@ -400,6 +427,8 @@ class Thing(metaclass=_ThingMeta):
             cfg["base_url"] = base_url
         if api_key is not None:
             cfg["api_key"] = api_key
+        if max_tokens is not None:
+            cfg["max_tokens"] = int(max_tokens)
         cls._thing_defaults = cfg
 
     @classmethod
@@ -429,6 +458,7 @@ class Thing(metaclass=_ThingMeta):
             "base_url": _DEFAULT_BASE_URL,
             "api_key": _DEFAULT_API_KEY,
             "model": _DEFAULT_MODEL,
+            "max_tokens": _DEFAULT_MAX_TOKENS,
         }
         for klass in reversed(type(self).__mro__):
             cfg.update(getattr(klass, "_thing_defaults", None) or {})
