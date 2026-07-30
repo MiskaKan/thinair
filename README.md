@@ -113,11 +113,11 @@ Guard the branches that matter: inside `with Thing.require(0.9):` any resolution
 
 ## Talk to it
 
-There is no chatbot framework here. The car is already a chatbot, because a conversation is just more story:
+There is no chatbot framework here — and `chat` is not a built-in either: nobody wrote it, it's imagined at call time like any other missing method. The car is already a chatbot, because a conversation is just more story:
 
 ```python
 while True:
-    print(car.chat(input("> ")))
+    print(car.chat(input("> ")))   # `chat` appears out of thin air too
 ```
 ```
 > Why did you break down on me this morning?
