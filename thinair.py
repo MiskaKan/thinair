@@ -187,6 +187,9 @@ class _HTTPBackend:
                     # a looping model earns no bigger block: back to the
                     # smallest checkpoint, where the nudge can interrupt
                     cap = self.think_chunk
+            harvested = None
+            if not concluded and not content and stalled_reasoning:
+                harvested = _harvest_reply(reasoning)
             if debug:
                 k = "<<< " + (
                     f"step {st['round']} · " if st and st.get("plan") else ""
@@ -215,6 +218,10 @@ class _HTTPBackend:
                     if stalled_draft:
                         label += pruned
                     sections.append((label, content))
+                elif harvested:
+                    sections.append(
+                        ("answer, harvested from the looping thoughts", harvested)
+                    )
                 if not sections:
                     sections.append(("thoughts", "(nothing returned)"))
                 # the block identity appears once; further sections are
@@ -230,11 +237,14 @@ class _HTTPBackend:
                     close=conclude
                     and (
                         concluded
+                        or bool(harvested)
                         or (demanding and demands_left <= 0 and not answer_underway)
                     ),
                 )
             if concluded:
                 return content  # concluded within the block: chose to answer
+            if harvested:
+                return harvested  # the reply was rehearsed in the thinking
             if reasoning:
                 if stalled_reasoning:
                     carried_reasoning = (
@@ -388,6 +398,61 @@ def _resolve_backend(spec, cfg):
     if callable(spec):
         return _CallableBackend(spec)
     raise TypeError(f"cannot use {spec!r} as an inference backend")
+
+
+def _json_objects(text):
+    """All balanced {...} substrings in the text, in order."""
+    out = []
+    start = text.find("{")
+    while start != -1:
+        depth = 0
+        in_string = False
+        escape = False
+        end = None
+        for i in range(start, len(text)):
+            char = text[i]
+            if in_string:
+                if escape:
+                    escape = False
+                elif char == "\\":
+                    escape = True
+                elif char == '"':
+                    in_string = False
+                continue
+            if char == '"':
+                in_string = True
+            elif char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    end = i
+                    break
+        if end is None:
+            start = text.find("{", start + 1)
+            continue
+        out.append(text[start : end + 1])
+        start = text.find("{", end + 1)
+    return out
+
+
+def _harvest_reply(reasoning):
+    """A model stuck rehearsing its intended reply inside its thinking HAS
+    answered, just in the wrong channel: when exactly one action object
+    is repeated verbatim three or more times, that object is the reply."""
+    counts = {}
+    for raw in _json_objects(reasoning):
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(data, dict) and ("action" in data or "value" in data):
+            key = json.dumps(data, sort_keys=True, ensure_ascii=False)
+            counts[key] = counts.get(key, 0) + 1
+    rehearsed = [key for key, n in counts.items() if n >= 3]
+    if len(rehearsed) == 1:
+        return rehearsed[0]
+    return None
 
 
 def _is_complete_json(text):
