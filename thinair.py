@@ -26,7 +26,7 @@ __all__ = ["Thing"]
 _DEFAULT_BASE_URL = os.environ.get("THINAIR_BASE_URL", "http://127.0.0.1:8000/v1")
 _DEFAULT_API_KEY = os.environ.get("THINAIR_API_KEY", "1234")
 _DEFAULT_MODEL = os.environ.get("THINAIR_MODEL", "Qwen3.6-35B-A3B-oQ6-mtp")
-_DEFAULT_MAX_TOKENS = int(os.environ.get("THINAIR_MAX_TOKENS", "4096"))
+_DEFAULT_MAX_TOKENS = int(os.environ.get("THINAIR_MAX_TOKENS", "32768"))
 
 _UNSET = object()
 _required = contextvars.ContextVar("thing_required_confidence", default=None)

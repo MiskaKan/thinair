@@ -185,7 +185,7 @@ pip install thinair
 export THINAIR_BASE_URL="http://127.0.0.1:8000/v1"   # default
 export THINAIR_API_KEY="1234"
 export THINAIR_MODEL="Qwen3.6-35B-A3B-oQ6-mtp"
-export THINAIR_MAX_TOKENS=4096                       # raise for big returns
+export THINAIR_MAX_TOKENS=32768                      # default; lower to cap cost
 ```
 
 Requests ask for the server's JSON output mode (`response_format: json_object`) and quietly fall back to freeform if the server doesn't support it.
