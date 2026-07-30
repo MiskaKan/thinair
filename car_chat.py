@@ -14,7 +14,12 @@ from thinair import Thing
 class Car(Thing):
     """A road vehicle."""
 
-    wheels = 4
+    wheels = 4                  # bare and written: the model may never touch it
+
+    def __init__(self, description):
+        super().__init__(description)
+        self.mood = Thing("unknown so far")   # a Thing slot: an open field
+                                              # the imagination MAY manage
 
     def horn(self):
         """Sound the horn."""
@@ -24,7 +29,8 @@ class Car(Thing):
 car = Car(
     "a rusty 1990 Toyota Hilux: the engine coughs, the radio is stuck on a "
     "Finnish schlager station, and it has seen things. It answers as itself, "
-    "in first person, a little tired but fond of its owner."
+    "in first person, a little tired but fond of its owner — and it keeps "
+    "its `mood` state up to date as the conversation moves it."
 )
 
 print("You are standing next to a rusty 1990 Toyota Hilux. Say something.")
@@ -42,3 +48,5 @@ while True:
     except Thing.ContinuationLimit:
         print("(the engine coughs; the car lost its train of thought — ask again)")
     print()
+
+print(f"(you pat the hood and leave; the car's mood right now: {+car.mood})")
