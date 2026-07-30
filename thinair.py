@@ -1155,8 +1155,10 @@ class Thing(metaclass=_ThingMeta):
                     "confidence are yours to change. `return_result` finishes "
                     "with the latest step's result exactly as it is (before "
                     "any step: the object's own value); use it instead of "
-                    "retyping data you already have. Every call ends with "
-                    "`return` or `return_result`.\n"
+                    "retyping data you already have. When the job names no "
+                    "output format, return data as data, exactly as produced; "
+                    "never invent formatting or summaries. Every call ends "
+                    "with `return` or `return_result`.\n"
                     "Example turns for the job `describe_load()` on an object "
                     "with a real method `items`:\n"
                     '{"action": "call", "name": "items", "args": []}\n'
