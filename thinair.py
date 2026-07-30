@@ -27,6 +27,7 @@ _DEFAULT_BASE_URL = os.environ.get("THINAIR_BASE_URL", "http://127.0.0.1:8000/v1
 _DEFAULT_API_KEY = os.environ.get("THINAIR_API_KEY", "1234")
 _DEFAULT_MODEL = os.environ.get("THINAIR_MODEL", "Qwen3.6-35B-A3B-oQ6-mtp")
 _DEFAULT_MAX_TOKENS = int(os.environ.get("THINAIR_MAX_TOKENS", "32768"))
+_DEFAULT_THINK_CHUNK = int(os.environ.get("THINAIR_THINK_CHUNK", "2048"))
 
 _UNSET = object()
 _required = contextvars.ContextVar("thing_required_confidence", default=None)
@@ -83,21 +84,79 @@ class _HTTPBackend:
         model,
         max_tokens=_DEFAULT_MAX_TOKENS,
         request_extra=None,
+        think_chunk=_DEFAULT_THINK_CHUNK,
     ):
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.model = model
         self.max_tokens = int(max_tokens)
         self.request_extra = dict(request_extra or {})
+        self.think_chunk = int(think_chunk)
         self.last_meta = {}
         self._json_mode = True  # optimistic; dropped if the server rejects it
 
     def complete(self, messages, temperature=0.7):
+        """Thinking runs in blocks of `think_chunk` tokens. Concluding with
+        an answer inside a block ends the call; running out of a block
+        means "still thinking" — the reasoning is carried forward and the
+        model is nudged toward answering. When the thinking allowance
+        (`max_tokens` in total) is spent, one final answer block gets the
+        full `max_tokens` budget so the answer itself is never squeezed.
+        `think_chunk=0` restores single-shot completions."""
+        if self.think_chunk <= 0:
+            content, _, self.last_meta = self._request(
+                messages, temperature, self.max_tokens
+            )
+            return content
+        thoughts = []
+        blocks = max(1, self.max_tokens // self.think_chunk)
+        for block in range(blocks):
+            content, reasoning, meta = self._request(
+                self._with_thoughts(messages, thoughts, final=False),
+                temperature,
+                self.think_chunk,
+            )
+            meta["thinking_blocks"] = block + 1
+            self.last_meta = meta
+            if content and meta.get("finish_reason") != "length":
+                return content  # concluded within the block: chose to answer
+            if reasoning:
+                thoughts.append(reasoning)
+            if content:
+                thoughts.append(content)  # a cut answer is a thought too
+        # allowance spent: the answer block, full budget, no more thinking
+        content, _, meta = self._request(
+            self._with_thoughts(messages, thoughts, final=True),
+            temperature,
+            self.max_tokens,
+        )
+        meta["thinking_blocks"] = blocks
+        self.last_meta = meta
+        return content
+
+    def _with_thoughts(self, messages, thoughts, final):
+        if not thoughts and not final:
+            return messages
+        nudge = (
+            "Answer now with exactly one JSON object and nothing else."
+            if final
+            else "Continue reasoning only if truly necessary; otherwise "
+            "answer now with exactly one JSON object."
+        )
+        extended = list(messages)
+        if thoughts:
+            extended.append(
+                {"role": "assistant", "content": "(thinking so far)\n" + "\n".join(thoughts)}
+            )
+        extended.append({"role": "user", "content": nudge})
+        return extended
+
+    def _request(self, messages, temperature, max_tokens):
         payload = {
             "model": self.model,
             "messages": messages,
             "temperature": temperature,
-            "max_tokens": self.max_tokens,
+            "max_tokens": max_tokens,
         }
         if self._json_mode:
             payload["response_format"] = {"type": "json_object"}
@@ -116,12 +175,13 @@ class _HTTPBackend:
         except urllib.error.HTTPError as error:
             if self._json_mode and error.code in (400, 404, 422):
                 self._json_mode = False  # server has no JSON mode; remember
-                return self.complete(messages, temperature=temperature)
+                return self._request(messages, temperature, max_tokens)
             raise
         choice = data["choices"][0]
-        self.last_meta = dict(data.get("usage") or {})
-        self.last_meta["finish_reason"] = choice.get("finish_reason")
-        return choice["message"].get("content") or ""
+        meta = dict(data.get("usage") or {})
+        meta["finish_reason"] = choice.get("finish_reason")
+        message = choice["message"]
+        return message.get("content") or "", message.get("reasoning_content") or "", meta
 
 
 class _CallableBackend:
@@ -135,9 +195,10 @@ class _CallableBackend:
 def _resolve_backend(spec, cfg):
     max_tokens = cfg.get("max_tokens", _DEFAULT_MAX_TOKENS)
     extra = cfg.get("request_extra")
+    chunk = cfg.get("think_chunk", _DEFAULT_THINK_CHUNK)
     if spec is None:
         return _HTTPBackend(
-            cfg["base_url"], cfg["api_key"], cfg["model"], max_tokens, extra
+            cfg["base_url"], cfg["api_key"], cfg["model"], max_tokens, extra, chunk
         )
     if isinstance(spec, str):
         if spec.startswith("file://"):
@@ -145,8 +206,12 @@ def _resolve_backend(spec, cfg):
                 "embedded models are future work; point `model` at a server URL"
             )
         if spec.startswith("http://") or spec.startswith("https://"):
-            return _HTTPBackend(spec, cfg["api_key"], cfg["model"], max_tokens, extra)
-        return _HTTPBackend(cfg["base_url"], cfg["api_key"], spec, max_tokens, extra)
+            return _HTTPBackend(
+                spec, cfg["api_key"], cfg["model"], max_tokens, extra, chunk
+            )
+        return _HTTPBackend(
+            cfg["base_url"], cfg["api_key"], spec, max_tokens, extra, chunk
+        )
     if hasattr(spec, "complete"):
         return spec
     if callable(spec):
@@ -440,7 +505,7 @@ class Thing(metaclass=_ThingMeta):
     @classmethod
     def defaults(
         cls, model=None, base_url=None, api_key=None, max_tokens=None,
-        request_extra=None,
+        request_extra=None, think_chunk=None,
     ):
         """Set class-wide backend defaults; subclasses inherit via the MRO.
         `request_extra` is merged verbatim into every HTTP payload — the
@@ -457,6 +522,8 @@ class Thing(metaclass=_ThingMeta):
             cfg["max_tokens"] = int(max_tokens)
         if request_extra is not None:
             cfg["request_extra"] = dict(request_extra)
+        if think_chunk is not None:
+            cfg["think_chunk"] = int(think_chunk)
         cls._thing_defaults = cfg
 
     @classmethod
@@ -487,6 +554,7 @@ class Thing(metaclass=_ThingMeta):
             "api_key": _DEFAULT_API_KEY,
             "model": _DEFAULT_MODEL,
             "max_tokens": _DEFAULT_MAX_TOKENS,
+            "think_chunk": _DEFAULT_THINK_CHUNK,
         }
         for klass in reversed(type(self).__mro__):
             cfg.update(getattr(klass, "_thing_defaults", None) or {})

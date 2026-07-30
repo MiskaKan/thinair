@@ -185,10 +185,11 @@ pip install thinair
 export THINAIR_BASE_URL="http://127.0.0.1:8000/v1"   # default
 export THINAIR_API_KEY="1234"
 export THINAIR_MODEL="Qwen3.6-35B-A3B-oQ6-mtp"
-export THINAIR_MAX_TOKENS=32768                      # default; lower to cap cost
+export THINAIR_MAX_TOKENS=32768                      # answer budget; also caps total thinking
+export THINAIR_THINK_CHUNK=2048                      # thinking block size (0 = single shot)
 ```
 
-Requests ask for the server's JSON output mode (`response_format: json_object`) and quietly fall back to freeform if the server doesn't support it.
+Requests ask for the server's JSON output mode (`response_format: json_object`) and quietly fall back to freeform if the server doesn't support it. Reasoning models think in blocks: every `THINAIR_THINK_CHUNK` tokens the model is nudged to answer unless more thought is truly necessary, and the final answer always gets the full `max_tokens` budget — so runaway thinking gets checkpoints, and the JSON is never squeezed by it.
 
 or in code: `Thing.defaults(model="...", base_url="...", api_key="...")`. A URL, a provider object with `complete(messages) -> text`, or a bare callable all work per instance too: `Thing("a car", model=...)`.
 
