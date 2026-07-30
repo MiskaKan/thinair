@@ -138,10 +138,17 @@ class _HTTPBackend:
             meta["thinking_blocks"] = blocks_used
             self.last_meta = meta
             concluded = bool(content) and meta.get("finish_reason") != "length"
+            # a cut answer is only an answer if it looks like JSON underway;
+            # prose in the answer channel is thinking that escaped the
+            # reasoning channel (server JSON mode off) and must not be
+            # granted the full budget
+            answer_underway = (
+                bool(content) and not concluded and content.lstrip().startswith("{")
+            )
             if debug:
                 if concluded:
                     title = f"{purpose} · block {blocks_used} · answered"
-                elif content:
+                elif answer_underway:
                     title = f"{purpose} · block {blocks_used} · answer cut by checkpoint"
                 elif demanding:
                     title = f"{purpose} · block {blocks_used} · answer demanded"
@@ -150,10 +157,12 @@ class _HTTPBackend:
                 sections = [("thoughts", reasoning)] if reasoning else []
                 if concluded:
                     sections.append(("answer", content))
-                elif content:
+                elif answer_underway:
                     sections.append(
                         ("answer, cut mid-way (completing at full budget next)", content)
                     )
+                elif content:
+                    sections.append(("thoughts (arrived in the answer channel)", content))
                 if not sections:
                     sections.append(("thoughts", "(nothing returned)"))
                 _debug_box(title, sections, _meta_line(meta))
@@ -162,8 +171,9 @@ class _HTTPBackend:
             if reasoning:
                 thoughts.append(reasoning)
             if content:
-                thoughts.append(content)  # a cut answer is a thought too
-                break  # the answer is underway: full budget to finish it
+                thoughts.append(content)  # carried either way
+                if answer_underway:
+                    break  # the answer is underway: full budget to finish it
         else:
             # it never stopped thinking; the parse layer sees the length
             # finish and raises the clear budget error instead of retrying
@@ -239,6 +249,8 @@ class _HTTPBackend:
         choice = data["choices"][0]
         meta = dict(data.get("usage") or {})
         meta["finish_reason"] = choice.get("finish_reason")
+        if not self._json_mode:
+            meta["json_mode"] = False
         message = choice["message"]
         return message.get("content") or "", message.get("reasoning_content") or "", meta
 
@@ -404,6 +416,8 @@ def _meta_line(meta):
     finish = meta.get("finish_reason")
     if finish:
         bits.append("paused at checkpoint" if finish == "length" else finish)
+    if meta.get("json_mode") is False:
+        bits.append("freeform (server JSON mode off)")
     return " · ".join(bits)
 
 
