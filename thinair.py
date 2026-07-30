@@ -34,6 +34,7 @@ _required = contextvars.ContextVar("thing_required_confidence", default=None)
 _debugging = contextvars.ContextVar(
     "thing_debug", default=os.environ.get("THINAIR_DEBUG", "") not in ("", "0")
 )
+_purpose = contextvars.ContextVar("thing_purpose", default="inference")
 
 
 class LowConfidence(Exception):
@@ -118,20 +119,31 @@ class _HTTPBackend:
             )
             meta["thinking_blocks"] = block + 1
             self.last_meta = meta
-            if content and meta.get("finish_reason") != "length":
+            concluded = bool(content) and meta.get("finish_reason") != "length"
+            if _debugging.get() and (reasoning or not concluded):
+                _debug_block(
+                    _purpose.get(),
+                    f"thinking block {block + 1}",
+                    reasoning,
+                    "" if concluded else content,
+                    meta,
+                )
+            if concluded:
                 return content  # concluded within the block: chose to answer
             if reasoning:
                 thoughts.append(reasoning)
             if content:
                 thoughts.append(content)  # a cut answer is a thought too
         # allowance spent: the answer block, full budget, no more thinking
-        content, _, meta = self._request(
+        content, reasoning, meta = self._request(
             self._with_thoughts(messages, thoughts, final=True),
             temperature,
             self.max_tokens,
         )
         meta["thinking_blocks"] = blocks
         self.last_meta = meta
+        if _debugging.get() and reasoning:
+            _debug_block(_purpose.get(), "answer block", reasoning, "", meta)
         return content
 
     def _with_thoughts(self, messages, thoughts, final):
@@ -324,6 +336,21 @@ def _debug(enabled):
         yield
     finally:
         _debugging.reset(token)
+
+
+def _debug_block(purpose, label, reasoning, partial, meta):
+    lines = [f"┌─ thinair · {purpose} — {label} " + "─" * max(1, 44 - len(purpose) - len(str(label)))]
+    for line in str(reasoning or "(no reasoning returned)").splitlines() or [""]:
+        lines.append(f"│ {line}")
+    if partial:
+        lines.append("├─ partial answer, cut by the block " + "─" * 23)
+        for line in str(partial).splitlines() or [""]:
+            lines.append(f"│ {line}")
+    summary = ", ".join(f"{k}={v}" for k, v in (meta or {}).items() if v is not None)
+    if summary:
+        lines.append(f"├─ {summary}")
+    lines.append("└" + "─" * 59)
+    print("\n".join(lines), file=sys.stderr)
 
 
 def _debug_dump(purpose, messages, text, meta=None):
@@ -619,10 +646,13 @@ class Thing(metaclass=_ThingMeta):
         backend = self._thing_backend()
         last_error = None
         for _ in range(3):
+            token = _purpose.set(purpose)
             try:
                 text = backend.complete(messages, temperature=temperature)
             except TypeError:
                 text = backend.complete(messages)
+            finally:
+                _purpose.reset(token)
             meta = getattr(backend, "last_meta", None) or {}
             if _debugging.get():
                 _debug_dump(purpose, messages, text, meta)
