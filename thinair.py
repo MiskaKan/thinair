@@ -1289,7 +1289,12 @@ class Thing(metaclass=_ThingMeta):
             if produced is not _UNSET:
                 last_result = produced
             messages.append({"role": "assistant", "content": json.dumps(step, ensure_ascii=False)})
-            messages.append({"role": "user", "content": f"result: {feedback}"})
+            messages.append(
+                {
+                    "role": "user",
+                    "content": f"result of your {_describe_step(step)}: {feedback}",
+                }
+            )
         raise ContinuationLimit(f"imagined plan for `{name}` exceeded its step budget")
 
     def _thing_result(self, call, args, value, confidence):
