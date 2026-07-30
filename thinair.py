@@ -170,10 +170,16 @@ class _HTTPBackend:
                 return content  # concluded within the block: chose to answer
             if reasoning:
                 thoughts.append(reasoning)
+            if answer_underway:
+                thoughts.append(content)
+                break  # the answer is underway: full budget to finish it
             if content:
-                thoughts.append(content)  # carried either way
-                if answer_underway:
-                    break  # the answer is underway: full budget to finish it
+                thoughts.append(
+                    "(an invalid draft reply, cut at a checkpoint — a reply "
+                    "must be ONE JSON object in the required format, never a "
+                    "bare value, list, or document; do not continue this "
+                    "draft)\n" + content
+                )
         else:
             # it never stopped thinking; the parse layer sees the length
             # finish and raises the clear budget error instead of retrying
@@ -199,14 +205,18 @@ class _HTTPBackend:
         if not thoughts and not final:
             return messages
         nudge = (
-            "Your reasoning budget is spent. Answer now with exactly one "
-            "JSON object and nothing else. Do not restate your reasoning; "
-            "start immediately with {."
+            "Your reasoning budget is spent. Reply now with exactly ONE "
+            "complete JSON object in the required format — re-emit it whole, "
+            "from the beginning, never as a continuation of the text above, "
+            "and never as a bare value, list, or document. Do not restate "
+            "your reasoning; start immediately with {."
             if final
             else "Your reasoning was paused at a scheduled checkpoint — "
             "nothing was lost or cut by error, and your thoughts so far are "
             "above. Continue reasoning only if truly necessary; otherwise "
-            "answer now with exactly one JSON object."
+            "reply now with exactly ONE complete JSON object in the required "
+            "format — never a bare value, list, or document, and never a "
+            "continuation of the text above."
         )
         extended = list(messages)
         if thoughts:
