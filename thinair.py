@@ -52,6 +52,17 @@ def _confidence_of(value):
     return getattr(value, "confidence", 1.0)
 
 
+def _own_doc(cls):
+    """The docstring the programmer wrote: never Thing's, never framework noise."""
+    for klass in cls.__mro__:
+        if klass is Thing:
+            return None
+        doc = klass.__dict__.get("__doc__")
+        if doc:
+            return inspect.cleandoc(doc)
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Backends
 # ---------------------------------------------------------------------------
@@ -256,6 +267,15 @@ class _Pending:
     def __hash__(self):
         return hash(self._resolve())
 
+    def __matmul__(self, operand):
+        return self._resolve() @ operand
+
+    def __pos__(self):
+        return +self._resolve()
+
+    def __invert__(self):
+        return ~self._resolve()
+
     def __add__(self, other):
         return self._resolve() + other
 
@@ -303,7 +323,18 @@ class _Pending:
 # Thing
 # ---------------------------------------------------------------------------
 
-class Thing:
+class _ThingMeta(type):
+    """Lets a frozen document be cast back to life: `blob @ Car`."""
+
+    def __rmatmul__(cls, blob):
+        if isinstance(blob, dict):
+            obj = cls.__new__(cls)
+            obj._thing_restore(blob)
+            return obj
+        return NotImplemented
+
+
+class Thing(metaclass=_ThingMeta):
     """A probabilistic object. See module docstring and SPEC.md."""
 
     LowConfidence = LowConfidence
@@ -313,10 +344,21 @@ class Thing:
     _thing_depth_budget = 4
     _thing_defaults: dict = {}
 
-    def __init__(self, *parts, stateful=True, model=None, **state):
-        self._thing_parts = [p if isinstance(p, str) else repr(p) for p in parts]
+    def __init__(self, *parts, stateful=True, model=None, confidence=None, **state):
         self._thing_stateful = bool(stateful)
         self._thing_model_spec = model
+        if confidence is not None:
+            carried = parts[0] if parts else None
+            self._thing_parts = [
+                "a value the programmer asserted with explicit doubt",
+                "value: " + json.dumps(carried, default=repr),
+            ]
+            object.__setattr__(self, "_thing_value", carried)
+            object.__setattr__(
+                self, "confidence", max(0.01, min(float(confidence), 0.99))
+            )
+        else:
+            self._thing_parts = [p if isinstance(p, str) else repr(p) for p in parts]
         for name, value in state.items():
             setattr(self, name, value)
 
@@ -374,7 +416,7 @@ class Thing:
 
     def _thing_surface(self):
         """The written stratum of subclasses: docs, class attrs, real methods."""
-        doc = inspect.getdoc(type(self)) if type(self) is not Thing else None
+        doc = _own_doc(type(self))
         attrs, methods = {}, {}
         for klass in type(self).__mro__:
             if klass is Thing:
@@ -492,6 +534,48 @@ class Thing:
             )
         return child
 
+    def _thing_compare(self, symbol, other):
+        """An ordering comparison is a judgment made in Thing space."""
+        self._thing_ensure()
+        if isinstance(other, _Pending):
+            other = other._resolve()
+        left = self._thing_story()
+        right = (
+            other._thing_story()
+            if isinstance(other, Thing)
+            else json.dumps(other, default=repr)
+        )
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You judge order comparisons between probabilistic objects. "
+                    "Reply with exactly one JSON object, no prose: "
+                    '{"value": true or false, "confidence": <0..1>}. Compare '
+                    "what the objects ARE — magnitude, size, cost, capability, "
+                    "whatever their stories make relevant — never how they are "
+                    "spelled, unless both are clearly plain text. If several "
+                    "natural senses disagree, choose the most likely one and "
+                    "lower your confidence to reflect the ambiguity; confidence "
+                    "is the probability your judgment is correct. Never "
+                    "contradict recorded state."
+                ),
+            },
+            {
+                "role": "user",
+                "content": f"LEFT:\n{left}\n\nRIGHT:\n{right}\n\nIs LEFT {symbol} RIGHT?",
+            },
+        ]
+        data = self._thing_complete_json(messages, temperature=0.3)
+        confidence = max(0.01, min(float(data.get("confidence", 0.5)), 0.99))
+        _check_required(confidence)
+        origin = " | ".join(self._thing_parts) or type(self).__name__
+        return self._thing_child(
+            f"the judgment: ({origin}) {symbol} ({right[:120]})",
+            bool(data.get("value")),
+            confidence,
+        )
+
     def _thing_call(self, name, args, kwargs, depth=0):
         self._thing_ensure()
         if depth >= self._thing_depth_budget:
@@ -517,14 +601,20 @@ class Thing:
                     "Each turn, reply with exactly one JSON object, no prose — "
                     "one of:\n"
                     '{"action": "get", "name": "<attr>"}\n'
-                    '{"action": "set", "name": "<attr>", "value": <json>}\n'
+                    '{"action": "set", "name": "<attr>", "value": <json>, "confidence": <0..1>}\n'
                     '{"action": "delete", "name": "<attr>"}\n'
                     '{"action": "call", "name": "<method>", "args": [<json>...]}\n'
                     '{"action": "define", "name": "<name>", "meaning": "<text>"}\n'
                     '{"action": "return", "value": <json>, "confidence": <0..1>}\n'
                     "Rules: prefer real methods when one fits — they execute actual "
                     "code. Never write or generate code. Keep plans short; mutate "
-                    "state with `set` when the action changes the object. Always "
+                    "state with `set` when the action changes the object — the "
+                    "value is recorded with your confidence in it (omit confidence "
+                    "to use the plan's current floor). You may create new "
+                    "attributes freely and overwrite or delete any value that "
+                    "carries confidence; values the programmer wrote bare are "
+                    "certain and out of reach — record changes to those under "
+                    "new names. Always "
                     'finish with "return".'
                 ),
             },
@@ -617,6 +707,16 @@ class Thing:
         target = step.get("name", "")
         if not isinstance(target, str) or target.startswith("_"):
             return f"refused: invalid name {target!r}", floor
+        if action in ("set", "delete"):
+            current = self.__dict__.get(target, _UNSET)
+            if current is _UNSET:
+                current = getattr(type(self), target, _UNSET)
+            if current is not _UNSET and not isinstance(current, (Thing, _Pending)):
+                return (
+                    f"refused: `{target}` is deterministic state the programmer "
+                    "wrote; record the change under a new name instead",
+                    floor,
+                )
         if action == "get":
             value = getattr(self, target)
             if isinstance(value, _Pending):
@@ -624,8 +724,18 @@ class Thing:
             floor = min(floor, _confidence_of(value))
             return json.dumps(_plain(value), default=repr), floor
         if action == "set":
-            setattr(self, target, step.get("value"))
-            return "ok", floor
+            confidence = step.get("confidence")
+            confidence = max(
+                0.01, min(float(confidence) if confidence is not None else floor, 0.99)
+            )
+            origin = " | ".join(self._thing_parts) or type(self).__name__
+            child = self._thing_child(
+                f"the attribute `{target}` as set by an imagined plan on ({origin})",
+                step.get("value"),
+                confidence,
+            )
+            setattr(self, target, child)
+            return "ok", min(floor, confidence)
         if action == "delete":
             delattr(self, target)
             return "ok", floor
@@ -666,7 +776,11 @@ class Thing:
             return
         object.__setattr__(self, name, value)
         if self._thing_ensure().get("_thing_stateful", True):
-            self._thing_log({"event": "set", "name": name, "value": _plain(value)})
+            event = {"event": "set", "name": name, "value": _plain(value)}
+            confidence = _confidence_of(value)
+            if confidence < 1.0:
+                event["confidence"] = confidence
+            self._thing_log(event)
 
     def __delattr__(self, name):
         if name.startswith("_"):
@@ -708,7 +822,7 @@ class Thing:
 
         sections = []
 
-        doc = inspect.getdoc(cls) if cls is not Thing else None
+        doc = _own_doc(cls)
         value_part = (
             "value: " + json.dumps(carried, default=repr) if carried is not _UNSET else None
         )
@@ -781,8 +895,10 @@ class Thing:
             return header + "\n" + pad + "pass"
         return header + "\n" + "\n\n".join(sections)
 
-    def freeze(self):
-        """The object as a JSON-able document: description, state, story, flags."""
+    def __getstate__(self):
+        """The object as a JSON-able document: description, state, story,
+        flags. `blob @ Car` casts it back to life; `pickle` uses the same
+        mechanism."""
         self._thing_ensure()
         carried = self.__dict__.get("_thing_value", _UNSET)
         state = {}
@@ -818,13 +934,6 @@ class Thing:
             blob["confidence"] = self.__dict__.get("confidence", 0.5)
         return blob
 
-    @classmethod
-    def thaw(cls, blob):
-        """Restore a frozen object. Thawing into a subclass reattaches its code."""
-        obj = cls.__new__(cls)
-        obj._thing_restore(blob)
-        return obj
-
     def _thing_restore(self, blob):
         d = self._thing_ensure()
         d["_thing_parts"] = list(blob.get("description", []))
@@ -838,7 +947,7 @@ class Thing:
                     self,
                     name,
                     self._thing_child(
-                        f"the attribute `{name}` of a thawed object",
+                        f"the attribute `{name}` of a restored object",
                         inner,
                         float(value.get("confidence", 0.5)),
                     ),
@@ -848,9 +957,6 @@ class Thing:
         if "value" in blob:
             object.__setattr__(self, "_thing_value", blob["value"])
             object.__setattr__(self, "confidence", float(blob.get("confidence", 0.5)))
-
-    def __getstate__(self):
-        return self.freeze()
 
     def __setstate__(self, blob):
         self._thing_restore(blob)
@@ -923,17 +1029,183 @@ class Thing:
     def __index__(self):
         return int(self._thing_value_or_raise())
 
+    def __pos__(self):
+        """`+t` — the value, no questions asked: the carried value if the
+        Thing has collapsed, else the programmer's own words (the story
+        text). Never runs inference; collapsing happens through typing
+        (`t @ int`). A Thing that failed an `@` requirement yields None."""
+        value = self.__dict__.get("_thing_value", _UNSET)
+        if value is not _UNSET:
+            return value
+        self._thing_ensure()
+        return " | ".join(self._thing_parts)
+
+    def __invert__(self):
+        """`~t` — the probability, a bare float. Your own words are certain:
+        an uncollapsed story Thing is 1.0; anything inference produced is
+        always less. Never runs inference."""
+        if "_thing_value" in self.__dict__:
+            return self.__dict__.get("confidence", 0.5)
+        return 1.0
+
+    def __matmul__(self, operand):
+        """`t @ int` / `t @ {"title": str, "year": int}` — approximate AS a
+        type or JSON schema template; always returns a Thing — one whose
+        value conforms, or Thing(None, 0.01) if the imagination cannot
+        conform. `t @ SomeThingSubclass` re-classes the story as that
+        subclass, free. `t @ SomeClass` imagines constructor arguments and
+        lets the real constructor build the instance. `t @ 0.8` —
+        confidence gate; the Thing itself when confidence >= 0.8, else a
+        Thing whose value is gone but whose probability survives for
+        diagnosis; never runs inference."""
+        if isinstance(operand, type) and issubclass(operand, Thing):
+            clone = operand.__new__(operand)
+            clone._thing_restore(self.__getstate__())
+            d = clone._thing_ensure()
+            d["_thing_model_spec"] = self.__dict__.get("_thing_model_spec")
+            backend = self.__dict__.get("_thing_backend_obj")
+            if backend is not None:
+                object.__setattr__(clone, "_thing_backend_obj", backend)
+            return clone
+        if isinstance(operand, type) and not issubclass(
+            operand, (str, int, float, bool, list, dict)
+        ):
+            return self._thing_construct(operand)
+        if isinstance(operand, (type, dict, list)):
+            value = self.__dict__.get("_thing_value", _UNSET)
+            if value is not _UNSET and _matches(value, operand)[0]:
+                return self
+            value, confidence = self._thing_collapse(operand)
+            if value is _UNSET:
+                return self._thing_failure(
+                    f"could not be approximated as {_render_schema(operand)}",
+                    confidence,
+                )
+            origin = " | ".join(self._thing_parts) or type(self).__name__
+            return self._thing_child(
+                f"({origin}) approximated as {_render_schema(operand)}",
+                value,
+                confidence,
+            )
+        threshold = float(operand)
+        value = self.__dict__.get("_thing_value", _UNSET)
+        if value is _UNSET:
+            return self  # a story Thing is the programmer's words: certain
+        confidence = self.__dict__.get("confidence", 0.5)
+        if confidence >= threshold or value is None:
+            return self
+        return self._thing_failure(
+            f"fell below the confidence >= {threshold} requirement", confidence
+        )
+
+    def _thing_failure(self, why, confidence):
+        """A Thing whose value is gone but whose probability survives."""
+        origin = " | ".join(self._thing_parts) or type(self).__name__
+        return self._thing_child(f"({origin}) {why}", None, confidence)
+
+    def _thing_construct(self, cls):
+        """Approximate as an arbitrary class: the imagination supplies the
+        constructor arguments, the real constructor builds the instance."""
+        try:
+            signature = inspect.signature(cls)
+        except (TypeError, ValueError):
+            return self._thing_failure(
+                f"could not be approximated as {cls.__name__}", 0.01
+            )
+        schema = {}
+        for name, param in signature.parameters.items():
+            if param.kind in (param.VAR_POSITIONAL, param.VAR_KEYWORD):
+                continue
+            if param.default is not inspect.Parameter.empty:
+                continue
+            annotation = param.annotation
+            schema[name] = (
+                annotation
+                if isinstance(annotation, type)
+                and issubclass(annotation, (str, int, float, bool, list, dict))
+                else object
+            )
+        kwargs, confidence = self._thing_collapse(schema or dict)
+        if kwargs is _UNSET:
+            return self._thing_failure(
+                f"could not be approximated as {cls.__name__}", confidence
+            )
+        try:
+            instance = cls(**kwargs)
+        except Exception as error:
+            return self._thing_failure(
+                f"could not be constructed as {cls.__name__} "
+                f"({type(error).__name__})",
+                0.01,
+            )
+        origin = " | ".join(self._thing_parts) or type(self).__name__
+        return self._thing_child(
+            f"({origin}) approximated as {cls.__name__}", instance, confidence
+        )
+
+    def _thing_collapse(self, schema=None):
+        """Resolve the single (optionally typed) value a Thing stands for."""
+        self._thing_ensure()
+        key = _render_schema(schema) if schema is not None else ""
+        cache = self.__dict__.get("_thing_collapsed") or {}
+        if key in cache:
+            return cache[key]
+        demand = (
+            f" The value MUST be a JSON {_render_schema(schema)}."
+            if schema is not None
+            else ""
+        )
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You collapse a probabilistic object to the single JSON "
+                    "value it most naturally stands for. Reply with exactly one "
+                    'JSON object, no prose: {"value": <json value>, '
+                    '"confidence": <0..1>}. A described value stands for '
+                    'itself: an object described as "Cat" collapses to "Cat"; '
+                    "an object with one obvious quantity collapses to that "
+                    "number. Use natural JSON types and never contradict the "
+                    "story or its state."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"OBJECT STORY:\n{self._thing_story()}\n\n"
+                    f"Collapse this object to its value.{demand}"
+                ),
+            },
+        ]
+        data = self._thing_complete_json(messages, temperature=0.3)
+        value = data.get("value")
+        confidence = max(0.01, min(float(data.get("confidence", 0.5)), 0.99))
+        if schema is not None and not _matches(value, schema)[0]:
+            # single shot, no retries: the mismatch itself is the answer,
+            # and the model's confidence survives as the diagnosis
+            return _UNSET, confidence
+        _check_required(confidence)
+        if self._thing_stateful:
+            cache = dict(cache)
+            cache[key] = (value, confidence)
+            object.__setattr__(self, "_thing_collapsed", cache)
+            event = {"event": "collapse", "value": value, "confidence": confidence}
+            if schema is not None:
+                event["type"] = _render_schema(schema)
+            self._thing_log(event)
+        return value, confidence
+
     def __lt__(self, other):
-        return self._thing_value_or_raise() < _plain(other)
+        return self._thing_compare("<", other)
 
     def __le__(self, other):
-        return self._thing_value_or_raise() <= _plain(other)
+        return self._thing_compare("<=", other)
 
     def __gt__(self, other):
-        return self._thing_value_or_raise() > _plain(other)
+        return self._thing_compare(">", other)
 
     def __ge__(self, other):
-        return self._thing_value_or_raise() >= _plain(other)
+        return self._thing_compare(">=", other)
 
     def __add__(self, other):
         return self._thing_value_or_raise() + _plain(other)

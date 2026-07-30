@@ -6,7 +6,7 @@ import pickle
 from thinair import Thing
 
 
-print("== Scene 13 — stock Python, zero inference ==")
+print("== Scene 14 — stock Python, zero inference ==")
 
 class Point(Thing):
     def __init__(self, x, y):
@@ -75,11 +75,11 @@ except Thing.LowConfidence as error:
     print(f"vin_number raised LowConfidence: {error}")
 
 
-print("\n== Scene 11 — freeze / thaw ==")
-blob = car.freeze()
-clone = Thing.thaw(json.loads(json.dumps(blob, default=repr)))
-print(f"thawed color={clone.color!r}  (survived the freeze)")
+print("\n== Scene 11 — the object as a document ==")
+blob = car.__getstate__()
+clone = json.loads(json.dumps(blob, default=repr)) @ Thing
+print(f"restored color={clone.color!r}  (survived the dump)")
 d3 = clone.can_drive()
-print(f"thawed can_drive() -> {bool(d3)}  (repair survived)")
+print(f"restored can_drive() -> {bool(d3)}  (repair survived)")
 roundtrip = pickle.loads(pickle.dumps(car))
 print(f"pickle roundtrip color={roundtrip.color!r}")

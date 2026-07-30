@@ -2,53 +2,131 @@
 
 Probabilistic Python objects. Invent attributes, methods, anything out of thin air; an LLM of your choice (local or hosted) fills in the blanks, with confidence attached.
 
-```python
-from thinair import Thing
-
-car = Thing("A Toyota car from the 1990s with a broken engine")
-
-car.color               # "silver"   (confidence 0.3 — a draw from the prior)
-car.year                # 1995       (confidence 0.1 — one year out of a decade)
-car.can_drive()         # False      (confidence 0.97)
-
-car.repair_engine()     # no such method — a plan is imagined and *acted out*
-car.can_drive()         # True — the object remembers
-```
+**Code the certain, imagine the rest.**
 
 One axiom: **an object is a story, and every interaction is a continuation of it.** Everything else falls out — see [SPEC.md](SPEC.md) for the full spec.
 
-## The rules
+## A Thing in sixty seconds
 
-- **Written code always wins.** Subclass `Thing`, write real methods and attributes — they run as ordinary Python, byte-for-byte, zero inference. The model is only consulted where your code is silent.
-- **Certainty is a bare value.** Anything from code or explicit assignment is a plain `str`/`int`/`bool`. Anything inferred is a `Thing` that behaves as its value but carries `.confidence` — and never claims 1.0. Guard the branches that matter with `with Thing.require(0.9):` and low-confidence answers raise instead of flowing.
-- **Imagined methods act, they don't just answer.** They read state, write state, and call your real methods (which actually execute). They can never generate or run Python code.
+A `Thing` is any value with a probability, made from words:
 
-## What that buys you
+```python
+from thinair import Thing
 
-**Subclass `Thing` to mix written and imagined.** Real code is the certain skeleton; the model fills only the gaps:
+spider = Thing("the number of legs on a spider")
+
++spider                  # "the number of legs on a spider" — your own words
+                         # back; free, no inference
+~spider                  # 1.0 — your words are certain
+
+legs = spider @ int      # collapsing happens through typing: one inference
+                         # call, and now legs is a Thing carrying 8
++legs                    # 8 — the value, a real int
+~legs                    # 0.99 — the probability, a bare float
+```
+
+`+` takes the value, `~` takes the probability, `@` shapes the Thing — and only `@ <type>` ever costs inference. Requirements chain, and an unmet one drops the value but keeps the probability, so failures explain themselves:
+
+```python
++(spider @ int @ 0.8)          # 8 — typed AND vouched for at p >= 0.8
+
+guess = car.price_eur @ float @ 0.9
++guess                         # None — didn't clear the bar...
+~guess                         # 0.1 — ...and this is why
+if guess: ...                  # failed Things are falsy: gate whole branches
+```
+
+The type operand scales from primitives through schemas to real classes:
+
+```python
+movie = Thing("the Ridley Scott movie with the xenomorph")
+
++(movie @ {"title": str, "year": int})   # {'title': 'Alien', 'year': 1979}
+                                         # — a schema-guaranteed dict
+
+@dataclass
+class Record:
+    title: str
+    year: int
+
++(movie @ Record)        # Record(title='Alien', year=1979) — the model
+                         # imagines the kwargs, YOUR constructor builds it
+```
+
+You can assert your own doubt, and comparisons happen in Thing space — they are judgments, not byte compares:
+
+```python
+price = Thing(19_990, confidence=0.4)    # lift a belief into Thing space
++(price @ 0.5)                           # None — you said so yourself
+
+Thing("a car") < Thing("a cat")          # False (p 0.75) — an imagined judgment
++car.price < 20_000                      # take the value out first for plain,
+                                         # free Python semantics
+```
+
+## Deterministic meets probabilistic
+
+Subclass `Thing` and write the parts you're sure of. Written code and bare values are the certain skeleton — they run as ordinary Python, cost nothing, and **the model can never touch them**. Everything else is imagined on demand:
 
 ```python
 class Car(Thing):
     """A road vehicle."""
     wheels = 4                      # certain by definition
 
-    def honk(self):                 # real code: runs in CPython,
+    def horn(self):                 # real code: runs in CPython,
         return "beep"               # inference is never consulted
 
-truck = Car("rusty 1970s pickup, flatbed full of firewood")
-truck.wheels            # 4 — bare int; no inference ran, nothing was billed
-truck.honk()            # "beep" — real code, really executed
-truck.top_speed_kmh     # 105 — imagined (confidence 0.6); the class was silent
-truck.engine_ok = False # ordinary assignment: authoritative from now on
+car = Car("a rusty 1990 Toyota Hilux, engine coughs, "
+          "radio stuck on a Finnish schlager station")
+
+car.wheels               # 4 — bare int; no inference ran, nothing was billed
+car.horn()               # "beep" — real code, really executed
++car.color               # "brown" — imagined; here the class was silent
+~car.color               # 0.1 — and honestly unsure about it
+
+car.owner = "Miska"                  # bare assignment: authoritative, and
+                                     # locked — no plan may overwrite it
+car.mood = Thing("unknown so far")   # a slot the model MAY manage
 ```
 
-**Objects that judge other objects.** Hand one Thing to another as an argument; its whole story travels with it:
+Provenance is permission: bare values belong to the programmer, `Thing` values belong to the imagination.
+
+## Call anything
+
+Any method you never wrote is imagined at call time — and it *acts*: it reads state, writes state (with confidence, journaled), and calls your real methods, which actually execute. Results are Things, so everything chains:
 
 ```python
-sedan    = Car("a compact sedan: efficient, cheap to run, small trunk")
-suv      = Car("a full-size SUV: seven seats, tow hook, thirsty")
-roadster = Car("a two-seat roadster: loud, fast, no luggage space")
+problems = car.list_your_problems(returns=[str])
++problems                # ['Engine is coughing', 'Radio is stuck on a
+                         #  Finnish schlager station', 'High rust level']
 
+car.repair_engine()      # no such method — a plan is imagined and ACTED
+                         # out; the story now contains the repair
+
+car.diagnose().severity_of_worst_issue()   # results are Things: chain
+                                           # imagined calls on imagined calls
+```
+
+Guard the branches that matter: inside `with Thing.require(0.9):` any resolution below 0.9 raises `Thing.LowConfidence` instead of flowing.
+
+## Talk to it
+
+There is no chatbot framework here. The car is already a chatbot, because a conversation is just more story:
+
+```python
+while True:
+    print(car.chat(input("> ")))
+```
+```
+> Why did you break down on me this morning?
+Look, mate, it's a 1990 Hilux. The rust is high, the engine was coughing
+its guts out, and frankly, I was just trying to listen to some good
+Finnish schlager while falling apart.
+```
+
+Every turn is journaled, so the car remembers what you said — and objects can size each other up the same way, by handing Things to a Thing:
+
+```python
 customer = Thing("a retired couple with a caravan and two dogs, modest budget")
 
 pick = customer.prefers(sedan, suv, roadster,
@@ -56,76 +134,34 @@ pick = customer.prefers(sedan, suv, roadster,
 pick.choice      # "a full-size SUV: seven seats, tow hook, thirsty"
 pick.why         # "The caravan requires a tow hook, which only the SUV
                  #  has, and it provides necessary space for the two dogs."
-pick.confidence  # 0.99
 ```
 
-**Typed answers from messy input.** Describe the object, demand a schema. `returns=` is enforced by the runtime — the imagination corrects itself until the value conforms:
+## Objects are documents
+
+`car.__getstate__()` is a JSON-able blob — description, state, story, flags; no code, no weights, no client. `blob @ Car` casts it back to life with written methods reattached; `pickle` just works. And `__source__` renders any object as the class it currently is:
 
 ```python
-invoice = Thing("an invoice", raw_email_text)
-data = invoice.extract(returns={"total_eur": float, "due_date": str, "items": [str]})
-data.total_eur          # bare float, guaranteed by the schema
-```
-
-**An agent from a story plus two real methods.** [`reddit_bot.py`](reddit_bot.py) in this repo is a working one: written methods fetch reddit over plain HTTP, imagination decides what to do with them:
-
-```python
-class RedditBot(Thing):
-    """Checks reddit posts for the user. Browses reddit over plain HTTP."""
-    def browse(self, url): ...      # real code: fetch and parse a page
-    def search(self, query): ...    # real code: search all of reddit
-
-bot = RedditBot("a bot that follows news about local LLMs and Apple MLX")
-
-posts = bot.check_posts("Apple MLX only",
-                        returns={"posts": [{"title": str, "url": str}], "mood": str})
-posts.posts             # real posts — the plan drove the real browse()/search()
-posts.summarize()       # every result is a Thing: chain straight into it
-```
-
-**Simulation with memory — or without.** Objects stay consistent with their own story by default; flip one flag for independent samples:
-
-```python
-npc = Thing("a tavern keeper who witnessed the robbery", suspicious_of="strangers")
-npc.tell_story()                  # conditioned on everything said so far
-
-die = Thing("a fair six-sided die, freshly rolled", stateful=False)
-die.face; die.face; die.face      # 4, 2, 5 — rerolled on every read
-```
-
-**Prototype now, promote later.** Start with imagined names; when one starts to matter, write it as real code. Call sites don't change — the answer just becomes free and certain:
-
-```python
-overlap.is_empty()      # imagined today: one LLM call, p ≈ 0.95
-
-class Car(Thing):
-    def is_empty(self):          # promoted tomorrow
-        return len(self) == 0
-
-overlap.is_empty()      # the identical call — now real code, p = 1.0, no LLM
-```
-
-**Objects are documents.** `freeze()` to a JSON blob, `thaw()` it back (written methods reattach), `pickle` just works. And `__source__` renders any object as the class it currently is:
-
-```python
-print(truck.__source__)
+print(car.__source__)
 ```
 ```python
 class Car(Thing):
     """
     A road vehicle.
 
-    rusty 1970s pickup, flatbed full of firewood
+    a rusty 1990 Toyota Hilux, engine coughs, radio stuck on a Finnish schlager station
     """
 
     wheels = 4
 
-    engine_ok = False  # written (p = 1.0)
-    top_speed_kmh = 105  # imagined (p = 0.60)
+    owner = 'Miska'  # written (p = 1.0)
+    color = 'brown'  # imagined (p = 0.10)
+    top_speed_kmh = 130  # imagined (p = 0.10)
 
-    def honk(self):
+    def horn(self):
         return "beep"
 ```
+
+`__story__` is the other lens: the full journal of every event, answer, and imagined step, in order — consistency and provenance for free.
 
 ## Setup
 
@@ -141,7 +177,7 @@ export THINAIR_API_KEY="1234"
 export THINAIR_MODEL="Qwen3.6-35B-A3B-oQ6-mtp"
 ```
 
-or in code: `Thing.defaults(model="...", base_url="...", api_key="...")`. A URL, a provider object with `complete(messages) -> text`, or a bare callable work per instance too: `Thing("a car", model=...)`.
+or in code: `Thing.defaults(model="...", base_url="...", api_key="...")`. A URL, a provider object with `complete(messages) -> text`, or a bare callable all work per instance too: `Thing("a car", model=...)`.
 
 Then:
 

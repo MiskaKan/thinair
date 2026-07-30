@@ -12,8 +12,9 @@ The principles:
    are authoritative; inference is consulted only where they are silent.
 3. **Certainty is a bare value.** p = 1.0 means an ordinary `str`/`int`/`bool`
    with no wrapper. Inference never returns exactly 1.0 — it returns a child
-   `Thing` that behaves as its value and carries `.confidence`; a bare value
-   is proof of provenance from code or state.
+   `Thing` that behaves as its value and carries `.confidence`. Even state
+   written by an imagined plan carries the plan's confidence; a bare value
+   is proof the programmer wrote it, as code or explicit assignment.
 4. **Closure through the protocol, never through code.** Imagined methods can
    do what written methods do, but only via a closed action vocabulary:
    *get, set, delete, call, define, return*. Imagination never writes,
@@ -58,7 +59,8 @@ car.color               # "red" — bare str; you wrote it down
 car.mileage_km          # 289000 — bare int
 ```
 
-(`stateful` and `model` are the only reserved keyword names — scenes 9–10.)
+(`stateful`, `model`, and `confidence` are the only reserved keyword names —
+scenes 9–10 and 13.)
 
 ## Scene 2 — subclass mixing written and imagined
 
@@ -119,13 +121,16 @@ boat.prepare_for_trip()
 #   2. call boat.refuel(20)        -> 20.0       (real code ACTUALLY RUNS —
 #                                                 it may not be imagined,
 #                                                 because it exists)
-#   3. set  boat.safety_checked = True           (write to real state)
+#   3. set  boat.safety_checked = True           (recorded state, carrying
+#                                                 the plan's confidence)
 #   4. return True, confidence ~0.88             (min over imagined steps;
 #                                                 real steps contribute 1.0)
 
 boat.fuel_litres        # 20.0 — bare float, mutated by real code that an
                         # imagined method invoked
-boat.safety_checked     # True — persisted; visible to written code later
+boat.safety_checked     # True — persisted with the plan's confidence
+                        # (p < 1: imagination wrote it, not the programmer);
+                        # visible to written code later
 boat.__story__          # full journal: every event, answer, and sub-step,
                         # in order — consistency and provenance for free
 
@@ -142,7 +147,7 @@ every single step:
 
 ```python
 # get    x.attr                  read state or collapse a new attribute
-# set    x.attr = value          write authoritative state
+# set    x.attr = value          write recorded state, carrying confidence
 # delete del x.attr              supersede / re-open
 # call   x.method(args)          real methods execute; missing ones recurse
 #                                into another imagined plan
@@ -163,6 +168,27 @@ car.tires                   # "studded", confidence ~0.9
 
 There is no verb for emitting code. A `Thing` can never extend the
 deterministic stratum by itself; only the programmer writes stratum 1.
+
+Recorded state does not lock the future — but only imagination's own
+stratum is negotiable. A plan may create new attributes freely and may
+overwrite or delete any value that carries confidence: anything imagination
+wrote, or a slot the programmer explicitly opened by giving it a `Thing`
+value. Bare values are the programmer's certainty and, like written code,
+are untouchable — a plan that tries is refused and records its change under
+a new name instead:
+
+```python
+class Car(Thing):
+    def __init__(self):
+        self.owner = "Miska"                  # bare: no plan may touch it
+        self.mood = Thing("unknown so far")   # a slot imagination manages
+
+car.cheer_up()      # may set mood — and may NOT set owner
+```
+
+What imagination writes it writes with its confidence (its own per `set`,
+else the plan's floor so far), so certainty can still only originate from
+the programmer.
 
 ## Scene 7 — confidence guards
 
@@ -231,25 +257,27 @@ class Npc(Thing):
 Npc.defaults(model="file://models/npc-8b.gguf")
 ```
 
-## Scene 11 — freeze and thaw
+## Scene 11 — the object is a document
 
-The story is text and the state is a dict, so an object is a document:
+The story is text and the state is a dict; `__getstate__()` is the dump
+and `@` is the restore — no freeze/thaw vocabulary, just Python's own
+protocol and the cast operator:
 
 ```python
-blob = car.freeze()             # JSON-able dict: description, state, story,
+blob = car.__getstate__()       # JSON-able dict: description, state, story,
                                 # flags — no code, no weights, no client
 db.put("car:1", json.dumps(blob))
 
-later = Thing.thaw(json.loads(db.get("car:1")))
-later.color                     # same collapsed answer as before the freeze
+later = json.loads(db.get("car:1")) @ Thing
+later.color                     # same collapsed answer as before the dump
 later.can_drive()               # True — the repair from scene 4 survived
 
 pickle.dumps(car)               # also just works (same mechanism)
 ```
 
-Thawing into a subclass reattaches stratum 1: `Car.thaw(blob)` gives the
-written methods back their body; the story never contained them, only their
-effects.
+Casting a document into a subclass reattaches stratum 1: `blob @ Car`
+gives the written methods back their body; the story never contained them,
+only their effects.
 
 ## Scene 12 — reads and results are Things: chaining and schema guarantees
 
@@ -279,7 +307,70 @@ within the step budget — so a value that arrives is a value that conforms.
 Dict results also land as authoritative attributes on the child (state wins
 over inference, as always).
 
-## Scene 13 — the fixed point: stock Python, untouched
+## Scene 13 — two worlds, three operators
+
+Things operate in Thing space: comparing them is a judgment, not a byte
+compare, and returns a child Thing with confidence. `@` shapes a Thing
+without ever leaving Thing space — even failure is a Thing — and the two
+unary operators take a value or a probability out:
+
+```python
+t @ int     # approximate AS a type: a Thing whose value is guaranteed an
+            # int (schema-corrected; Thing(None, 0.01) if it cannot conform)
+t @ 0.8     # confidence gate: the same Thing if confidence >= 0.8, else a
+            # Thing whose value is dropped but whose probability survives —
+            # free, never runs inference; story Things pass any gate
++t          # the value, no questions asked: the carried value, or the
+            # story text if nothing has collapsed — free, never infers
+~t          # the probability: a bare float; 1.0 until inference has
+            # spoken, because your own words are certain
+```
+
+Only `@ <type>` collapses — `+` and `~` just look. `@` chains; `+`/`~`
+are the terminal steps (they bind tighter than `@`, so pipelines take
+parens). A failed Thing is falsy and remembers why:
+
+```python
++Thing("the number of legs on a spider")     # "the number of legs on a
+                                             # spider" — your words, free
++(Thing("the number of legs on a spider") @ int)          # 8 — collapsing
+                                                          # happens through
+                                                          # typing
++(Thing("the number of legs on a spider") @ int @ 0.8)    # 8 — typed AND
+                                                          # vouched for
+~(thing @ int @ 0.8)              # the diagnosis: 0.67 tells you the cast
+                                  # worked but fell short of the 0.8 bar
+if car.price @ float @ 0.7:       # failure Things are falsy — gate whole
+    ...                           # branches without unwrapping
+
+# the type operand scales all the way up:
+movie = Thing("the movie with the xenomorph")
+movie @ {"title": str, "year": int, "cast": [str]}   # a JSON template —
+                                  # enforced like returns=, keys land as
+                                  # attributes on the child
+movie @ MovieRecord               # any custom class: the imagination
+                                  # supplies constructor kwargs, the REAL
+                                  # constructor builds the instance
+movie @ Film                      # a Thing subclass: re-classes the story,
+                                  # free — no inference, code reattaches
+                                  # (the scene-11 cast, in operator form)
+
+Thing("a car") < Thing("a cat")   # False, confidence ~0.75 — an imagined
+                                  # judgment; the stories decide what
+                                  # "less" means here
++car.price < 20_000               # crossed the border first: plain, free,
+                                  # deterministic int compare
+
+price = Thing(19_990, confidence=0.4)   # lift your own doubt into Thing
++(price @ 0.5)                          # space ... None — too uncertain
++price                                  # 19990 — the value regardless
+```
+
+`==` and hashing stay in value space — containers and dedup depend on
+them. No inferred value survives `@ 1` — only your own words do
+(principle 3, as an operator).
+
+## Scene 14 — the fixed point: stock Python, untouched
 
 ```python
 class Point(Thing):
@@ -300,7 +391,7 @@ p.x                     # 3     resolves in strata 1–2, inference never runs,
 ## Acceptance checklist
 
 - [ ] A fully written subclass behaves identically to a plain `object`
-      subclass (scene 13) — zero inference calls, zero wrappers.
+      subclass (scene 14) — zero inference calls, zero wrappers.
 - [ ] `Thing(*anything, **state)` instantiates directly: positional args
       join the story; keyword args become bare authoritative state
       (scene 1). Only `stateful` and `model` are reserved.
@@ -312,6 +403,21 @@ p.x                     # 3     resolves in strata 1–2, inference never runs,
       execute Python source.
 - [ ] A real method reached from an imagined plan is executed, never
       simulated (scene 5, step 2).
+- [ ] State written by an imagined plan carries confidence < 1 and may
+      supersede only what imagination manages (its own writes, or slots the
+      programmer opened with a `Thing` value); bare programmer state and
+      written code are refused (scenes 5–6).
+- [ ] Ordering comparisons on a Thing are imagined judgments returning a
+      bool child with confidence; `==` and hashing stay in value space
+      (scene 13).
+- [ ] `+t` takes the value (or the story text when nothing has collapsed)
+      and `~t` the probability (1.0 until inference has spoken) — both
+      free. Only `t @ <type>` collapses, single-shot, as that
+      type/schema/class; `t @ p` gates on confidence without inferring.
+      `@` always returns a Thing: an unmet requirement drops the value but
+      keeps the model's probability for diagnosis, and is falsy;
+      `Thing(v, confidence=p)` lifts a programmer value into Thing space
+      (scene 13).
 - [ ] Bare value ⇔ p = 1.0 ⇔ provenance is code/state; child Thing ⇔ p < 1
       (scene 2). Inference never returns exactly 1.0.
 - [ ] Confidence of a composite action = min over its imagined steps
@@ -325,9 +431,9 @@ p.x                     # 3     resolves in strata 1–2, inference never runs,
       URL, provider object, bare callable, or (future) embedded model file
       (scene 10); the provider protocol is a single method:
       complete(messages) -> text.
-- [ ] `freeze()`/`thaw()` round-trip the full story and state as a
-      JSON-able document; `pickle` works; thawing into a subclass
-      reattaches written code (scene 11).
+- [ ] `__getstate__()` dumps the full story and state as a JSON-able
+      document; `blob @ Car` casts it back to life, reattaching written
+      code; `pickle` works (scene 11).
 - [ ] Every imagined read or call returns a child Thing carrying
       `.confidence` and its value (bool/str/arithmetic/iteration delegate to
       it); real methods of the value execute, never simulated; dict results
