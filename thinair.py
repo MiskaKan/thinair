@@ -614,7 +614,8 @@ class Thing(metaclass=_ThingMeta):
                     "attributes freely and overwrite or delete any value that "
                     "carries confidence; values the programmer wrote bare are "
                     "certain and out of reach — record changes to those under "
-                    "new names. Always "
+                    "new names. Never call the method you are currently "
+                    "executing; do its work yourself. Always "
                     'finish with "return".'
                 ),
             },
@@ -667,7 +668,7 @@ class Thing(metaclass=_ThingMeta):
                     )
                 return self._thing_result(name, args, value, confidence)
             try:
-                feedback, floor = self._thing_step(step, floor, depth)
+                feedback, floor = self._thing_step(step, floor, depth, name)
             except ContinuationLimit:
                 raise
             except Exception as error:
@@ -702,11 +703,17 @@ class Thing(metaclass=_ThingMeta):
         object.__setattr__(child, "confidence", confidence)
         return child
 
-    def _thing_step(self, step, floor, depth):
+    def _thing_step(self, step, floor, depth, executing):
         action = step.get("action")
         target = step.get("name", "")
         if not isinstance(target, str) or target.startswith("_"):
             return f"refused: invalid name {target!r}", floor
+        if action == "call" and target == executing:
+            return (
+                f"refused: `{target}` is the method you are executing; do its "
+                "work yourself and finish with a return",
+                floor,
+            )
         if action in ("set", "delete"):
             current = self.__dict__.get(target, _UNSET)
             if current is _UNSET:

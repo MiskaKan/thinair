@@ -185,7 +185,7 @@ Then:
 
 ```bash
 python demo.py         # the SPEC.md scenes, live
-python reddit_bot.py   # an agent that browses reddit through two real methods
+python car_chat.py     # talk to a rusty Hilux — `chat` is imagined, not written
 ```
 
 ## Status
