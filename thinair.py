@@ -35,6 +35,7 @@ _debugging = contextvars.ContextVar(
     "thing_debug", default=os.environ.get("THINAIR_DEBUG", "") not in ("", "0")
 )
 _purpose = contextvars.ContextVar("thing_purpose", default="inference")
+_op_stack = contextvars.ContextVar("thing_op_stack", default=())
 
 
 class LowConfidence(Exception):
@@ -520,6 +521,11 @@ def _meta_line(meta):
 
 
 def _debug_box(title, sections, footer=""):
+    # boxes born inside another operation say so, and shift right with depth
+    chain = _op_stack.get()
+    if chain:
+        title = f"{title} · in {' › '.join(chain)}"
+    pad = "  " * len(chain)
     lines = [f"┌─ thinair · {title} " + "─" * max(1, 56 - len(title))]
     for label, body in sections:
         if label:
@@ -527,10 +533,14 @@ def _debug_box(title, sections, footer=""):
         for line in str(body).splitlines() or [""]:
             lines.append(f"│ {line}")
     lines.append(f"└─ {footer}" if footer else "└" + "─" * 59)
-    print("\n".join(lines), file=sys.stderr)
+    print("\n".join(pad + line for line in lines), file=sys.stderr)
 
 
 def _debug_dump(purpose, messages, text, meta=None):
+    chain = _op_stack.get()
+    if chain:
+        purpose = f"{purpose} · in {' › '.join(chain)}"
+    pad = "  " * len(chain)
     lines = [f"┌─ thinair · {purpose} " + "─" * max(1, 56 - len(purpose))]
     for message in messages:
         lines.append(f"│ [{message['role']}]")
@@ -544,7 +554,7 @@ def _debug_dump(purpose, messages, text, meta=None):
         if summary:
             lines.append(f"├─ {summary}")
     lines.append("└" + "─" * 59)
-    print("\n".join(lines), file=sys.stderr)
+    print("\n".join(pad + line for line in lines), file=sys.stderr)
 
 
 def _check_required(confidence):
@@ -1073,12 +1083,15 @@ class Thing(metaclass=_ThingMeta):
                         }
                     )
                 return self._thing_result(name, args, value, confidence)
+            token = _op_stack.set(_op_stack.get() + (f"{name}()",))
             try:
                 feedback, floor, produced = self._thing_step(step, floor, stack)
             except ContinuationLimit:
                 raise
             except Exception as error:
                 feedback, produced = f"error: {type(error).__name__}: {error}", _UNSET
+            finally:
+                _op_stack.reset(token)
             if produced is not _UNSET:
                 last_result = produced
             messages.append({"role": "assistant", "content": json.dumps(step, ensure_ascii=False)})
