@@ -110,8 +110,10 @@ class _HTTPBackend:
             )
             return content
         thoughts = []
+        blocks_used = 0
         blocks = max(1, self.max_tokens // self.think_chunk)
         for block in range(blocks):
+            blocks_used = block + 1
             content, reasoning, meta = self._request(
                 self._with_thoughts(messages, thoughts, final=False),
                 temperature,
@@ -141,7 +143,7 @@ class _HTTPBackend:
             temperature,
             self.max_tokens,
         )
-        meta["thinking_blocks"] = blocks
+        meta["thinking_blocks"] = blocks_used
         self.last_meta = meta
         if _debugging.get() and reasoning:
             _debug_block(_purpose.get(), "answer block", reasoning, "", meta)
@@ -832,11 +834,12 @@ class Thing(metaclass=_ThingMeta):
                     "carries confidence; values the programmer wrote bare are "
                     "certain and out of reach — record changes to those under "
                     "new names. Never call the method you are currently "
-                    "executing; do its work yourself. When the latest step's "
-                    "result is already exactly what this call should produce, "
-                    'finish with "return_result" — it returns that result '
-                    "verbatim, so never retype data you already received. "
-                    'Always finish with "return" or "return_result".'
+                    "executing; do its work yourself. When the latest result — "
+                    "the last step's output, or before any step the object's "
+                    "own value — is already exactly what this call should "
+                    'produce, finish with "return_result": it returns that '
+                    "data verbatim, so never retype data the story already "
+                    'holds. Always finish with "return" or "return_result".'
                 ),
             },
             {
@@ -854,7 +857,9 @@ class Thing(metaclass=_ThingMeta):
             },
         ]
         floor = 1.0
-        last_result = _UNSET
+        # a value-carrying Thing starts with its own value as the latest
+        # result, so `return_result` works before any step has run
+        last_result = self.__dict__.get("_thing_value", _UNSET)
         for _ in range(self._thing_step_budget):
             step = self._thing_complete_json(
                 messages, temperature=0.3, purpose=f"imagine `{name}(...)`"

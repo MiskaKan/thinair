@@ -155,9 +155,10 @@ every single step:
 # define                         record what a name MEANS, as story text —
 #                                never as Python source
 # return value, confidence       terminate the plan
-# return_result confidence       terminate with the latest step's result,
-#                                verbatim — bulk data a real method already
-#                                produced never rides the token stream
+# return_result confidence       terminate with the latest result, verbatim
+#                                (the last step's output; before any step,
+#                                the object's own carried value) — bulk data
+#                                never rides the token stream
 ```
 
 `define` is what "creating a function" means here. It adds a contract to the
