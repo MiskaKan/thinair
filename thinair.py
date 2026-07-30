@@ -28,7 +28,7 @@ _DEFAULT_BASE_URL = os.environ.get("THINAIR_BASE_URL", "http://127.0.0.1:8000/v1
 _DEFAULT_API_KEY = os.environ.get("THINAIR_API_KEY", "1234")
 _DEFAULT_MODEL = os.environ.get("THINAIR_MODEL", "Qwen3.6-35B-A3B-oQ6-mtp")
 _DEFAULT_MAX_TOKENS = int(os.environ.get("THINAIR_MAX_TOKENS", "32768"))
-_DEFAULT_THINK_CHUNK = int(os.environ.get("THINAIR_THINK_CHUNK", "4096"))
+_DEFAULT_THINK_CHUNK = int(os.environ.get("THINAIR_THINK_CHUNK", "2048"))
 
 _UNSET = object()
 _required = contextvars.ContextVar("thing_required_confidence", default=None)
@@ -100,16 +100,16 @@ class _HTTPBackend:
         self._json_mode = True  # optimistic; dropped if the server rejects it
 
     def complete(self, messages, temperature=0.7):
-        """Thinking runs in blocks, starting at `think_chunk` tokens and
-        doubling each checkpoint (long work needs room, and every
-        checkpoint is a round trip). Concluding with an answer inside a
-        block ends the call; running out of a block means "still thinking"
-        — the reasoning is carried forward (with verbatim repetition
-        pruned, so a stalled draft cannot re-seed its own loop) and the
-        model is nudged toward answering. When the thinking allowance
-        (`max_tokens` in total) is spent, one final answer block gets the
-        full `max_tokens` budget so the answer itself is never squeezed.
-        `think_chunk=0` restores single-shot completions."""
+        """Thinking runs in fixed windows of `think_chunk` tokens: every
+        checkpoint is a wake-up where looping cannot survive unexamined.
+        Concluding inside a window ends the call; running out means
+        "still thinking" — the reasoning is carried forward with verbatim
+        repetition pruned (a cut loop is named to the model, and a reply
+        rehearsed inside the loop is harvested as the answer). When the
+        thinking allowance (`max_tokens` in total) is spent, the answer
+        is demanded; an answer cut mid-way gets a completion grant sized
+        from the draft. `think_chunk=0` restores single-shot
+        completions."""
         debug = _debugging.get()
         st = _op_debug.get()
         # a plan's box is closed by its final `▸` step line, not by us
@@ -131,14 +131,14 @@ class _HTTPBackend:
         thoughts = []
         blocks_used = 0
         allowance = self.max_tokens  # total thinking budget across blocks
-        cap = self.think_chunk
         demands_left = 2
         content = ""
+        stalled_last = False
         while True:
-            # phase 1: thinking blocks with soft checkpoints, each up to
-            # twice the size of the last; phase 2: allowance spent, the
-            # answer is demanded — but still capped, so a model that only
-            # keeps thinking can never capture the full budget
+            # phase 1: fixed thinking windows with checkpoints; phase 2:
+            # allowance spent, the answer is demanded — still one window
+            # at a time, so a model that only keeps thinking can never
+            # capture the full budget
             demanding = allowance <= 0
             if demanding:
                 if demands_left <= 0:
@@ -147,13 +147,12 @@ class _HTTPBackend:
                     # instead of retrying
                     return content
                 demands_left -= 1
-                budget = self.think_chunk
-            else:
-                budget = min(cap, max(self.think_chunk, allowance))
-                cap = min(cap * 2, self.max_tokens)
+            budget = self.think_chunk
             blocks_used += 1
             content, reasoning, meta = self._request(
-                self._with_thoughts(messages, thoughts, final=demanding),
+                self._with_thoughts(
+                    messages, thoughts, final=demanding, stalled=stalled_last
+                ),
                 temperature,
                 budget,
             )
@@ -183,10 +182,7 @@ class _HTTPBackend:
                     carried_reasoning, stalled_reasoning = _prune_repetition(reasoning)
                 if content and not answer_underway:
                     carried_draft, stalled_draft = _prune_repetition(content)
-                if stalled_reasoning or stalled_draft:
-                    # a looping model earns no bigger block: back to the
-                    # smallest checkpoint, where the nudge can interrupt
-                    cap = self.think_chunk
+            stalled_last = bool(stalled_reasoning or stalled_draft)
             harvested = None
             if not concluded and not content and stalled_reasoning:
                 harvested = _harvest_reply(reasoning)
@@ -299,7 +295,7 @@ class _HTTPBackend:
             _debug_box(None, fb_sections, _meta_line(meta), close=conclude)
         return content
 
-    def _with_thoughts(self, messages, thoughts, final):
+    def _with_thoughts(self, messages, thoughts, final, stalled=False):
         if not thoughts and not final:
             return messages
         nudge = (
@@ -310,6 +306,12 @@ class _HTTPBackend:
             "your thoughts so far are above. Answer now with the required "
             "JSON reply if you can, otherwise keep reasoning."
         )
+        if stalled and not final:
+            nudge += (
+                " Note: your last thoughts looped without progress and the "
+                "loop was cut. Do not resume it; reply now, or state in one "
+                "line what is genuinely missing."
+            )
         st = _op_debug.get()
         if st and st.get("plan"):
             nudge += (
