@@ -250,11 +250,18 @@ class _HTTPBackend:
                     else "(a draft here only repeated itself verbatim and "
                     "was discarded; take the next concrete step instead)"
                 )
-        # phase 3: full budget, granted only because the answer already began
+        # phase 3: a grant to finish the answer that already began — sized
+        # from the cut draft, never the whole budget in one uncapped shot;
+        # if even this is not enough, the length finish becomes the clear
+        # budget error instead of a runaway
+        grant = min(
+            self.max_tokens,
+            2 * int(meta.get("completion_tokens") or budget) + self.think_chunk,
+        )
         content, reasoning, meta = self._request(
             self._with_thoughts(messages, thoughts, final=True),
             temperature,
-            self.max_tokens,
+            grant,
         )
         meta["thinking_blocks"] = blocks_used
         self.last_meta = meta
@@ -282,6 +289,12 @@ class _HTTPBackend:
             "your thoughts so far are above. Answer now with the required "
             "JSON reply if you can, otherwise keep reasoning."
         )
+        st = _op_debug.get()
+        if st and st.get("plan"):
+            nudge += (
+                " The reply is one small action object; never output data "
+                "you already have, return_result returns it as-is."
+            )
         extended = list(messages)
         if thoughts:
             extended.append(
@@ -995,23 +1008,25 @@ class Thing(metaclass=_ThingMeta):
             {
                 "role": "system",
                 "content": (
-                    "Resolve one attribute of the object below by inference over "
-                    "its story. Reply with exactly one JSON object: "
-                    '{"value": <json>, "confidence": <0..1>}. Confidence is the '
-                    "probability the value is correct. Use natural JSON types "
-                    "(numbers as numbers, booleans as booleans). A random outcome "
-                    "(a roll, a draw): sample one result, confidence is its "
-                    "probability. An unstated fact: your single best concrete "
-                    "guess, honestly low confidence when wide open. null only if "
-                    "nothing of the kind exists; never placeholder strings like "
-                    '"unknown". Never contradict the story.'
+                    "Infer the value of one attribute of a Python object from "
+                    "the object's data below. Reply with exactly one JSON "
+                    'object: {"value": <json>, "confidence": <0..1>}. '
+                    "Confidence is the probability the value is correct. Use "
+                    "natural JSON types (numbers as numbers, booleans as "
+                    "booleans). A random outcome (a roll, a draw): pick one "
+                    "result, confidence is its probability. An unstated fact: "
+                    "your single best concrete guess, honestly low confidence "
+                    "when wide open. null only if no such value can exist; "
+                    'never placeholder strings like "unknown". Never '
+                    "contradict the object's data. Example reply:\n"
+                    '{"value": 8, "confidence": 0.98}'
                 ),
             },
             {
                 "role": "user",
                 "content": (
-                    f"OBJECT STORY:\n{self._thing_story()}\n\n"
-                    f"Resolve the attribute `{name}`.{hint}"
+                    f"OBJECT:\n{self._thing_story()}\n\n"
+                    f"What is the value of the attribute `{name}`?{hint}"
                 ),
             },
         ]
@@ -1055,13 +1070,15 @@ class Thing(metaclass=_ThingMeta):
             {
                 "role": "system",
                 "content": (
-                    "Judge the order comparison below. Reply with exactly one "
-                    'JSON object: {"value": true|false, "confidence": <0..1>}. '
-                    "Compare what the objects ARE (size, cost, capability, "
-                    "whatever their stories make relevant), not how they are "
-                    "spelled, unless both are plain text. If several senses "
-                    "disagree, pick the most likely and lower your confidence. "
-                    "Never contradict recorded state."
+                    "Decide the comparison below between two objects. Reply "
+                    "with exactly one JSON object: "
+                    '{"value": true|false, "confidence": <0..1>}. Compare what '
+                    "the objects ARE (size, cost, capability, whatever their "
+                    "data makes relevant), not how they are spelled, unless "
+                    "both are plain text. If several readings disagree, pick "
+                    "the most likely and lower your confidence. Never "
+                    "contradict the objects' data. Example reply:\n"
+                    '{"value": false, "confidence": 0.85}'
                 ),
             },
             {
@@ -1105,9 +1122,9 @@ class Thing(metaclass=_ThingMeta):
             {
                 "role": "system",
                 "content": (
-                    f"You are `{name}`, an imagined method of the object below, "
-                    "already running. No code exists for it and you cannot call "
-                    "it; you act it out, one step per turn.\n"
+                    "You produce the outcome of one imagined method call on a "
+                    "Python object. The method has no written code; you act it "
+                    "out step by step, using the object's data below.\n"
                     "Reply with exactly one JSON object per turn, one of:\n"
                     '{"action": "get", "name": "<attr>"}\n'
                     '{"action": "set", "name": "<attr>", "value": <json>, "confidence": <0..1>}\n'
@@ -1116,24 +1133,42 @@ class Thing(metaclass=_ThingMeta):
                     '{"action": "define", "name": "<name>", "meaning": "<text>"}\n'
                     '{"action": "return", "value": <json>, "confidence": <0..1>}\n'
                     '{"action": "return_result", "confidence": <0..1>}\n'
-                    "Prefer real methods, they run actual code. Never write "
-                    "code. Values the programmer wrote bare are read-only; "
+                    "Facts: `call` runs the object's real, written methods. "
+                    "Never write code. Bare written values are read-only; "
                     "record changes to them under new names. Values carrying "
-                    "confidence are yours to change. `return_result` returns "
-                    "the latest result verbatim (before any step: the object's "
-                    "own value); use it instead of retyping data the story "
-                    "already holds. Finish with `return` or `return_result`."
+                    "confidence are yours to change. `return_result` finishes "
+                    "with the latest step's result exactly as it is (before "
+                    "any step: the object's own value); use it instead of "
+                    "retyping data you already have. Every call ends with "
+                    "`return` or `return_result`.\n"
+                    "Example turns for the job `describe_load()` on an object "
+                    "with a real method `items`:\n"
+                    '{"action": "call", "name": "items", "args": []}\n'
+                    '-> result: ["anvil", "piano"]\n'
+                    '{"action": "return", "value": "an anvil and a piano", "confidence": 0.9}\n'
+                    "When the latest result already IS the answer, end with "
+                    "return_result instead of retyping it:\n"
+                    '{"action": "return_result", "confidence": 0.95}'
                 ),
             },
             {
                 "role": "user",
                 "content": (
-                    f"OBJECT STORY:\n{self._thing_story()}\n\n"
-                    f"Execute the call: {call_repr}"
+                    f"OBJECT:\n{self._thing_story()}\n\n"
+                    f"Your job: produce the result of {call_repr} and make "
+                    f"any changes to the object it implies. `{name}` itself "
+                    "has no code and cannot be called."
+                    + (
+                        "\nThe object's value shown above is one step away: "
+                        '{"action": "get", "name": "value"} reads it, and '
+                        "return_result returns it as-is."
+                        if self.__dict__.get("_thing_value", _UNSET) is not _UNSET
+                        else ""
+                    )
                     + (
                         "\nCall stack: "
-                        + " -> ".join(f"{f}()" for f in stack[:-1])
-                        + " -> you. Never call anything already on the stack."
+                        + " -> ".join(f"{f}()" for f in stack)
+                        + "; never call anything already on it."
                         if len(stack) > 1
                         else ""
                     )
@@ -1750,19 +1785,19 @@ class Thing(metaclass=_ThingMeta):
             {
                 "role": "system",
                 "content": (
-                    "Collapse the object below to the single JSON value it "
-                    "most naturally stands for. Reply with exactly one JSON "
+                    "Give the single JSON value the object below most "
+                    "naturally represents. Reply with exactly one JSON "
                     'object: {"value": <json>, "confidence": <0..1>}. A '
-                    'described value stands for itself ("Cat" collapses to '
-                    '"Cat"). Use natural JSON types. Never contradict the '
-                    "story."
+                    'described value represents itself ("Cat" gives "Cat"). '
+                    "Use natural JSON types. Never contradict the object's "
+                    'data. Example reply:\n{"value": "Cat", "confidence": 0.97}'
                 ),
             },
             {
                 "role": "user",
                 "content": (
-                    f"OBJECT STORY:\n{self._thing_story()}\n\n"
-                    f"Collapse this object to its value.{demand}"
+                    f"OBJECT:\n{self._thing_story()}\n\n"
+                    f"What single value does this object represent?{demand}"
                 ),
             },
         ]
