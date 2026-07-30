@@ -865,9 +865,12 @@ class Thing(metaclass=_ThingMeta):
             {
                 "role": "system",
                 "content": (
-                    "You are the imagination runtime of a probabilistic Python "
-                    "object. A method that has no written code was called; you "
-                    "imagine its behavior by acting on the object step by step.\n"
+                    f"You ARE `{name}` — an imagined method of a probabilistic "
+                    "Python object, currently in the middle of executing. No "
+                    "written code exists for you: you produce this call's "
+                    "behavior yourself, acting on the object step by step. Do "
+                    f"not try to call `{name}` — that is you, already running; "
+                    "calling OTHER methods is how you use the object.\n"
                     "Each turn, reply with exactly one JSON object, no prose — "
                     "one of:\n"
                     '{"action": "get", "name": "<attr>"}\n'
@@ -885,8 +888,7 @@ class Thing(metaclass=_ThingMeta):
                     "attributes freely and overwrite or delete any value that "
                     "carries confidence; values the programmer wrote bare are "
                     "certain and out of reach — record changes to those under "
-                    "new names. Never call the method you are currently "
-                    "executing; do its work yourself. When the latest result — "
+                    "new names. When the latest result — "
                     "the last step's output, or before any step the object's "
                     "own value — is already exactly what this call should "
                     'produce, finish with "return_result": it returns that '
@@ -1002,8 +1004,8 @@ class Thing(metaclass=_ThingMeta):
             return f"refused: invalid name {target!r}", floor, _UNSET
         if action == "call" and target == executing:
             return (
-                f"refused: `{target}` is the method you are executing; do its "
-                "work yourself and finish with a return",
+                f"refused: `{target}` is you — you are already executing it; "
+                "produce the result yourself and finish with a return",
                 floor,
                 _UNSET,
             )
