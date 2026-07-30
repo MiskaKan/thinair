@@ -121,13 +121,11 @@ class _HTTPBackend:
             self.last_meta = meta
             if debug:
                 _debug_box(
-                    "<<< answer",
-                    ([("thoughts", reasoning)] if reasoning else [])
-                    + [(None, content)],
+                    None,
+                    ([("<<< thoughts", reasoning)] if reasoning else [])
+                    + [("<<< answer", content)],
                     _meta_line(meta),
-                    opener="├",
                     close=conclude,
-                    tag=False,
                 )
             return content
         thoughts = []
@@ -180,42 +178,39 @@ class _HTTPBackend:
                 if content and not answer_underway:
                     carried_draft, stalled_draft = _prune_repetition(content)
             if debug:
-                if concluded:
-                    title = f"<<< block {blocks_used} · answered"
-                elif answer_underway:
-                    title = f"<<< block {blocks_used} · answer cut by checkpoint"
-                elif demanding:
-                    title = f"<<< block {blocks_used} · answer demanded"
-                else:
-                    title = f"<<< block {blocks_used} · thinking continues"
+                k = "<<< " + (
+                    f"step {st['round']} · " if st and st.get("plan") else ""
+                ) + f"block {blocks_used}"
                 pruned = " (degenerated into repetition; pruned before carrying)"
-                sections = (
-                    [("thoughts" + (pruned if stalled_reasoning else ""), reasoning)]
-                    if reasoning
-                    else []
-                )
+                sections = []
+                if reasoning:
+                    label = f"{k} · thoughts"
+                    if demanding:
+                        label += " (answer demanded)"
+                    if stalled_reasoning:
+                        label += pruned
+                    sections.append((label, reasoning))
                 if concluded:
-                    sections.append(("answer", content))
+                    sections.append((f"{k} · answer", content))
                 elif answer_underway:
-                    sections.append(
-                        ("answer, cut mid-way (completing at full budget next)", content)
-                    )
-                elif content:
                     sections.append(
                         (
-                            "thoughts (arrived in the answer channel)"
-                            + (pruned if stalled_draft else ""),
+                            f"{k} · answer, cut mid-way (completing at "
+                            "full budget next)",
                             content,
                         )
                     )
+                elif content:
+                    label = f"{k} · draft (arrived in the answer channel)"
+                    if stalled_draft:
+                        label += pruned
+                    sections.append((label, content))
                 if not sections:
-                    sections.append(("thoughts", "(nothing returned)"))
+                    sections.append((f"{k} · thoughts", "(nothing returned)"))
                 _debug_box(
-                    title,
+                    None,
                     sections,
                     _meta_line(meta),
-                    opener="├",
-                    tag=False,
                     # the final block closes the operation's tall box: an
                     # answer, or the last demanded attempt (unless a cut
                     # answer means the full-budget block still follows)
@@ -264,14 +259,15 @@ class _HTTPBackend:
         meta["thinking_blocks"] = blocks_used
         self.last_meta = meta
         if debug:
+            prefix = "<<< " + (
+                f"step {st['round']} · " if st and st.get("plan") else ""
+            )
             _debug_box(
-                "<<< completing the answer at full budget",
-                ([("thoughts", reasoning)] if reasoning else [])
-                + [("answer", content)],
+                None,
+                ([(f"{prefix}thoughts", reasoning)] if reasoning else [])
+                + [(f"{prefix}answer, completed at full budget", content)],
                 _meta_line(meta),
-                opener="├",
                 close=conclude,
-                tag=False,
             )
         return content
 
@@ -504,7 +500,7 @@ def _matches(value, schema):
 def _op_scope(plan=False):
     """One inference operation's debug scope: its box opens on the first
     request and everything until the scope ends belongs to it."""
-    token = _op_debug.set({"open": False, "shown": 0, "plan": plan})
+    token = _op_debug.set({"open": False, "shown": 0, "plan": plan, "round": 0})
     try:
         yield
     finally:
@@ -606,15 +602,18 @@ def _debug_box(title, sections, footer="", opener="┌", close=True, tag=True):
     `close=False` leaves the bottom open, so a whole operation reads as
     a single tall structure closed by its final block (or, for plans,
     by the final step's `▸` line). `tag=False` renders a bare segment
-    title without the `thinair ·` prefix. Boxes born inside another
-    operation say so in the title and shift right with depth."""
+    title without the `thinair ·` prefix; `title=None` emits labeled
+    sections only. Boxes born inside another operation say so in the
+    title and shift right with depth."""
     chain = _op_stack.get()
-    if tag:
-        if chain:
-            title = f"{title} · in {' › '.join(chain)}"
-        title = f"thinair · {title}"
     pad = "  " * len(chain)
-    lines = [f"{opener}─ {title} " + "─" * max(1, 56 - len(title))]
+    lines = []
+    if title is not None:
+        if tag:
+            if chain:
+                title = f"{title} · in {' › '.join(chain)}"
+            title = f"thinair · {title}"
+        lines.append(f"{opener}─ {title} " + "─" * max(1, 56 - len(title)))
     for label, body in sections:
         if label:
             lines.append(f"├─ {label} " + "─" * max(1, 56 - len(label)))
@@ -631,6 +630,7 @@ def _debug_open_op(purpose, messages, st):
     """Open an operation's box (or append the newly sent messages to one
     already open): where it was called from first, then what goes to the
     model, marked `>>>`. Model output arrives later, marked `<<<`."""
+    st["round"] += 1
     if not st["open"]:
         _debug_box(
             purpose,
@@ -642,17 +642,17 @@ def _debug_open_op(purpose, messages, st):
         )
         st["open"] = True
     else:
-        # the model's own echo is skipped: it already appeared as `<<<`
+        # a plan is one growing conversation; only the newly appended
+        # messages are sent anew (the model's own echo is skipped: it
+        # already appeared as `<<<`)
         fresh = [
             m for m in messages[st["shown"]:] if m.get("role") != "assistant"
         ]
         if fresh:
             _debug_box(
-                ">>> sent",
-                [(None, _render_messages(fresh))],
-                opener="├",
+                None,
+                [(f">>> step {st['round']} · appended", _render_messages(fresh))],
                 close=False,
-                tag=False,
             )
     st["shown"] = len(messages)
 
@@ -956,13 +956,14 @@ class Thing(metaclass=_ThingMeta):
             meta = getattr(backend, "last_meta", None) or {}
             if _debugging.get() and not isinstance(backend, _HTTPBackend):
                 # HTTP backends narrate themselves block by block
+                label = "<<< " + (
+                    f"step {st['round']} · " if st and st.get("plan") else ""
+                ) + "reply"
                 _debug_box(
-                    "<<< reply",
-                    [(None, text)],
+                    None,
+                    [(label, text)],
                     _meta_line(meta),
-                    opener="├",
                     close=not (st and st.get("plan")),
-                    tag=False,
                 )
             try:
                 return _extract_json(text)
@@ -1017,7 +1018,9 @@ class Thing(metaclass=_ThingMeta):
         with _op_scope():
             value, confidence = _answer_shape(
                 self._thing_complete_json(
-                    messages, temperature=0.8, purpose=f"read `{name}`"
+                    messages,
+                    temperature=0.8,
+                    purpose=f"{type(self).__name__}.{name} · read",
                 )
             )
         _check_required(confidence)
@@ -1147,15 +1150,18 @@ class Thing(metaclass=_ThingMeta):
         # a value-carrying Thing starts with its own value as the latest
         # result, so `return_result` works before any step has run
         last_result = self.__dict__.get("_thing_value", _UNSET)
+        purpose = f"{type(self).__name__}.{_snip(call_repr, 60)} · imagined"
         with _op_scope(plan=True):
             return self._thing_plan(
-                name, args, messages, schema, floor, last_result, stack
+                name, args, messages, schema, floor, last_result, stack, purpose
             )
 
-    def _thing_plan(self, name, args, messages, schema, floor, last_result, stack):
+    def _thing_plan(
+        self, name, args, messages, schema, floor, last_result, stack, purpose
+    ):
         for index in range(1, self._thing_step_budget + 1):
             step = self._thing_complete_json(
-                messages, temperature=0.3, purpose=f"imagine `{name}(...)`"
+                messages, temperature=0.3, purpose=purpose
             )
             if not isinstance(step, dict):
                 # a bare JSON value in place of an action envelope is the
@@ -1765,7 +1771,9 @@ class Thing(metaclass=_ThingMeta):
                 self._thing_complete_json(
                     messages,
                     temperature=0.3,
-                    purpose=f"collapse @ {key}" if key else "collapse",
+                    purpose=f"{type(self).__name__} @ {key} · collapse"
+                    if key
+                    else f"{type(self).__name__} · collapse",
                 )
             )
         if schema is not None and not _matches(value, schema)[0]:
