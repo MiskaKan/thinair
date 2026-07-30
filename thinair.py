@@ -595,7 +595,7 @@ class Thing(metaclass=_ThingMeta):
             carried = parts[0] if parts else None
             self._thing_parts = [
                 "a value the programmer asserted with explicit doubt",
-                "value: " + json.dumps(carried, default=repr),
+                "value: " + json.dumps(carried, default=repr, ensure_ascii=False),
             ]
             object.__setattr__(self, "_thing_value", carried)
             object.__setattr__(
@@ -701,7 +701,7 @@ class Thing(metaclass=_ThingMeta):
         if type(self) is not Thing:
             lines.append(f"Class: {type(self).__name__}" + (f" — {doc}" if doc else ""))
         if attrs:
-            lines.append("Class attributes (certain): " + json.dumps(attrs, default=repr))
+            lines.append("Class attributes (certain): " + json.dumps(attrs, default=repr, ensure_ascii=False))
         if methods:
             listing = "; ".join(
                 f"{name}(...)" + (f" — {docstr}" if docstr else "")
@@ -715,7 +715,7 @@ class Thing(metaclass=_ThingMeta):
             lines.append(
                 "Value of this object (authoritative, confidence "
                 f"{self.__dict__.get('confidence', 0.5)}): "
-                + json.dumps(carried, default=repr)
+                + json.dumps(carried, default=repr, ensure_ascii=False)
             )
         state = {
             k: _plain(v)
@@ -724,11 +724,11 @@ class Thing(metaclass=_ThingMeta):
             and not (carried is not _UNSET and k == "confidence")
         }
         if state:
-            lines.append("Current state (authoritative): " + json.dumps(state, default=repr))
+            lines.append("Current state (authoritative): " + json.dumps(state, default=repr, ensure_ascii=False))
         if self._thing_journal:
             lines.append("History, oldest first:")
             for i, event in enumerate(self._thing_journal, 1):
-                lines.append(f"  {i}. {json.dumps(event, default=repr)}")
+                lines.append(f"  {i}. {json.dumps(event, default=repr, ensure_ascii=False)}")
         return "\n".join(lines) or "An unspecified thing."
 
     def _thing_complete_json(self, messages, temperature, purpose="inference"):
@@ -835,7 +835,7 @@ class Thing(metaclass=_ThingMeta):
         right = (
             other._thing_story()
             if isinstance(other, Thing)
-            else json.dumps(other, default=repr)
+            else json.dumps(other, default=repr, ensure_ascii=False)
         )
         messages = [
             {
@@ -944,7 +944,7 @@ class Thing(metaclass=_ThingMeta):
             )
             action = step.get("action")
             if action == "return_result" and last_result is _UNSET:
-                messages.append({"role": "assistant", "content": json.dumps(step)})
+                messages.append({"role": "assistant", "content": json.dumps(step, ensure_ascii=False)})
                 messages.append(
                     {
                         "role": "user",
@@ -957,7 +957,7 @@ class Thing(metaclass=_ThingMeta):
                 if schema is not None:
                     ok, why = _matches(value, schema)
                     if not ok:
-                        messages.append({"role": "assistant", "content": json.dumps(step)})
+                        messages.append({"role": "assistant", "content": json.dumps(step, ensure_ascii=False)})
                         messages.append(
                             {
                                 "role": "user",
@@ -990,7 +990,7 @@ class Thing(metaclass=_ThingMeta):
                 feedback, produced = f"error: {type(error).__name__}: {error}", _UNSET
             if produced is not _UNSET:
                 last_result = produced
-            messages.append({"role": "assistant", "content": json.dumps(step)})
+            messages.append({"role": "assistant", "content": json.dumps(step, ensure_ascii=False)})
             messages.append({"role": "user", "content": f"result: {feedback}"})
         raise ContinuationLimit(f"imagined plan for `{name}` exceeded its step budget")
 
@@ -1053,7 +1053,7 @@ class Thing(metaclass=_ThingMeta):
                 value = value._resolve()
             floor = min(floor, _confidence_of(value))
             plain = _plain(value)
-            return json.dumps(plain, default=repr), floor, plain
+            return json.dumps(plain, default=repr, ensure_ascii=False), floor, plain
         if action == "set":
             confidence = step.get("confidence")
             confidence = max(
@@ -1081,7 +1081,7 @@ class Thing(metaclass=_ThingMeta):
                 return f"error: `{target}` is not callable", floor, _UNSET
             floor = min(floor, _confidence_of(value))
             plain = _plain(value)
-            return json.dumps(plain, default=repr), floor, plain
+            return json.dumps(plain, default=repr, ensure_ascii=False), floor, plain
         if action == "define":
             self.define(target, str(step.get("meaning", "")))
             return "ok", floor, _UNSET
