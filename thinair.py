@@ -160,7 +160,13 @@ class _HTTPBackend:
             meta["thinking_blocks"] = blocks_used
             self.last_meta = meta
             allowance -= int(meta.get("completion_tokens") or budget)
-            concluded = bool(content) and meta.get("finish_reason") != "length"
+            # a length finish means the REQUEST hit its token cap, not that
+            # the answer is incomplete: reasoning plus a whole answer can
+            # land exactly on the cap, and asking again only confuses the
+            # model about an answer it already delivered
+            concluded = bool(content) and (
+                meta.get("finish_reason") != "length" or _is_complete_json(content)
+            )
             # a cut answer is only an answer if JSON is underway; prose in
             # the answer channel is thinking that escaped the reasoning
             # channel (server JSON mode off) and must not be granted the
@@ -376,6 +382,15 @@ def _resolve_backend(spec, cfg):
     if callable(spec):
         return _CallableBackend(spec)
     raise TypeError(f"cannot use {spec!r} as an inference backend")
+
+
+def _is_complete_json(text):
+    """True when the text is one whole, parseable JSON value."""
+    try:
+        json.loads(text.strip())
+        return True
+    except json.JSONDecodeError:
+        return False
 
 
 def _prune_repetition(text):
