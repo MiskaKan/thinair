@@ -104,10 +104,22 @@ class _HTTPBackend:
         (`max_tokens` in total) is spent, one final answer block gets the
         full `max_tokens` budget so the answer itself is never squeezed.
         `think_chunk=0` restores single-shot completions."""
+        debug = _debugging.get()
+        purpose = _purpose.get()
+        if debug:
+            _debug_box(f"{purpose} · prompt", [(None, _render_messages(messages))])
         if self.think_chunk <= 0:
-            content, _, self.last_meta = self._request(
+            content, reasoning, meta = self._request(
                 messages, temperature, self.max_tokens
             )
+            self.last_meta = meta
+            if debug:
+                _debug_box(
+                    f"{purpose} · answer",
+                    ([("thoughts", reasoning)] if reasoning else [])
+                    + [("answer", content)],
+                    _meta_line(meta),
+                )
             return content
         thoughts = []
         blocks_used = 0
@@ -119,17 +131,26 @@ class _HTTPBackend:
                 temperature,
                 self.think_chunk,
             )
-            meta["thinking_blocks"] = block + 1
+            meta["thinking_blocks"] = blocks_used
             self.last_meta = meta
             concluded = bool(content) and meta.get("finish_reason") != "length"
-            if _debugging.get() and (reasoning or not concluded):
-                _debug_block(
-                    _purpose.get(),
-                    f"thinking block {block + 1}",
-                    reasoning,
-                    "" if concluded else content,
-                    meta,
-                )
+            if debug:
+                if concluded:
+                    title = f"{purpose} · block {blocks_used} · answered"
+                elif content:
+                    title = f"{purpose} · block {blocks_used} · answer cut by checkpoint"
+                else:
+                    title = f"{purpose} · block {blocks_used} · thinking continues"
+                sections = [("thoughts", reasoning)] if reasoning else []
+                if concluded:
+                    sections.append(("answer", content))
+                elif content:
+                    sections.append(
+                        ("answer, cut mid-way (completing at full budget next)", content)
+                    )
+                if not sections:
+                    sections.append(("thoughts", "(nothing returned)"))
+                _debug_box(title, sections, _meta_line(meta))
             if concluded:
                 return content  # concluded within the block: chose to answer
             if reasoning:
@@ -145,24 +166,36 @@ class _HTTPBackend:
         )
         meta["thinking_blocks"] = blocks_used
         self.last_meta = meta
-        if _debugging.get() and reasoning:
-            _debug_block(_purpose.get(), "answer block", reasoning, "", meta)
+        if debug:
+            _debug_box(
+                f"{purpose} · answer at full budget",
+                ([("thoughts", reasoning)] if reasoning else [])
+                + [("answer", content)],
+                _meta_line(meta),
+            )
         return content
 
     def _with_thoughts(self, messages, thoughts, final):
         if not thoughts and not final:
             return messages
         nudge = (
-            "Answer now with exactly one JSON object and nothing else. Do "
-            "not restate your reasoning; start immediately with {."
+            "Your reasoning budget is spent. Answer now with exactly one "
+            "JSON object and nothing else. Do not restate your reasoning; "
+            "start immediately with {."
             if final
-            else "Continue reasoning only if truly necessary; otherwise "
+            else "Your reasoning was paused at a scheduled checkpoint — "
+            "nothing was lost or cut by error, and your thoughts so far are "
+            "above. Continue reasoning only if truly necessary; otherwise "
             "answer now with exactly one JSON object."
         )
         extended = list(messages)
         if thoughts:
             extended.append(
-                {"role": "assistant", "content": "(thinking so far)\n" + "\n".join(thoughts)}
+                {
+                    "role": "assistant",
+                    "content": "(reasoning so far, paused at a scheduled checkpoint)\n"
+                    + "\n".join(thoughts),
+                }
             )
         extended.append({"role": "user", "content": nudge})
         return extended
@@ -342,18 +375,36 @@ def _debug(enabled):
         _debugging.reset(token)
 
 
-def _debug_block(purpose, label, reasoning, partial, meta):
-    lines = [f"┌─ thinair · {purpose} — {label} " + "─" * max(1, 44 - len(purpose) - len(str(label)))]
-    for line in str(reasoning or "(no reasoning returned)").splitlines() or [""]:
-        lines.append(f"│ {line}")
-    if partial:
-        lines.append("├─ partial answer, cut by the block " + "─" * 23)
-        for line in str(partial).splitlines() or [""]:
+def _render_messages(messages):
+    out = []
+    for message in messages:
+        out.append(f"[{message['role']}]")
+        for line in str(message.get("content", "")).splitlines() or [""]:
+            out.append(f"  {line}")
+    return "\n".join(out)
+
+
+def _meta_line(meta):
+    bits = []
+    if meta.get("prompt_tokens") is not None or meta.get("completion_tokens") is not None:
+        bits.append(
+            f"tokens {meta.get('prompt_tokens', '?')} in → "
+            f"{meta.get('completion_tokens', '?')} out"
+        )
+    finish = meta.get("finish_reason")
+    if finish:
+        bits.append("paused at checkpoint" if finish == "length" else finish)
+    return " · ".join(bits)
+
+
+def _debug_box(title, sections, footer=""):
+    lines = [f"┌─ thinair · {title} " + "─" * max(1, 56 - len(title))]
+    for label, body in sections:
+        if label:
+            lines.append(f"├─ {label} " + "─" * max(1, 56 - len(label)))
+        for line in str(body).splitlines() or [""]:
             lines.append(f"│ {line}")
-    summary = ", ".join(f"{k}={v}" for k, v in (meta or {}).items() if v is not None)
-    if summary:
-        lines.append(f"├─ {summary}")
-    lines.append("└" + "─" * 59)
+    lines.append(f"└─ {footer}" if footer else "└" + "─" * 59)
     print("\n".join(lines), file=sys.stderr)
 
 
@@ -668,7 +719,8 @@ class Thing(metaclass=_ThingMeta):
             finally:
                 _purpose.reset(token)
             meta = getattr(backend, "last_meta", None) or {}
-            if _debugging.get():
+            if _debugging.get() and not isinstance(backend, _HTTPBackend):
+                # HTTP backends narrate themselves block by block
                 _debug_dump(purpose, messages, text, meta)
             try:
                 return _extract_json(text)
