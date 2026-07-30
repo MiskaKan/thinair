@@ -97,9 +97,12 @@ class _HTTPBackend:
         self._json_mode = True  # optimistic; dropped if the server rejects it
 
     def complete(self, messages, temperature=0.7):
-        """Thinking runs in blocks of `think_chunk` tokens. Concluding with
-        an answer inside a block ends the call; running out of a block
-        means "still thinking" — the reasoning is carried forward and the
+        """Thinking runs in blocks, starting at `think_chunk` tokens and
+        doubling each checkpoint (long work needs room, and every
+        checkpoint is a round trip). Concluding with an answer inside a
+        block ends the call; running out of a block means "still thinking"
+        — the reasoning is carried forward (with verbatim repetition
+        pruned, so a stalled draft cannot re-seed its own loop) and the
         model is nudged toward answering. When the thinking allowance
         (`max_tokens` in total) is spent, one final answer block gets the
         full `max_tokens` budget so the answer itself is never squeezed.
@@ -123,28 +126,53 @@ class _HTTPBackend:
             return content
         thoughts = []
         blocks_used = 0
-        blocks = max(1, self.max_tokens // self.think_chunk)
-        # phase 1: thinking blocks with soft checkpoints; phase 2: allowance
-        # spent, the answer is demanded — but still capped, so a model that
-        # only keeps thinking can never capture the full budget
-        for i in range(blocks + 2):
-            blocks_used = i + 1
-            demanding = i >= blocks
+        allowance = self.max_tokens  # total thinking budget across blocks
+        cap = self.think_chunk
+        demands_left = 2
+        content = ""
+        while True:
+            # phase 1: thinking blocks with soft checkpoints, each up to
+            # twice the size of the last; phase 2: allowance spent, the
+            # answer is demanded — but still capped, so a model that only
+            # keeps thinking can never capture the full budget
+            demanding = allowance <= 0
+            if demanding:
+                if demands_left <= 0:
+                    # it never stopped thinking; the parse layer sees the
+                    # length finish and raises the clear budget error
+                    # instead of retrying
+                    return content
+                demands_left -= 1
+                budget = self.think_chunk
+            else:
+                budget = min(cap, max(self.think_chunk, allowance))
+                cap = min(cap * 2, self.max_tokens)
+            blocks_used += 1
             content, reasoning, meta = self._request(
                 self._with_thoughts(messages, thoughts, final=demanding),
                 temperature,
-                self.think_chunk,
+                budget,
             )
             meta["thinking_blocks"] = blocks_used
             self.last_meta = meta
+            allowance -= int(meta.get("completion_tokens") or budget)
             concluded = bool(content) and meta.get("finish_reason") != "length"
-            # a cut answer is only an answer if it looks like JSON underway;
-            # prose in the answer channel is thinking that escaped the
-            # reasoning channel (server JSON mode off) and must not be
-            # granted the full budget
+            # a cut answer is only an answer if JSON is underway; prose in
+            # the answer channel is thinking that escaped the reasoning
+            # channel (server JSON mode off) and must not be granted the
+            # full budget
             answer_underway = (
-                bool(content) and not concluded and content.lstrip().startswith("{")
+                bool(content)
+                and not concluded
+                and content.lstrip()[:1] in ("{", "[")
             )
+            carried_reasoning = stalled_reasoning = None
+            carried_draft = stalled_draft = None
+            if not concluded:
+                if reasoning:
+                    carried_reasoning, stalled_reasoning = _prune_repetition(reasoning)
+                if content and not answer_underway:
+                    carried_draft, stalled_draft = _prune_repetition(content)
             if debug:
                 if concluded:
                     title = f"{purpose} · block {blocks_used} · answered"
@@ -154,7 +182,12 @@ class _HTTPBackend:
                     title = f"{purpose} · block {blocks_used} · answer demanded"
                 else:
                     title = f"{purpose} · block {blocks_used} · thinking continues"
-                sections = [("thoughts", reasoning)] if reasoning else []
+                pruned = " (degenerated into repetition; pruned before carrying)"
+                sections = (
+                    [("thoughts" + (pruned if stalled_reasoning else ""), reasoning)]
+                    if reasoning
+                    else []
+                )
                 if concluded:
                     sections.append(("answer", content))
                 elif answer_underway:
@@ -162,28 +195,46 @@ class _HTTPBackend:
                         ("answer, cut mid-way (completing at full budget next)", content)
                     )
                 elif content:
-                    sections.append(("thoughts (arrived in the answer channel)", content))
+                    sections.append(
+                        (
+                            "thoughts (arrived in the answer channel)"
+                            + (pruned if stalled_draft else ""),
+                            content,
+                        )
+                    )
                 if not sections:
                     sections.append(("thoughts", "(nothing returned)"))
                 _debug_box(title, sections, _meta_line(meta))
             if concluded:
                 return content  # concluded within the block: chose to answer
             if reasoning:
-                thoughts.append(reasoning)
+                if stalled_reasoning:
+                    carried_reasoning = (
+                        (carried_reasoning + "\n" if carried_reasoning else "")
+                        + "(the reasoning began repeating verbatim and was "
+                        "cut; do not resume the loop)"
+                    )
+                thoughts.append(carried_reasoning)
             if answer_underway:
                 thoughts.append(content)
                 break  # the answer is underway: full budget to finish it
             if content:
-                thoughts.append(
-                    "(an invalid draft reply, cut at a checkpoint — a reply "
-                    "must be ONE JSON object in the required format, never a "
-                    "bare value, list, or document; do not continue this "
-                    "draft)\n" + content
+                label = (
+                    "(a draft, cut at a checkpoint; do not continue this draft"
+                    + (
+                        ", and it began repeating verbatim, cut where the "
+                        "loop started"
+                        if stalled_draft
+                        else ""
+                    )
+                    + ")\n"
                 )
-        else:
-            # it never stopped thinking; the parse layer sees the length
-            # finish and raises the clear budget error instead of retrying
-            return content
+                thoughts.append(
+                    label + carried_draft
+                    if carried_draft
+                    else "(a draft here only repeated itself verbatim and "
+                    "was discarded; take the next concrete step instead)"
+                )
         # phase 3: full budget, granted only because the answer already began
         content, reasoning, meta = self._request(
             self._with_thoughts(messages, thoughts, final=True),
@@ -205,18 +256,12 @@ class _HTTPBackend:
         if not thoughts and not final:
             return messages
         nudge = (
-            "Your reasoning budget is spent. Reply now with exactly ONE "
-            "complete JSON object in the required format — re-emit it whole, "
-            "from the beginning, never as a continuation of the text above, "
-            "and never as a bare value, list, or document. Do not restate "
-            "your reasoning; start immediately with {."
+            "Reasoning budget spent. Emit the required JSON reply now, "
+            "complete and from the beginning, nothing else."
             if final
-            else "Your reasoning was paused at a scheduled checkpoint — "
-            "nothing was lost or cut by error, and your thoughts so far are "
-            "above. Continue reasoning only if truly necessary; otherwise "
-            "reply now with exactly ONE complete JSON object in the required "
-            "format — never a bare value, list, or document, and never a "
-            "continuation of the text above."
+            else "Paused at a scheduled checkpoint; nothing was lost, and "
+            "your thoughts so far are above. Answer now with the required "
+            "JSON reply if you can, otherwise keep reasoning."
         )
         extended = list(messages)
         if thoughts:
@@ -300,10 +345,38 @@ def _resolve_backend(spec, cfg):
     raise TypeError(f"cannot use {spec!r} as an inference backend")
 
 
+def _prune_repetition(text):
+    """Cut a draft at the point it starts repeating itself verbatim.
+    A degenerate loop fed back into the next block's prompt only deepens
+    the loop; keep the useful prefix, drop the echo. -> (kept, stalled)"""
+    lines = text.splitlines()
+    counts = {}
+    for i, line in enumerate(lines):
+        key = line.strip()
+        if len(key) < 10:
+            continue  # short structural lines ("},", "],") repeat honestly
+        counts[key] = counts.get(key, 0) + 1
+        if counts[key] >= 3:
+            kept = lines[:i]
+            # the tail of the prefix is the seed of the loop; drop it too
+            while kept and (
+                not kept[-1].strip() or counts.get(kept[-1].strip(), 0) >= 2
+            ):
+                kept.pop()
+            return "\n".join(kept).rstrip(), True
+    return text, False
+
+
 def _extract_json(text):
-    """All balanced JSON objects in the text; the answer is the LAST one
-    that looks like one (reasoning models explain first, answer last)."""
+    """The JSON the model answered with. A reply that IS clean JSON (any
+    type, bare arrays included) is taken whole; otherwise the text is
+    scanned for balanced objects and the LAST plausible one wins
+    (reasoning models explain first, answer last)."""
     text = re.sub(r"<think>.*?</think>", "", text, flags=re.S)
+    try:
+        return json.loads(text.strip())
+    except json.JSONDecodeError:
+        pass
     candidates = []
     start = text.find("{")
     while start != -1:
@@ -344,6 +417,21 @@ def _extract_json(text):
     if candidates:
         return candidates[-1]
     raise ValueError(f"no JSON object in model output: {text[:200]!r}")
+
+
+def _answer_shape(data):
+    """-> (value, clamped confidence). A reply that is not a
+    {"value": ...} envelope IS the value: a model that answers with the
+    bare data is forgiven, at even confidence."""
+    if isinstance(data, dict) and "value" in data:
+        value, confidence = data.get("value"), data.get("confidence", 0.5)
+    else:
+        value, confidence = data, 0.5
+    try:
+        confidence = float(confidence)
+    except (TypeError, ValueError):
+        confidence = 0.5
+    return value, max(0.01, min(confidence, 0.99))
 
 
 def _render_schema(schema):
@@ -786,25 +874,16 @@ class Thing(metaclass=_ThingMeta):
             {
                 "role": "system",
                 "content": (
-                    "You resolve attributes of a probabilistic object by inference "
-                    "over its story. Reply with exactly one JSON object, no prose: "
-                    '{"value": <json value>, "confidence": <0..1>}. Confidence has '
-                    "exactly one meaning: the probability that the value is "
-                    "correct. Use natural JSON types: numbers as numbers (a year, "
-                    "a count, a die face are integers, never strings), booleans as "
-                    "booleans. If the story treats the attribute as a random "
-                    "outcome (a roll, a draw, a spin), sample one concrete outcome "
-                    "and set confidence to that outcome's probability. If it is a "
-                    "fixed but unstated fact, treat it as a draw from your prior: "
-                    "answer your single best concrete guess of the natural type, "
-                    "with confidence matching how constrained it is (a specific "
-                    "year from a stated decade might be 0.1; a wide-open guess "
-                    "0.02 — low confidence is honest, never evasive). If the "
-                    "attribute genuinely has no value because nothing of the kind "
-                    "exists, answer null with your confidence in that absence. "
-                    'Never answer placeholder strings such as "unknown", "n/a", '
-                    'or "unspecified". '
-                    "Never contradict the story, its state, or its history."
+                    "Resolve one attribute of the object below by inference over "
+                    "its story. Reply with exactly one JSON object: "
+                    '{"value": <json>, "confidence": <0..1>}. Confidence is the '
+                    "probability the value is correct. Use natural JSON types "
+                    "(numbers as numbers, booleans as booleans). A random outcome "
+                    "(a roll, a draw): sample one result, confidence is its "
+                    "probability. An unstated fact: your single best concrete "
+                    "guess, honestly low confidence when wide open. null only if "
+                    "nothing of the kind exists; never placeholder strings like "
+                    '"unknown". Never contradict the story.'
                 ),
             },
             {
@@ -815,14 +894,15 @@ class Thing(metaclass=_ThingMeta):
                 ),
             },
         ]
-        data = self._thing_complete_json(
-            messages, temperature=0.8, purpose=f"read `{name}`"
+        value, confidence = _answer_shape(
+            self._thing_complete_json(
+                messages, temperature=0.8, purpose=f"read `{name}`"
+            )
         )
-        confidence = max(0.01, min(float(data.get("confidence", 0.5)), 0.99))
         _check_required(confidence)
         origin = " | ".join(self._thing_parts) or type(self).__name__
         child = self._thing_child(
-            f"the attribute `{name}` of ({origin})", data.get("value"), confidence
+            f"the attribute `{name}` of ({origin})", value, confidence
         )
         if self._thing_stateful:
             object.__setattr__(self, name, child)
@@ -851,16 +931,13 @@ class Thing(metaclass=_ThingMeta):
             {
                 "role": "system",
                 "content": (
-                    "You judge order comparisons between probabilistic objects. "
-                    "Reply with exactly one JSON object, no prose: "
-                    '{"value": true or false, "confidence": <0..1>}. Compare '
-                    "what the objects ARE — magnitude, size, cost, capability, "
-                    "whatever their stories make relevant — never how they are "
-                    "spelled, unless both are clearly plain text. If several "
-                    "natural senses disagree, choose the most likely one and "
-                    "lower your confidence to reflect the ambiguity; confidence "
-                    "is the probability your judgment is correct. Never "
-                    "contradict recorded state."
+                    "Judge the order comparison below. Reply with exactly one "
+                    'JSON object: {"value": true|false, "confidence": <0..1>}. '
+                    "Compare what the objects ARE (size, cost, capability, "
+                    "whatever their stories make relevant), not how they are "
+                    "spelled, unless both are plain text. If several senses "
+                    "disagree, pick the most likely and lower your confidence. "
+                    "Never contradict recorded state."
                 ),
             },
             {
@@ -868,15 +945,16 @@ class Thing(metaclass=_ThingMeta):
                 "content": f"LEFT:\n{left}\n\nRIGHT:\n{right}\n\nIs LEFT {symbol} RIGHT?",
             },
         ]
-        data = self._thing_complete_json(
-            messages, temperature=0.3, purpose=f"judge `{symbol}`"
+        value, confidence = _answer_shape(
+            self._thing_complete_json(
+                messages, temperature=0.3, purpose=f"judge `{symbol}`"
+            )
         )
-        confidence = max(0.01, min(float(data.get("confidence", 0.5)), 0.99))
         _check_required(confidence)
         origin = " | ".join(self._thing_parts) or type(self).__name__
         return self._thing_child(
             f"the judgment: ({origin}) {symbol} ({right[:120]})",
-            bool(data.get("value")),
+            bool(value),
             confidence,
         )
 
@@ -899,14 +977,10 @@ class Thing(metaclass=_ThingMeta):
             {
                 "role": "system",
                 "content": (
-                    f"You ARE `{name}` — an imagined method of a probabilistic "
-                    "Python object, currently in the middle of executing. No "
-                    "written code exists for you: you produce this call's "
-                    "behavior yourself, acting on the object step by step. Do "
-                    f"not try to call `{name}` — that is you, already running; "
-                    "calling OTHER methods is how you use the object.\n"
-                    "Each turn, reply with exactly one JSON object, no prose — "
-                    "one of:\n"
+                    f"You are `{name}`, an imagined method of the object below, "
+                    "already running. No code exists for it and you cannot call "
+                    "it; you act it out, one step per turn.\n"
+                    "Reply with exactly one JSON object per turn, one of:\n"
                     '{"action": "get", "name": "<attr>"}\n'
                     '{"action": "set", "name": "<attr>", "value": <json>, "confidence": <0..1>}\n'
                     '{"action": "delete", "name": "<attr>"}\n'
@@ -914,20 +988,13 @@ class Thing(metaclass=_ThingMeta):
                     '{"action": "define", "name": "<name>", "meaning": "<text>"}\n'
                     '{"action": "return", "value": <json>, "confidence": <0..1>}\n'
                     '{"action": "return_result", "confidence": <0..1>}\n'
-                    "Rules: prefer real methods when one fits — they execute actual "
-                    "code. Never write or generate code. Keep plans short; mutate "
-                    "state with `set` when the action changes the object — the "
-                    "value is recorded with your confidence in it (omit confidence "
-                    "to use the plan's current floor). You may create new "
-                    "attributes freely and overwrite or delete any value that "
-                    "carries confidence; values the programmer wrote bare are "
-                    "certain and out of reach — record changes to those under "
-                    "new names. When the latest result — "
-                    "the last step's output, or before any step the object's "
-                    "own value — is already exactly what this call should "
-                    'produce, finish with "return_result": it returns that '
-                    "data verbatim, so never retype data the story already "
-                    'holds. Always finish with "return" or "return_result".'
+                    "Prefer real methods, they run actual code. Never write "
+                    "code. Values the programmer wrote bare are read-only; "
+                    "record changes to them under new names. Values carrying "
+                    "confidence are yours to change. `return_result` returns "
+                    "the latest result verbatim (before any step: the object's "
+                    "own value); use it instead of retyping data the story "
+                    "already holds. Finish with `return` or `return_result`."
                 ),
             },
             {
@@ -952,6 +1019,10 @@ class Thing(metaclass=_ThingMeta):
             step = self._thing_complete_json(
                 messages, temperature=0.3, purpose=f"imagine `{name}(...)`"
             )
+            if not isinstance(step, dict):
+                # a bare JSON value in place of an action envelope is the
+                # model returning its result directly; forgive it
+                step = {"action": "return", "value": step}
             action = step.get("action")
             if action == "return_result" and last_result is _UNSET:
                 messages.append({"role": "assistant", "content": json.dumps(step, ensure_ascii=False)})
@@ -1058,6 +1129,17 @@ class Thing(metaclass=_ThingMeta):
                     _UNSET,
                 )
         if action == "get":
+            if target == "value":
+                # the story presents the carried value; asking for it must
+                # be a free lookup, never a fresh imagined attribute
+                carried = self.__dict__.get("_thing_value", _UNSET)
+                if carried is not _UNSET:
+                    floor = min(floor, self.__dict__.get("confidence", 1.0))
+                    return (
+                        json.dumps(carried, default=repr, ensure_ascii=False),
+                        floor,
+                        carried,
+                    )
             value = getattr(self, target)
             if isinstance(value, _Pending):
                 value = value._resolve()
@@ -1095,7 +1177,12 @@ class Thing(metaclass=_ThingMeta):
         if action == "define":
             self.define(target, str(step.get("meaning", "")))
             return "ok", floor, _UNSET
-        return f"refused: unknown action {action!r}", floor, _UNSET
+        return (
+            f"refused: unknown action {action!r}; to return data, reply "
+            '{"action": "return", "value": <the data>}',
+            floor,
+            _UNSET,
+        )
 
     # -- the attribute protocol seams ---------------------------------------
 
@@ -1496,14 +1583,12 @@ class Thing(metaclass=_ThingMeta):
             {
                 "role": "system",
                 "content": (
-                    "You collapse a probabilistic object to the single JSON "
-                    "value it most naturally stands for. Reply with exactly one "
-                    'JSON object, no prose: {"value": <json value>, '
-                    '"confidence": <0..1>}. A described value stands for '
-                    'itself: an object described as "Cat" collapses to "Cat"; '
-                    "an object with one obvious quantity collapses to that "
-                    "number. Use natural JSON types and never contradict the "
-                    "story or its state."
+                    "Collapse the object below to the single JSON value it "
+                    "most naturally stands for. Reply with exactly one JSON "
+                    'object: {"value": <json>, "confidence": <0..1>}. A '
+                    'described value stands for itself ("Cat" collapses to '
+                    '"Cat"). Use natural JSON types. Never contradict the '
+                    "story."
                 ),
             },
             {
@@ -1514,13 +1599,13 @@ class Thing(metaclass=_ThingMeta):
                 ),
             },
         ]
-        data = self._thing_complete_json(
-            messages,
-            temperature=0.3,
-            purpose=f"collapse @ {key}" if key else "collapse",
+        value, confidence = _answer_shape(
+            self._thing_complete_json(
+                messages,
+                temperature=0.3,
+                purpose=f"collapse @ {key}" if key else "collapse",
+            )
         )
-        value = data.get("value")
-        confidence = max(0.01, min(float(data.get("confidence", 0.5)), 0.99))
         if schema is not None and not _matches(value, schema)[0]:
             # single shot, no retries: the mismatch itself is the answer,
             # and the model's confidence survives as the diagnosis
