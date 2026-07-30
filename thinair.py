@@ -76,11 +76,20 @@ def _own_doc(cls):
 class _HTTPBackend:
     """Any OpenAI-compatible /chat/completions endpoint."""
 
-    def __init__(self, base_url, api_key, model, max_tokens=_DEFAULT_MAX_TOKENS):
+    def __init__(
+        self,
+        base_url,
+        api_key,
+        model,
+        max_tokens=_DEFAULT_MAX_TOKENS,
+        request_extra=None,
+    ):
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.model = model
         self.max_tokens = int(max_tokens)
+        self.request_extra = dict(request_extra or {})
+        self.last_meta = {}
         self._json_mode = True  # optimistic; dropped if the server rejects it
 
     def complete(self, messages, temperature=0.7):
@@ -92,6 +101,7 @@ class _HTTPBackend:
         }
         if self._json_mode:
             payload["response_format"] = {"type": "json_object"}
+        payload.update(self.request_extra)
         request = urllib.request.Request(
             self.base_url + "/chat/completions",
             data=json.dumps(payload).encode(),
@@ -108,7 +118,10 @@ class _HTTPBackend:
                 self._json_mode = False  # server has no JSON mode; remember
                 return self.complete(messages, temperature=temperature)
             raise
-        return data["choices"][0]["message"].get("content") or ""
+        choice = data["choices"][0]
+        self.last_meta = dict(data.get("usage") or {})
+        self.last_meta["finish_reason"] = choice.get("finish_reason")
+        return choice["message"].get("content") or ""
 
 
 class _CallableBackend:
@@ -121,16 +134,19 @@ class _CallableBackend:
 
 def _resolve_backend(spec, cfg):
     max_tokens = cfg.get("max_tokens", _DEFAULT_MAX_TOKENS)
+    extra = cfg.get("request_extra")
     if spec is None:
-        return _HTTPBackend(cfg["base_url"], cfg["api_key"], cfg["model"], max_tokens)
+        return _HTTPBackend(
+            cfg["base_url"], cfg["api_key"], cfg["model"], max_tokens, extra
+        )
     if isinstance(spec, str):
         if spec.startswith("file://"):
             raise NotImplementedError(
                 "embedded models are future work; point `model` at a server URL"
             )
         if spec.startswith("http://") or spec.startswith("https://"):
-            return _HTTPBackend(spec, cfg["api_key"], cfg["model"], max_tokens)
-        return _HTTPBackend(cfg["base_url"], cfg["api_key"], spec, max_tokens)
+            return _HTTPBackend(spec, cfg["api_key"], cfg["model"], max_tokens, extra)
+        return _HTTPBackend(cfg["base_url"], cfg["api_key"], spec, max_tokens, extra)
     if hasattr(spec, "complete"):
         return spec
     if callable(spec):
@@ -245,7 +261,7 @@ def _debug(enabled):
         _debugging.reset(token)
 
 
-def _debug_dump(purpose, messages, text):
+def _debug_dump(purpose, messages, text, meta=None):
     lines = [f"┌─ thinair · {purpose} " + "─" * max(1, 56 - len(purpose))]
     for message in messages:
         lines.append(f"│ [{message['role']}]")
@@ -254,6 +270,10 @@ def _debug_dump(purpose, messages, text):
     lines.append("├─ raw completion " + "─" * 42)
     for line in str(text).splitlines() or [""]:
         lines.append(f"│ {line}")
+    if meta:
+        summary = ", ".join(f"{k}={v}" for k, v in meta.items() if v is not None)
+        if summary:
+            lines.append(f"├─ {summary}")
     lines.append("└" + "─" * 59)
     print("\n".join(lines), file=sys.stderr)
 
@@ -418,8 +438,14 @@ class Thing(metaclass=_ThingMeta):
     # -- configuration ------------------------------------------------------
 
     @classmethod
-    def defaults(cls, model=None, base_url=None, api_key=None, max_tokens=None):
-        """Set class-wide backend defaults; subclasses inherit via the MRO."""
+    def defaults(
+        cls, model=None, base_url=None, api_key=None, max_tokens=None,
+        request_extra=None,
+    ):
+        """Set class-wide backend defaults; subclasses inherit via the MRO.
+        `request_extra` is merged verbatim into every HTTP payload — the
+        escape hatch for server-specific knobs (thinking budgets, template
+        kwargs, reasoning effort)."""
         cfg = dict(cls.__dict__.get("_thing_defaults", {}))
         if model is not None:
             cfg["model"] = model
@@ -429,6 +455,8 @@ class Thing(metaclass=_ThingMeta):
             cfg["api_key"] = api_key
         if max_tokens is not None:
             cfg["max_tokens"] = int(max_tokens)
+        if request_extra is not None:
+            cfg["request_extra"] = dict(request_extra)
         cls._thing_defaults = cfg
 
     @classmethod
@@ -527,12 +555,22 @@ class Thing(metaclass=_ThingMeta):
                 text = backend.complete(messages, temperature=temperature)
             except TypeError:
                 text = backend.complete(messages)
+            meta = getattr(backend, "last_meta", None) or {}
             if _debugging.get():
-                _debug_dump(purpose, messages, text)
+                _debug_dump(purpose, messages, text, meta)
             try:
                 return _extract_json(text)
             except ValueError as error:
                 last_error = error
+                if meta.get("finish_reason") == "length":
+                    # the budget died mid-thought; retrying would only burn
+                    # the same tokens again
+                    raise RuntimeError(
+                        f"completion hit max_tokens while working on "
+                        f"{purpose} (thinking counts against the same "
+                        f"budget) — raise THINAIR_MAX_TOKENS / "
+                        f"Thing.defaults(max_tokens=...), or shorten the story"
+                    )
                 messages = messages + [
                     {"role": "assistant", "content": text[:1000]},
                     {"role": "user", "content": "Reply with exactly one JSON object and nothing else."},
