@@ -109,7 +109,15 @@ car.diagnose().severity_of_worst_issue()   # results are Things: chain
                                            # imagined calls on imagined calls
 ```
 
-Guard the branches that matter: inside `with Thing.require(0.9):` any resolution below 0.9 raises `Thing.LowConfidence` instead of flowing.
+Guard the branches that matter: inside `with Thing.require(0.9):` any resolution below 0.9 raises `Thing.LowConfidence` instead of flowing:
+
+```python
+with Thing.require(0.9):
+    if car.can_drive():      # p 0.93 — clears the bar, the branch is trusted
+        plan_road_trip(car)
+    car.vin_number           # p 0.02 — a guess this wild now raises
+                             # Thing.LowConfidence instead of flowing onward
+```
 
 ## Talk to it
 
