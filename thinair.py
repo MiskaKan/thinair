@@ -16,6 +16,7 @@ import inspect
 import json
 import os
 import re
+import sys
 import textwrap
 import urllib.request
 
@@ -27,6 +28,9 @@ _DEFAULT_MODEL = os.environ.get("THINAIR_MODEL", "Qwen3.6-35B-A3B-oQ6-mtp")
 
 _UNSET = object()
 _required = contextvars.ContextVar("thing_required_confidence", default=None)
+_debugging = contextvars.ContextVar(
+    "thing_debug", default=os.environ.get("THINAIR_DEBUG", "") not in ("", "0")
+)
 
 
 class LowConfidence(Exception):
@@ -205,6 +209,28 @@ def _require(threshold):
         _required.reset(token)
 
 
+@contextlib.contextmanager
+def _debug(enabled):
+    token = _debugging.set(bool(enabled))
+    try:
+        yield
+    finally:
+        _debugging.reset(token)
+
+
+def _debug_dump(purpose, messages, text):
+    lines = [f"┌─ thinair · {purpose} " + "─" * max(1, 56 - len(purpose))]
+    for message in messages:
+        lines.append(f"│ [{message['role']}]")
+        for line in str(message.get("content", "")).splitlines() or [""]:
+            lines.append(f"│   {line}")
+    lines.append("├─ raw completion " + "─" * 42)
+    for line in str(text).splitlines() or [""]:
+        lines.append(f"│ {line}")
+    lines.append("└" + "─" * 59)
+    print("\n".join(lines), file=sys.stderr)
+
+
 def _check_required(confidence):
     threshold = _required.get()
     if threshold is not None and confidence < threshold:
@@ -381,6 +407,12 @@ class Thing(metaclass=_ThingMeta):
         """Context manager: any resolution below `threshold` raises LowConfidence."""
         return _require(threshold)
 
+    @classmethod
+    def debug(cls, enabled=True):
+        """Context manager: dump every prompt and raw completion to stderr
+        while the block runs. THINAIR_DEBUG=1 turns it on globally."""
+        return _debug(enabled)
+
     # -- internals ----------------------------------------------------------
 
     def _thing_ensure(self):
@@ -457,7 +489,7 @@ class Thing(metaclass=_ThingMeta):
                 lines.append(f"  {i}. {json.dumps(event, default=repr)}")
         return "\n".join(lines) or "An unspecified thing."
 
-    def _thing_complete_json(self, messages, temperature):
+    def _thing_complete_json(self, messages, temperature, purpose="inference"):
         backend = self._thing_backend()
         last_error = None
         for _ in range(3):
@@ -465,6 +497,8 @@ class Thing(metaclass=_ThingMeta):
                 text = backend.complete(messages, temperature=temperature)
             except TypeError:
                 text = backend.complete(messages)
+            if _debugging.get():
+                _debug_dump(purpose, messages, text)
             try:
                 return _extract_json(text)
             except ValueError as error:
@@ -515,7 +549,9 @@ class Thing(metaclass=_ThingMeta):
                 ),
             },
         ]
-        data = self._thing_complete_json(messages, temperature=0.8)
+        data = self._thing_complete_json(
+            messages, temperature=0.8, purpose=f"read `{name}`"
+        )
         confidence = max(0.01, min(float(data.get("confidence", 0.5)), 0.99))
         _check_required(confidence)
         origin = " | ".join(self._thing_parts) or type(self).__name__
@@ -566,7 +602,9 @@ class Thing(metaclass=_ThingMeta):
                 "content": f"LEFT:\n{left}\n\nRIGHT:\n{right}\n\nIs LEFT {symbol} RIGHT?",
             },
         ]
-        data = self._thing_complete_json(messages, temperature=0.3)
+        data = self._thing_complete_json(
+            messages, temperature=0.3, purpose=f"judge `{symbol}`"
+        )
         confidence = max(0.01, min(float(data.get("confidence", 0.5)), 0.99))
         _check_required(confidence)
         origin = " | ".join(self._thing_parts) or type(self).__name__
@@ -635,7 +673,9 @@ class Thing(metaclass=_ThingMeta):
         ]
         floor = 1.0
         for _ in range(self._thing_step_budget):
-            step = self._thing_complete_json(messages, temperature=0.3)
+            step = self._thing_complete_json(
+                messages, temperature=0.3, purpose=f"imagine `{name}(...)`"
+            )
             action = step.get("action")
             if action == "return":
                 value = step.get("value")
@@ -1184,7 +1224,11 @@ class Thing(metaclass=_ThingMeta):
                 ),
             },
         ]
-        data = self._thing_complete_json(messages, temperature=0.3)
+        data = self._thing_complete_json(
+            messages,
+            temperature=0.3,
+            purpose=f"collapse @ {key}" if key else "collapse",
+        )
         value = data.get("value")
         confidence = max(0.01, min(float(data.get("confidence", 0.5)), 0.99))
         if schema is not None and not _matches(value, schema)[0]:

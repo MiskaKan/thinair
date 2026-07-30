@@ -189,6 +189,8 @@ export THINAIR_MODEL="Qwen3.6-35B-A3B-oQ6-mtp"
 
 or in code: `Thing.defaults(model="...", base_url="...", api_key="...")`. A URL, a provider object with `complete(messages) -> text`, or a bare callable all work per instance too: `Thing("a car", model=...)`.
 
+To see what's actually happening underneath, wrap any block in `with Thing.debug():` — every prompt and raw completion is dumped to stderr, labeled by operation (`read`, `imagine`, `judge`, `collapse`). `THINAIR_DEBUG=1` turns it on globally.
+
 Then:
 
 ```bash
