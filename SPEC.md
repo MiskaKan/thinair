@@ -17,8 +17,9 @@ The principles:
    is proof the programmer wrote it, as code or explicit assignment.
 4. **Closure through the protocol, never through code.** Imagined methods can
    do what written methods do, but only via a closed action vocabulary:
-   *get, set, delete, call, define, return*. Imagination never writes,
-   generates, or executes Python source. No exec, no eval, ever.
+   *get, set, delete, call, define, return, return_result*. Imagination
+   never writes, generates, or executes Python source. No exec, no eval,
+   ever.
 5. **One class.** The entire public surface is `Thing`. Everything inference
    produces is another `Thing`; the guards and exceptions are reached through
    it (`Thing.require`, `Thing.LowConfidence`, `Thing.ContinuationLimit`).
@@ -154,6 +155,9 @@ every single step:
 # define                         record what a name MEANS, as story text —
 #                                never as Python source
 # return value, confidence       terminate the plan
+# return_result confidence       terminate with the latest step's result,
+#                                verbatim — bulk data a real method already
+#                                produced never rides the token stream
 ```
 
 `define` is what "creating a function" means here. It adds a contract to the
@@ -398,9 +402,10 @@ p.x                     # 3     resolves in strata 1–2, inference never runs,
 - [ ] First read of an undefined attribute collapses it; later reads agree
       (scene 1) until an event supersedes them (scenes 3–4, `del`).
 - [ ] Written code and recorded state always win over inference (scene 3).
-- [ ] Imagined plans are limited to the six verbs (scene 6): they can get,
-      set, delete, call, define, and return — and can never generate or
-      execute Python source.
+- [ ] Imagined plans are limited to the seven verbs (scene 6): they can
+      get, set, delete, call, define, return, and return_result (the
+      latest step's result, verbatim) — and can never generate or execute
+      Python source.
 - [ ] A real method reached from an imagined plan is executed, never
       simulated (scene 5, step 2).
 - [ ] State written by an imagined plan carries confidence < 1 and may

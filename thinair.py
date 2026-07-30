@@ -134,6 +134,7 @@ class _HTTPBackend:
                 thoughts.append(reasoning)
             if content:
                 thoughts.append(content)  # a cut answer is a thought too
+                break  # it was answering: go straight to the full answer block
         # allowance spent: the answer block, full budget, no more thinking
         content, reasoning, meta = self._request(
             self._with_thoughts(messages, thoughts, final=True),
@@ -150,7 +151,8 @@ class _HTTPBackend:
         if not thoughts and not final:
             return messages
         nudge = (
-            "Answer now with exactly one JSON object and nothing else."
+            "Answer now with exactly one JSON object and nothing else. Do "
+            "not restate your reasoning; start immediately with {."
             if final
             else "Continue reasoning only if truly necessary; otherwise "
             "answer now with exactly one JSON object."
@@ -631,8 +633,18 @@ class Thing(metaclass=_ThingMeta):
             lines.append("Real methods (these execute actual code): " + listing)
         if self._thing_parts:
             lines.append("Described as: " + " | ".join(self._thing_parts))
+        carried = self.__dict__.get("_thing_value", _UNSET)
+        if carried is not _UNSET:
+            lines.append(
+                "Value of this object (authoritative, confidence "
+                f"{self.__dict__.get('confidence', 0.5)}): "
+                + json.dumps(carried, default=repr)
+            )
         state = {
-            k: _plain(v) for k, v in self.__dict__.items() if not k.startswith("_")
+            k: _plain(v)
+            for k, v in self.__dict__.items()
+            if not k.startswith("_")
+            and not (carried is not _UNSET and k == "confidence")
         }
         if state:
             lines.append("Current state (authoritative): " + json.dumps(state, default=repr))
@@ -810,6 +822,7 @@ class Thing(metaclass=_ThingMeta):
                     '{"action": "call", "name": "<method>", "args": [<json>...]}\n'
                     '{"action": "define", "name": "<name>", "meaning": "<text>"}\n'
                     '{"action": "return", "value": <json>, "confidence": <0..1>}\n'
+                    '{"action": "return_result", "confidence": <0..1>}\n'
                     "Rules: prefer real methods when one fits — they execute actual "
                     "code. Never write or generate code. Keep plans short; mutate "
                     "state with `set` when the action changes the object — the "
@@ -819,8 +832,11 @@ class Thing(metaclass=_ThingMeta):
                     "carries confidence; values the programmer wrote bare are "
                     "certain and out of reach — record changes to those under "
                     "new names. Never call the method you are currently "
-                    "executing; do its work yourself. Always "
-                    'finish with "return".'
+                    "executing; do its work yourself. When the latest step's "
+                    "result is already exactly what this call should produce, "
+                    'finish with "return_result" — it returns that result '
+                    "verbatim, so never retype data you already received. "
+                    'Always finish with "return" or "return_result".'
                 ),
             },
             {
@@ -838,13 +854,23 @@ class Thing(metaclass=_ThingMeta):
             },
         ]
         floor = 1.0
+        last_result = _UNSET
         for _ in range(self._thing_step_budget):
             step = self._thing_complete_json(
                 messages, temperature=0.3, purpose=f"imagine `{name}(...)`"
             )
             action = step.get("action")
-            if action == "return":
-                value = step.get("value")
+            if action == "return_result" and last_result is _UNSET:
+                messages.append({"role": "assistant", "content": json.dumps(step)})
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": "result: refused: no earlier step has produced a result to return",
+                    }
+                )
+                continue
+            if action in ("return", "return_result"):
+                value = last_result if action == "return_result" else step.get("value")
                 if schema is not None:
                     ok, why = _matches(value, schema)
                     if not ok:
@@ -874,11 +900,13 @@ class Thing(metaclass=_ThingMeta):
                     )
                 return self._thing_result(name, args, value, confidence)
             try:
-                feedback, floor = self._thing_step(step, floor, depth, name)
+                feedback, floor, produced = self._thing_step(step, floor, depth, name)
             except ContinuationLimit:
                 raise
             except Exception as error:
-                feedback = f"error: {type(error).__name__}: {error}"
+                feedback, produced = f"error: {type(error).__name__}: {error}", _UNSET
+            if produced is not _UNSET:
+                last_result = produced
             messages.append({"role": "assistant", "content": json.dumps(step)})
             messages.append({"role": "user", "content": f"result: {feedback}"})
         raise ContinuationLimit(f"imagined plan for `{name}` exceeded its step budget")
@@ -895,7 +923,7 @@ class Thing(metaclass=_ThingMeta):
         """A Thing born from inference: carries its value and `.confidence`."""
         child = type(self).__new__(type(self))
         d = child._thing_ensure()
-        d["_thing_parts"] = [described, "value: " + json.dumps(value, default=repr)]
+        d["_thing_parts"] = [described]
         d["_thing_stateful"] = self._thing_stateful
         d["_thing_model_spec"] = self._thing_model_spec
         backend = self.__dict__.get("_thing_backend_obj")
@@ -910,15 +938,17 @@ class Thing(metaclass=_ThingMeta):
         return child
 
     def _thing_step(self, step, floor, depth, executing):
+        """One plan step -> (feedback, floor, produced result or _UNSET)."""
         action = step.get("action")
         target = step.get("name", "")
         if not isinstance(target, str) or target.startswith("_"):
-            return f"refused: invalid name {target!r}", floor
+            return f"refused: invalid name {target!r}", floor, _UNSET
         if action == "call" and target == executing:
             return (
                 f"refused: `{target}` is the method you are executing; do its "
                 "work yourself and finish with a return",
                 floor,
+                _UNSET,
             )
         if action in ("set", "delete"):
             current = self.__dict__.get(target, _UNSET)
@@ -929,13 +959,15 @@ class Thing(metaclass=_ThingMeta):
                     f"refused: `{target}` is deterministic state the programmer "
                     "wrote; record the change under a new name instead",
                     floor,
+                    _UNSET,
                 )
         if action == "get":
             value = getattr(self, target)
             if isinstance(value, _Pending):
                 value = value._resolve()
             floor = min(floor, _confidence_of(value))
-            return json.dumps(_plain(value), default=repr), floor
+            plain = _plain(value)
+            return json.dumps(plain, default=repr), floor, plain
         if action == "set":
             confidence = step.get("confidence")
             confidence = max(
@@ -948,10 +980,10 @@ class Thing(metaclass=_ThingMeta):
                 confidence,
             )
             setattr(self, target, child)
-            return "ok", min(floor, confidence)
+            return "ok", min(floor, confidence), _UNSET
         if action == "delete":
             delattr(self, target)
-            return "ok", floor
+            return "ok", floor, _UNSET
         if action == "call":
             call_args = step.get("args") or []
             attr = getattr(self, target)
@@ -960,13 +992,14 @@ class Thing(metaclass=_ThingMeta):
             elif callable(attr):
                 value = attr(*call_args)
             else:
-                return f"error: `{target}` is not callable", floor
+                return f"error: `{target}` is not callable", floor, _UNSET
             floor = min(floor, _confidence_of(value))
-            return json.dumps(_plain(value), default=repr), floor
+            plain = _plain(value)
+            return json.dumps(plain, default=repr), floor, plain
         if action == "define":
             self.define(target, str(step.get("meaning", "")))
-            return "ok", floor
-        return f"refused: unknown action {action!r}", floor
+            return "ok", floor, _UNSET
+        return f"refused: unknown action {action!r}", floor, _UNSET
 
     # -- the attribute protocol seams ---------------------------------------
 
@@ -1036,12 +1069,7 @@ class Thing(metaclass=_ThingMeta):
         sections = []
 
         doc = _own_doc(cls)
-        value_part = (
-            "value: " + json.dumps(carried, default=repr) if carried is not _UNSET else None
-        )
-        story_bits = ([doc] if doc else []) + [
-            p.strip() for p in self._thing_parts if p != value_part
-        ]
+        story_bits = ([doc] if doc else []) + [p.strip() for p in self._thing_parts]
         if story_bits:
             text = "\n\n".join(story_bits)
             if "\n" in text:
