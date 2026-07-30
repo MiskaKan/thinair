@@ -186,10 +186,10 @@ export THINAIR_BASE_URL="http://127.0.0.1:8000/v1"   # default
 export THINAIR_API_KEY="1234"
 export THINAIR_MODEL="Qwen3.6-35B-A3B-oQ6-mtp"
 export THINAIR_MAX_TOKENS=32768                      # answer budget; also caps total thinking
-export THINAIR_THINK_CHUNK=2048                      # thinking block size (0 = single shot)
+export THINAIR_THINK_CHUNK=512                       # first thinking block size (0 = single shot)
 ```
 
-Requests ask for the server's JSON output mode (`response_format: json_object`) and quietly fall back to freeform if the server doesn't support it. Reasoning models think in blocks: every `THINAIR_THINK_CHUNK` tokens the model is nudged to answer unless more thought is truly necessary. The full `max_tokens` budget is granted only to finish an answer that has already begun — a model that only keeps thinking stays capped at the block size and eventually gets a clear budget error, so runaway reasoning can never capture the whole budget.
+Requests ask for the server's JSON output mode (`response_format: json_object`) and quietly fall back to freeform if the server doesn't support it. Reasoning models think in blocks that start at `THINAIR_THINK_CHUNK` tokens and double at every checkpoint, where the model is nudged to answer unless more thought is truly necessary; a block that degenerates into repetition is pruned and the size resets. An answer cut mid-way gets a completion grant sized from the draft — never the whole budget in one shot — and a model that only keeps thinking eventually gets a clear budget error, so runaway generation can never capture the budget.
 
 or in code: `Thing.defaults(model="...", base_url="...", api_key="...")`. A URL, a provider object with `complete(messages) -> text`, or a bare callable all work per instance too: `Thing("a car", model=...)`.
 

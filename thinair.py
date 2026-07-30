@@ -28,7 +28,7 @@ _DEFAULT_BASE_URL = os.environ.get("THINAIR_BASE_URL", "http://127.0.0.1:8000/v1
 _DEFAULT_API_KEY = os.environ.get("THINAIR_API_KEY", "1234")
 _DEFAULT_MODEL = os.environ.get("THINAIR_MODEL", "Qwen3.6-35B-A3B-oQ6-mtp")
 _DEFAULT_MAX_TOKENS = int(os.environ.get("THINAIR_MAX_TOKENS", "32768"))
-_DEFAULT_THINK_CHUNK = int(os.environ.get("THINAIR_THINK_CHUNK", "2048"))
+_DEFAULT_THINK_CHUNK = int(os.environ.get("THINAIR_THINK_CHUNK", "512"))
 
 _UNSET = object()
 _required = contextvars.ContextVar("thing_required_confidence", default=None)
@@ -183,6 +183,10 @@ class _HTTPBackend:
                     carried_reasoning, stalled_reasoning = _prune_repetition(reasoning)
                 if content and not answer_underway:
                     carried_draft, stalled_draft = _prune_repetition(content)
+                if stalled_reasoning or stalled_draft:
+                    # a looping model earns no bigger block: back to the
+                    # smallest checkpoint, where the nudge can interrupt
+                    cap = self.think_chunk
             if debug:
                 k = "<<< " + (
                     f"step {st['round']} · " if st and st.get("plan") else ""
@@ -300,7 +304,9 @@ class _HTTPBackend:
         if st and st.get("plan"):
             nudge += (
                 " The reply is one small action object; never output data "
-                "you already have, return_result returns it as-is."
+                "you already have, return_result returns it as-is. A value "
+                "already drafted in your thoughts is finished: put it in the "
+                "reply now instead of rehearsing it again."
             )
         extended = list(messages)
         if thoughts:
@@ -1157,8 +1163,9 @@ class Thing(metaclass=_ThingMeta):
                     "any step: the object's own value); use it instead of "
                     "retyping data you already have. When the job names no "
                     "output format, return data as data, exactly as produced; "
-                    "never invent formatting or summaries. Every call ends "
-                    "with `return` or `return_result`.\n"
+                    "never invent formatting or summaries. Never draft a long "
+                    "value in your thinking: write it once, directly in the "
+                    "reply. Every call ends with `return` or `return_result`.\n"
                     "Example turns for the job `describe_load()` on an object "
                     "with a real method `items`:\n"
                     '{"action": "call", "name": "items", "args": []}\n'
