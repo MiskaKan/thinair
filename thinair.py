@@ -27,7 +27,7 @@ __all__ = ["Thing"]
 _DEFAULT_BASE_URL = os.environ.get("THINAIR_BASE_URL", "http://127.0.0.1:8000/v1")
 _DEFAULT_API_KEY = os.environ.get("THINAIR_API_KEY", "1234")
 _DEFAULT_MODEL = os.environ.get("THINAIR_MODEL", "Qwen3.6-35B-A3B-oQ8-mtp")
-_DEFAULT_MAX_TOKENS = int(os.environ.get("THINAIR_MAX_TOKENS", "32768"))
+_DEFAULT_MAX_TOKENS = int(os.environ.get("THINAIR_MAX_TOKENS", "65536"))
 # a plan-step result larger than this (rendered chars) is held by the
 # runtime under a handle ("$1") instead of marching through the model
 _HANDLE_LIMIT = int(os.environ.get("THINAIR_HANDLE_LIMIT", "4000"))
@@ -778,10 +778,13 @@ def _query_envelope(value_schema=None):
     }
 
 
-def _action_envelope(returns_schema=None):
+def _action_envelope(returns_schema=None, forbidden=()):
     """The plan protocol's reply contract: exactly one of the six actions.
     The `const` on `action` keeps the branches disjoint; a `returns=`
-    template constrains the return branch's value to it."""
+    template constrains the return branch's value to it. `forbidden` is
+    accepted but unused: excluding stack names via `not`/`enum` was tried
+    and measurably damaged task comprehension on servers that inject the
+    schema as prompt text — the runtime refusal remains the cycle guard."""
     name = {"type": "string"}
     confidence = {"type": "number", "minimum": 0, "maximum": 1}
     return {"oneOf": [
@@ -1835,7 +1838,7 @@ class Thing(metaclass=_ThingMeta):
             return self._thing_plan(name, args, messages, schema, floor, stack, purpose)
 
     def _thing_plan(self, name, args, messages, schema, floor, stack, purpose):
-        envelope = _action_envelope(schema)
+        envelope = _action_envelope(schema, stack)
         think = False  # steps start on the direct tier; stumbling escalates
         refusals = 0
         results = {}  # handles for values too large to retype: "$1" -> raw
@@ -1996,8 +1999,12 @@ class Thing(metaclass=_ThingMeta):
                     # the constrained decoder would refuse the handle string
                     # where the schema demands a list or object; from here
                     # on the runtime check alone guards the return's shape
-                    envelope = _action_envelope(None)
+                    envelope = _action_envelope(None, stack)
             if feedback.startswith("refused"):
+                # a refused action never happened: give the step back and
+                # draw on the correction allowance instead
+                index -= 1
+                _rejected()
                 refusals += 1
                 if refusals >= 2 and not think:
                     think = True  # the plan is stumbling; let the steps think
