@@ -153,14 +153,32 @@ class _StreamPrinter:
         self.section = None
 
 
-class _HTTPBackend:
-    """Any OpenAI-compatible /chat/completions endpoint."""
+class Engine:
+    """Everything model-specific, in one subclassable place: the prompts,
+    the sampling table, the reply envelopes, the parsing and forgiveness,
+    the two-tier ladder mechanics, and the transport (an OpenAI-compatible
+    /chat/completions endpoint by default). `Thing` holds the object
+    model — story, strata, plan runtime, persistence — and asks its
+    engine for the rest, so adapting thinair to another model means
+    subclassing this and overriding prompt methods or `temperatures`,
+    never touching `Thing`. Reached as `Thing.Engine`."""
+
+    # per-operation sampling; judgments and plans run cool, reads run
+    # warm so an open prior actually gets sampled
+    temperatures = {
+        "read": 0.8,
+        "judge": 0.3,
+        "collapse": 0.3,
+        "plan": 0.3,
+        "condense": 0.3,
+    }
+    narrates = True  # complete() draws its own debug boxes
 
     def __init__(
         self,
-        base_url,
-        api_key,
-        model,
+        base_url=_DEFAULT_BASE_URL,
+        api_key=_DEFAULT_API_KEY,
+        model=_DEFAULT_MODEL,
         max_tokens=_DEFAULT_MAX_TOKENS,
         request_extra=None,
     ):
@@ -175,6 +193,221 @@ class _HTTPBackend:
         self._schema_mode = True    # response_format json_schema (direct tier)
         self._think_toggle = True   # chat_template_kwargs turns thinking off
         self._stream_mode = True    # SSE streaming (thinking tier)
+
+    @property
+    def tiers(self):
+        """True when the thinking tier is genuinely distinct from the
+        direct tier — the ladder only escalates where that is real."""
+        return self._think_toggle
+
+    # -- the model's voice: prompts, envelopes, parsing --------------------
+
+    def read_prompt(self, story, name):
+        """-> (messages, value_schema) for inferring one attribute."""
+        hint = ""
+        value_schema = None
+        if re.match(r"(is|can|has|should|does|was|will)_", name):
+            hint = " The attribute name suggests a boolean."
+            value_schema = bool
+        return [
+            {
+                "role": "system",
+                "content": (
+                    "Infer the value of one attribute of a Python object from "
+                    "the object's data below. Reply with exactly one JSON "
+                    'object: {"value": <json>, "confidence": <0..1>}. '
+                    "Confidence is the probability the value is correct. Use "
+                    "natural JSON types (numbers as numbers, booleans as "
+                    "booleans). A random outcome (a roll, a draw): pick one "
+                    "result, confidence is its probability. Distinguish "
+                    "unknown from absent: when the attribute surely has a "
+                    "value that is merely unstated (a color, a serial number "
+                    "nobody mentioned), ALWAYS commit to one concrete, "
+                    "plausible value with honestly low confidence — never "
+                    "null, never a refusal. null means the object truly HAS "
+                    "no such value (the trailer of a car that tows none), "
+                    "held with real confidence. Never placeholder strings "
+                    'like "unknown". Never contradict the object\'s data. '
+                    "Example replies:\n"
+                    '{"value": "silver", "confidence": 0.3}\n'
+                    '{"value": null, "confidence": 0.9}'
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"OBJECT:\n{story}\n\n"
+                    f"What is the value of the attribute `{name}`?{hint}"
+                ),
+            },
+        ], value_schema
+
+    def compare_prompt(self, left, right, symbol):
+        """Messages for judging an ordering comparison between stories."""
+        return [
+            {
+                "role": "system",
+                "content": (
+                    "Decide the comparison below between two objects. Reply "
+                    "with exactly one JSON object: "
+                    '{"value": true|false, "confidence": <0..1>}. Compare what '
+                    "the objects ARE (size, cost, capability, whatever their "
+                    "data makes relevant), not how they are spelled, unless "
+                    "both are plain text. If several readings disagree, pick "
+                    "the most likely and lower your confidence. Never "
+                    "contradict the objects' data. Example reply:\n"
+                    '{"value": false, "confidence": 0.85}'
+                ),
+            },
+            {
+                "role": "user",
+                "content": f"LEFT:\n{left}\n\nRIGHT:\n{right}\n\nIs LEFT {symbol} RIGHT?",
+            },
+        ]
+
+    def collapse_prompt(self, story, schema):
+        """Messages for resolving the single value a story stands for."""
+        demand = (
+            f" The value MUST be a JSON {_render_schema(schema)}."
+            if schema is not None
+            else ""
+        )
+        return [
+            {
+                "role": "system",
+                "content": (
+                    "Give the single JSON value the object below most "
+                    "naturally represents. Reply with exactly one JSON "
+                    'object: {"value": <json>, "confidence": <0..1>}. A '
+                    'described value represents itself ("Cat" gives "Cat"). '
+                    "Use natural JSON types. Never contradict the object's "
+                    'data. Example reply:\n{"value": "Cat", "confidence": 0.97}'
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"OBJECT:\n{story}\n\n"
+                    f"What single value does this object represent?{demand}"
+                ),
+            },
+        ]
+
+    def plan_prompt(self, story, call_repr, name, stack, returns_schema):
+        """Messages that open an imagined method call's action loop."""
+        return [
+            {
+                "role": "system",
+                "content": (
+                    "You produce the outcome of one imagined method call on a "
+                    "Python object. The method has no written code; you act it "
+                    "out step by step, using the object's data below.\n"
+                    "Reply with exactly one JSON object per turn, one of:\n"
+                    '{"action": "get", "name": "<attr>"}\n'
+                    '{"action": "set", "name": "<attr>", "value": <json>, "confidence": <0..1>}\n'
+                    '{"action": "delete", "name": "<attr>"}\n'
+                    '{"action": "call", "name": "<method>", "args": [<json>...]}\n'
+                    '{"action": "define", "name": "<name>", "meaning": "<text>"}\n'
+                    '{"action": "return", "value": <json>, "confidence": <0..1>}\n'
+                    "Facts: `call` runs the object's real, written methods. "
+                    "Never write code. Written state is certain and "
+                    "read-only; record changes to it under new names. "
+                    "Imagined state and open slots are yours to set, change, "
+                    "or delete. `return` is the only way "
+                    "to finish, and its value must be written out whole, "
+                    'never abbreviated (a stored handle string like "$1" '
+                    "counts as whole). When the job names no output format, "
+                    "return data as data, exactly as produced; never invent "
+                    "formatting or summaries. Never draft a long value in "
+                    "your thinking: write it once, directly in the reply.\n"
+                    "Example turns for the job `describe_load()` on an object "
+                    "with a real method `items`:\n"
+                    '{"action": "call", "name": "items", "args": []}\n'
+                    '-> result: ["anvil", "piano"]\n'
+                    '{"action": "return", "value": "an anvil and a piano", "confidence": 0.9}'
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"OBJECT:\n{story}\n\n"
+                    f"Your job: produce the result of {call_repr} and make "
+                    f"any changes to the object it implies. `{name}` itself "
+                    "has no code and cannot be called."
+                    + (
+                        "\nCall stack: "
+                        + " -> ".join(f"{f}()" for f in stack)
+                        + "; never call anything already on it."
+                        if len(stack) > 1
+                        else ""
+                    )
+                    + (
+                        "\nThe final return value MUST match this schema exactly: "
+                        + _render_schema(returns_schema)
+                        if returns_schema is not None
+                        else ""
+                    )
+                ),
+            },
+        ]
+
+    def condense_prompt(self, origin, events):
+        """Messages for retelling the oldest events as one passage. Calls
+        are rendered with their roles spelled out, so the retelling
+        cannot mistake who said or did what."""
+
+        def spoken(event):
+            if event.get("event") == "call":
+                args = ", ".join(repr(a) for a in event.get("args") or [])
+                result = json.dumps(
+                    event.get("result"), default=repr, ensure_ascii=False
+                )
+                return (
+                    f"the outside world called {event.get('name')}"
+                    f"({_snip(args, 300)}) and the object itself produced: "
+                    + _snip(result, 400)
+                )
+            return _told_event_line(event)
+
+        passage = "\n".join(spoken(e) for e in events)
+        return [
+            {
+                "role": "system",
+                "content": (
+                    "Retell the oldest part of an object's story as one "
+                    "short passage (2-5 sentences), so later readers can "
+                    "drop the raw events. Keep every concrete fact, name, "
+                    "number, decision, and standing commitment; keep who "
+                    "did or said each thing — never merge different "
+                    "actors. Drop process noise and repetition. "
+                    "Never invent, never editorialize. "
+                    "Reply with exactly one JSON object: "
+                    '{"value": "<the retelling>", "confidence": <0..1>}.'
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"OBJECT: {origin}\n\nOLDEST EVENTS, in order:\n"
+                    f"{passage}\n\nRetell these as one passage."
+                ),
+            },
+        ]
+
+    def query_envelope(self, value_schema=None):
+        return _query_envelope(value_schema)
+
+    def action_envelope(self, returns_schema=None, stack=()):
+        return _action_envelope(returns_schema, stack)
+
+    def receipt(self, handle, text):
+        return _handle_receipt(handle, text)
+
+    def extract(self, text):
+        return _extract_json(text)
+
+    def shape(self, data):
+        return _answer_shape(data)
 
     def complete(self, messages, temperature=0.7, think=None, schema=None):
         """Inference climbs a two-tier ladder.
@@ -544,19 +777,50 @@ class _HTTPBackend:
         return message.get("content") or "", message.get("reasoning_content") or "", meta
 
 
-class _CallableBackend:
+class _CallableEngine(Engine):
+    """A bare callable as provider: inherits the engine's voice (prompts,
+    envelopes, parsing); only the completion itself is the caller's."""
+
+    tiers = False
+    narrates = False
+
     def __init__(self, fn):
         self.fn = fn
+        self.last_meta = {}
 
-    def complete(self, messages, temperature=0.7):
-        return self.fn(messages)
+    def complete(self, messages, temperature=0.7, think=None, schema=None):
+        try:
+            return self.fn(messages, temperature=temperature)
+        except TypeError:
+            return self.fn(messages)
 
 
-def _resolve_backend(spec, cfg):
+class _ProviderEngine(Engine):
+    """An object with `complete(messages) -> text` as provider — the
+    scene-10 protocol — wrapped so it too speaks with the engine's voice."""
+
+    tiers = False
+    narrates = False
+
+    def __init__(self, provider):
+        self.provider = provider
+
+    @property
+    def last_meta(self):
+        return getattr(self.provider, "last_meta", None) or {}
+
+    def complete(self, messages, temperature=0.7, think=None, schema=None):
+        try:
+            return self.provider.complete(messages, temperature=temperature)
+        except TypeError:
+            return self.provider.complete(messages)
+
+
+def _resolve_engine(spec, cfg):
     max_tokens = cfg.get("max_tokens", _DEFAULT_MAX_TOKENS)
     extra = cfg.get("request_extra")
     if spec is None:
-        return _HTTPBackend(
+        return Engine(
             cfg["base_url"], cfg["api_key"], cfg["model"], max_tokens, extra
         )
     if isinstance(spec, str):
@@ -565,17 +829,19 @@ def _resolve_backend(spec, cfg):
                 "embedded models are future work; point `model` at a server URL"
             )
         if spec.startswith("http://") or spec.startswith("https://"):
-            return _HTTPBackend(
+            return Engine(
                 spec, cfg["api_key"], cfg["model"], max_tokens, extra
             )
-        return _HTTPBackend(
+        return Engine(
             cfg["base_url"], cfg["api_key"], spec, max_tokens, extra
         )
-    if hasattr(spec, "complete"):
+    if isinstance(spec, Engine):
         return spec
+    if hasattr(spec, "complete"):
+        return _ProviderEngine(spec)
     if callable(spec):
-        return _CallableBackend(spec)
-    raise TypeError(f"cannot use {spec!r} as an inference backend")
+        return _CallableEngine(spec)
+    raise TypeError(f"cannot use {spec!r} as an inference engine")
 
 
 def _json_objects(text):
@@ -1293,13 +1559,13 @@ class Thing(metaclass=_ThingMeta):
             cfg.update(getattr(klass, "_thing_defaults", None) or {})
         return cfg
 
-    def _thing_backend(self):
+    def _thing_engine(self):
         self._thing_ensure()
-        backend = self.__dict__.get("_thing_backend_obj")
-        if backend is None:
-            backend = _resolve_backend(self._thing_model_spec, self._thing_config())
-            object.__setattr__(self, "_thing_backend_obj", backend)
-        return backend
+        engine = self.__dict__.get("_thing_engine_obj")
+        if engine is None:
+            engine = _resolve_engine(self._thing_model_spec, self._thing_config())
+            object.__setattr__(self, "_thing_engine_obj", engine)
+        return engine
 
     def _thing_log(self, event):
         self._thing_ensure()
@@ -1398,53 +1664,14 @@ class Thing(metaclass=_ThingMeta):
         through = next((i for i, e in enumerate(journal) if e is anchor), None)
         if through is None:
             return
-
-        def spoken(event):
-            # calls are rendered with their roles spelled out, so the
-            # retelling cannot mistake who said or did what
-            if event.get("event") == "call":
-                args = ", ".join(repr(a) for a in event.get("args") or [])
-                result = json.dumps(
-                    event.get("result"), default=repr, ensure_ascii=False
-                )
-                return (
-                    f"the outside world called {event.get('name')}"
-                    f"({_snip(args, 300)}) and the object itself produced: "
-                    + _snip(result, 400)
-                )
-            return _told_event_line(event)
-
-        passage = "\n".join(spoken(e) for e in old)
         origin = " | ".join(self._thing_parts) or type(self).__name__
-        messages = [
-            {
-                "role": "system",
-                "content": (
-                    "Retell the oldest part of an object's story as one "
-                    "short passage (2-5 sentences), so later readers can "
-                    "drop the raw events. Keep every concrete fact, name, "
-                    "number, decision, and standing commitment; keep who "
-                    "did or said each thing — never merge different "
-                    "actors. Drop process noise and repetition. "
-                    "Never invent, never editorialize. "
-                    "Reply with exactly one JSON object: "
-                    '{"value": "<the retelling>", "confidence": <0..1>}.'
-                ),
-            },
-            {
-                "role": "user",
-                "content": (
-                    f"OBJECT: {origin}\n\nOLDEST EVENTS, in order:\n"
-                    f"{passage}\n\nRetell these as one passage."
-                ),
-            },
-        ]
+        messages = self._thing_engine().condense_prompt(origin, old)
         object.__setattr__(self, "_thing_condensing", True)
         try:
             with _op_scope():
                 summary, confidence = self._thing_query(
                     messages,
-                    temperature=0.3,
+                    "condense",
                     purpose=f"{type(self).__name__} · condense",
                     value_schema=str,
                     check=False,
@@ -1544,7 +1771,7 @@ class Thing(metaclass=_ThingMeta):
     def _thing_complete_json(
         self, messages, temperature, purpose="inference", think=None, schema=None
     ):
-        backend = self._thing_backend()
+        engine = self._thing_engine()
         last_error = None
         st = _op_debug.get()
         for _ in range(3):
@@ -1552,20 +1779,14 @@ class Thing(metaclass=_ThingMeta):
                 _debug_open_op(purpose, messages, st)
             token = _purpose.set(purpose)
             try:
-                try:
-                    text = backend.complete(
-                        messages, temperature=temperature, think=think, schema=schema
-                    )
-                except TypeError:
-                    try:
-                        text = backend.complete(messages, temperature=temperature)
-                    except TypeError:
-                        text = backend.complete(messages)
+                text = engine.complete(
+                    messages, temperature=temperature, think=think, schema=schema
+                )
             finally:
                 _purpose.reset(token)
-            meta = getattr(backend, "last_meta", None) or {}
-            if _debugging.get() and not isinstance(backend, _HTTPBackend):
-                # HTTP backends narrate themselves block by block
+            meta = getattr(engine, "last_meta", None) or {}
+            if _debugging.get() and not engine.narrates:
+                # the default engine narrates itself block by block
                 label = "<<< " + (
                     f"step {st['round']} · " if st and st.get("plan") else ""
                 ) + "reply"
@@ -1576,7 +1797,7 @@ class Thing(metaclass=_ThingMeta):
                     close=not (st and st.get("plan")),
                 )
             try:
-                return _extract_json(text)
+                return engine.extract(text)
             except ValueError as error:
                 last_error = error
                 if meta.get("finish_reason") == "length":
@@ -1606,14 +1827,17 @@ class Thing(metaclass=_ThingMeta):
                 ]
         raise RuntimeError(f"backend produced no parseable JSON: {last_error}")
 
-    def _thing_query(self, messages, temperature, purpose, value_schema=None, check=True):
+    def _thing_query(self, messages, op, purpose, value_schema=None, check=True):
         """One single-shot question -> (value, confidence), climbing the
         two-tier ladder: the direct tier answers first; a reply below an
         active `require` threshold — or a refusal-shaped null, a
         non-answer rather than true absence — earns one thinking retry
-        before LowConfidence is raised."""
-        envelope = _query_envelope(value_schema)
-        value, confidence = _answer_shape(
+        before LowConfidence is raised. Sampling comes from the engine's
+        per-operation table."""
+        engine = self._thing_engine()
+        temperature = engine.temperatures.get(op, 0.3)
+        envelope = engine.query_envelope(value_schema)
+        value, confidence = engine.shape(
             self._thing_complete_json(
                 messages, temperature, purpose, think=False, schema=envelope
             )
@@ -1628,7 +1852,7 @@ class Thing(metaclass=_ThingMeta):
             refusal
             or arbitrate
             or (threshold is not None and confidence < threshold)
-        ) and getattr(self._thing_backend(), "_think_toggle", False):
+        ) and engine.tiers:
             if _debugging.get():
                 if refusal:
                     reason = f"a null at p {confidence:.2f} is a non-answer"
@@ -1641,7 +1865,7 @@ class Thing(metaclass=_ThingMeta):
                     [("↑ escalating", reason + "; retrying with thinking")],
                     close=False,
                 )
-            value, confidence = _answer_shape(
+            value, confidence = engine.shape(
                 self._thing_complete_json(
                     messages, temperature, purpose + " · rethink",
                     think=True, schema=envelope,
@@ -1656,47 +1880,13 @@ class Thing(metaclass=_ThingMeta):
     def _thing_read(self, name):
         self._thing_ensure()
         self._thing_condense_if_needed()
-        hint = ""
-        value_schema = None
-        if re.match(r"(is|can|has|should|does|was|will)_", name):
-            hint = " The attribute name suggests a boolean."
-            value_schema = bool
-        messages = [
-            {
-                "role": "system",
-                "content": (
-                    "Infer the value of one attribute of a Python object from "
-                    "the object's data below. Reply with exactly one JSON "
-                    'object: {"value": <json>, "confidence": <0..1>}. '
-                    "Confidence is the probability the value is correct. Use "
-                    "natural JSON types (numbers as numbers, booleans as "
-                    "booleans). A random outcome (a roll, a draw): pick one "
-                    "result, confidence is its probability. Distinguish "
-                    "unknown from absent: when the attribute surely has a "
-                    "value that is merely unstated (a color, a serial number "
-                    "nobody mentioned), ALWAYS commit to one concrete, "
-                    "plausible value with honestly low confidence — never "
-                    "null, never a refusal. null means the object truly HAS "
-                    "no such value (the trailer of a car that tows none), "
-                    "held with real confidence. Never placeholder strings "
-                    'like "unknown". Never contradict the object\'s data. '
-                    "Example replies:\n"
-                    '{"value": "silver", "confidence": 0.3}\n'
-                    '{"value": null, "confidence": 0.9}'
-                ),
-            },
-            {
-                "role": "user",
-                "content": (
-                    f"OBJECT:\n{self._thing_story()}\n\n"
-                    f"What is the value of the attribute `{name}`?{hint}"
-                ),
-            },
-        ]
+        messages, value_schema = self._thing_engine().read_prompt(
+            self._thing_story(), name
+        )
         with _op_scope():
             value, confidence = self._thing_query(
                 messages,
-                temperature=0.8,
+                "read",
                 purpose=f"{type(self).__name__}.{name} · read",
                 value_schema=value_schema,
             )
@@ -1726,29 +1916,10 @@ class Thing(metaclass=_ThingMeta):
             if isinstance(other, Thing)
             else json.dumps(other, default=repr, ensure_ascii=False)
         )
-        messages = [
-            {
-                "role": "system",
-                "content": (
-                    "Decide the comparison below between two objects. Reply "
-                    "with exactly one JSON object: "
-                    '{"value": true|false, "confidence": <0..1>}. Compare what '
-                    "the objects ARE (size, cost, capability, whatever their "
-                    "data makes relevant), not how they are spelled, unless "
-                    "both are plain text. If several readings disagree, pick "
-                    "the most likely and lower your confidence. Never "
-                    "contradict the objects' data. Example reply:\n"
-                    '{"value": false, "confidence": 0.85}'
-                ),
-            },
-            {
-                "role": "user",
-                "content": f"LEFT:\n{left}\n\nRIGHT:\n{right}\n\nIs LEFT {symbol} RIGHT?",
-            },
-        ]
+        messages = self._thing_engine().compare_prompt(left, right, symbol)
         with _op_scope():
             value, confidence = self._thing_query(
-                messages, temperature=0.3, purpose=f"judge `{symbol}`",
+                messages, "judge", purpose=f"judge `{symbol}`",
                 value_schema=bool,
             )
         return self._thing_child(
@@ -1776,69 +1947,18 @@ class Thing(metaclass=_ThingMeta):
             )
             + ")"
         )
-        _, _, methods = self._thing_surface()
-        messages = [
-            {
-                "role": "system",
-                "content": (
-                    "You produce the outcome of one imagined method call on a "
-                    "Python object. The method has no written code; you act it "
-                    "out step by step, using the object's data below.\n"
-                    "Reply with exactly one JSON object per turn, one of:\n"
-                    '{"action": "get", "name": "<attr>"}\n'
-                    '{"action": "set", "name": "<attr>", "value": <json>, "confidence": <0..1>}\n'
-                    '{"action": "delete", "name": "<attr>"}\n'
-                    '{"action": "call", "name": "<method>", "args": [<json>...]}\n'
-                    '{"action": "define", "name": "<name>", "meaning": "<text>"}\n'
-                    '{"action": "return", "value": <json>, "confidence": <0..1>}\n'
-                    "Facts: `call` runs the object's real, written methods. "
-                    "Never write code. Written state is certain and "
-                    "read-only; record changes to it under new names. "
-                    "Imagined state and open slots are yours to set, change, "
-                    "or delete. `return` is the only way "
-                    "to finish, and its value must be written out whole, "
-                    'never abbreviated (a stored handle string like "$1" '
-                    "counts as whole). When the job names no output format, "
-                    "return data as data, exactly as produced; never invent "
-                    "formatting or summaries. Never draft a long value in "
-                    "your thinking: write it once, directly in the reply.\n"
-                    "Example turns for the job `describe_load()` on an object "
-                    "with a real method `items`:\n"
-                    '{"action": "call", "name": "items", "args": []}\n'
-                    '-> result: ["anvil", "piano"]\n'
-                    '{"action": "return", "value": "an anvil and a piano", "confidence": 0.9}'
-                ),
-            },
-            {
-                "role": "user",
-                "content": (
-                    f"OBJECT:\n{self._thing_story()}\n\n"
-                    f"Your job: produce the result of {call_repr} and make "
-                    f"any changes to the object it implies. `{name}` itself "
-                    "has no code and cannot be called."
-                    + (
-                        "\nCall stack: "
-                        + " -> ".join(f"{f}()" for f in stack)
-                        + "; never call anything already on it."
-                        if len(stack) > 1
-                        else ""
-                    )
-                    + (
-                        "\nThe final return value MUST match this schema exactly: "
-                        + _render_schema(schema)
-                        if schema is not None
-                        else ""
-                    )
-                ),
-            },
-        ]
+        messages = self._thing_engine().plan_prompt(
+            self._thing_story(), call_repr, name, stack, schema
+        )
         floor = 1.0
         purpose = f"{type(self).__name__}.{_snip(call_repr, 60)} · imagined"
         with _op_scope(plan=True):
             return self._thing_plan(name, args, messages, schema, floor, stack, purpose)
 
     def _thing_plan(self, name, args, messages, schema, floor, stack, purpose):
-        envelope = _action_envelope(schema, stack)
+        engine = self._thing_engine()
+        envelope = engine.action_envelope(schema, stack)
+        temperature = engine.temperatures.get("plan", 0.3)
         think = False  # steps start on the direct tier; stumbling escalates
         refusals = 0
         results = {}  # handles for values too large to retype: "$1" -> raw
@@ -1862,7 +1982,7 @@ class Thing(metaclass=_ThingMeta):
                 )
             turn += 1
             step = self._thing_complete_json(
-                messages, temperature=0.3, purpose=purpose,
+                messages, temperature=temperature, purpose=purpose,
                 think=think, schema=envelope,
             )
             if not isinstance(step, dict):
@@ -1994,12 +2114,12 @@ class Thing(metaclass=_ThingMeta):
                 # a receipt that teaches the handle right when it matters
                 handle = f"${len(results) + 1}"
                 results[handle] = feedback
-                feedback = _handle_receipt(handle, feedback)
+                feedback = engine.receipt(handle, feedback)
                 if len(results) == 1:
                     # the constrained decoder would refuse the handle string
                     # where the schema demands a list or object; from here
                     # on the runtime check alone guards the return's shape
-                    envelope = _action_envelope(None, stack)
+                    envelope = engine.action_envelope(None, stack)
             if feedback.startswith("refused"):
                 # a refused action never happened: give the step back and
                 # draw on the correction allowance instead
@@ -2053,9 +2173,9 @@ class Thing(metaclass=_ThingMeta):
         d["_thing_root"] = root
         d["_thing_stateful"] = self._thing_stateful
         d["_thing_model_spec"] = self._thing_model_spec
-        backend = self.__dict__.get("_thing_backend_obj")
-        if backend is not None:
-            object.__setattr__(child, "_thing_backend_obj", backend)
+        engine = self.__dict__.get("_thing_engine_obj")
+        if engine is not None:
+            object.__setattr__(child, "_thing_engine_obj", engine)
         object.__setattr__(child, "_thing_value", value)
         if isinstance(value, dict):
             for key, item in value.items():
@@ -2467,9 +2587,9 @@ class Thing(metaclass=_ThingMeta):
             clone._thing_restore(self.__getstate__())
             d = clone._thing_ensure()
             d["_thing_model_spec"] = self.__dict__.get("_thing_model_spec")
-            backend = self.__dict__.get("_thing_backend_obj")
-            if backend is not None:
-                object.__setattr__(clone, "_thing_backend_obj", backend)
+            engine = self.__dict__.get("_thing_engine_obj")
+            if engine is not None:
+                object.__setattr__(clone, "_thing_engine_obj", engine)
             return clone
         if isinstance(operand, type) and not issubclass(
             operand, (str, int, float, bool, list, dict)
@@ -2552,35 +2672,11 @@ class Thing(metaclass=_ThingMeta):
         cache = self.__dict__.get("_thing_collapsed") or {}
         if key in cache:
             return cache[key]
-        demand = (
-            f" The value MUST be a JSON {_render_schema(schema)}."
-            if schema is not None
-            else ""
-        )
-        messages = [
-            {
-                "role": "system",
-                "content": (
-                    "Give the single JSON value the object below most "
-                    "naturally represents. Reply with exactly one JSON "
-                    'object: {"value": <json>, "confidence": <0..1>}. A '
-                    'described value represents itself ("Cat" gives "Cat"). '
-                    "Use natural JSON types. Never contradict the object's "
-                    'data. Example reply:\n{"value": "Cat", "confidence": 0.97}'
-                ),
-            },
-            {
-                "role": "user",
-                "content": (
-                    f"OBJECT:\n{self._thing_story()}\n\n"
-                    f"What single value does this object represent?{demand}"
-                ),
-            },
-        ]
+        messages = self._thing_engine().collapse_prompt(self._thing_story(), schema)
         with _op_scope():
             value, confidence = self._thing_query(
                 messages,
-                temperature=0.3,
+                "collapse",
                 purpose=f"{type(self).__name__} @ {key} · collapse"
                 if key
                 else f"{type(self).__name__} · collapse",
@@ -2637,3 +2733,10 @@ class Thing(metaclass=_ThingMeta):
 
     def __rtruediv__(self, other):
         return _plain(other) / self._thing_value_or_raise()
+
+
+# The one extension point, reached through the one public name
+# (principle 5): subclass `Thing.Engine` to adapt thinair to another
+# model — prompts, sampling, envelopes, parsing, transport — and pass an
+# instance as `model=` or via `Thing.defaults()`.
+Thing.Engine = Engine

@@ -471,6 +471,23 @@ def recorded_fact_never_shadows_a_method():
 
 
 @scenario(live=True, retries=1)
+def a_custom_engine_owns_the_prompts():
+    class OpinionatedEngine(Thing.Engine):
+        def read_prompt(self, story, name):
+            messages, schema = super().read_prompt(story, name)
+            messages[0]["content"] += (
+                " Special house rule: any color attribute is always exactly "
+                '"purple" with confidence 0.42.'
+            )
+            return messages, schema
+
+    car = Thing("A Toyota car from the 1990s", model=OpinionatedEngine())
+    c = car.color
+    assert +c == "purple"  # the subclassed prompt decided the answer
+    assert abs(~c - 0.42) < 0.2
+
+
+@scenario(live=True, retries=1)
 def compaction_triggers_and_preserves_facts():
     class Parrot(Thing):
         """A talking parrot; answers in one short sentence, first person."""
