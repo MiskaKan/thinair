@@ -26,9 +26,11 @@ __all__ = ["Thing"]
 
 _DEFAULT_BASE_URL = os.environ.get("THINAIR_BASE_URL", "http://127.0.0.1:8000/v1")
 _DEFAULT_API_KEY = os.environ.get("THINAIR_API_KEY", "1234")
-_DEFAULT_MODEL = os.environ.get("THINAIR_MODEL", "Qwen3.6-35B-A3B-oQ6-mtp")
+_DEFAULT_MODEL = os.environ.get("THINAIR_MODEL", "Qwen3.6-35B-A3B-oQ8-mtp")
 _DEFAULT_MAX_TOKENS = int(os.environ.get("THINAIR_MAX_TOKENS", "32768"))
-_DEFAULT_THINK_CHUNK = int(os.environ.get("THINAIR_THINK_CHUNK", "2048"))
+# a plan-step result larger than this (rendered chars) is held by the
+# runtime under a handle ("$1") instead of marching through the model
+_HANDLE_LIMIT = int(os.environ.get("THINAIR_HANDLE_LIMIT", "4000"))
 
 _UNSET = object()
 _required = contextvars.ContextVar("thing_required_confidence", default=None)
@@ -78,6 +80,79 @@ def _own_doc(cls):
 # Backends
 # ---------------------------------------------------------------------------
 
+class _LoopWatch:
+    """Online verbatim-repetition detector: the streaming twin of
+    `_prune_repetition`, same thresholds. Feed it text as it arrives; it
+    trips the moment any long-enough line has been seen three times —
+    nonsense is stopped when it starts, not discovered 32k tokens later."""
+
+    def __init__(self):
+        self.counts = {}
+        self.buffer = ""
+        self.tripped = False
+
+    def feed(self, text):
+        self.buffer += text
+        while "\n" in self.buffer:
+            line, self.buffer = self.buffer.split("\n", 1)
+            key = line.strip()
+            if len(key) < 10:
+                continue  # short structural lines ("},", "],") repeat honestly
+            self.counts[key] = self.counts.get(key, 0) + 1
+            if self.counts[key] >= 3:
+                self.tripped = True
+        return self.tripped
+
+
+class _StreamPrinter:
+    """Live token rendering: the thinking tier's stream, printed into the
+    operation's open debug box as it arrives, channel by channel."""
+
+    def __init__(self, st=None):
+        self.pad = "  " * len(_op_stack.get())
+        self.step = f"step {st['round']} · " if st and st.get("plan") else ""
+        self.section = None
+        self.midline = False
+
+    def breakline(self):
+        if self.midline:
+            sys.stderr.write("\n")
+            self.midline = False
+
+    def note(self, text):
+        """A `├─` divider naming an event (a cut, a carry, a grant)."""
+        self.breakline()
+        sys.stderr.write(f"{self.pad}├─ {text} " + "─" * max(1, 56 - len(text)) + "\n")
+        sys.stderr.flush()
+        self.section = None
+
+    def write(self, section, text):
+        if section != self.section:
+            label = section if self.section == "thoughts" else (
+                f"<<< {self.step}{section} (streaming)"
+            )
+            self.note(label)
+            self.section = section
+        if not text:
+            return
+        if not self.midline:
+            sys.stderr.write(f"{self.pad}│ ")
+            self.midline = True
+        sys.stderr.write(text.replace("\n", f"\n{self.pad}│ "))
+        sys.stderr.flush()
+
+    def finish(self, footer, close=True):
+        self.breakline()
+        if close:
+            sys.stderr.write(
+                f"{self.pad}└─ {footer}\n" if footer else self.pad + "└" + "─" * 59 + "\n"
+            )
+        elif footer:
+            sys.stderr.write(f"{self.pad}├─ {footer}\n")
+        sys.stderr.flush()
+        self.section = None
+
+
 class _HTTPBackend:
     """Any OpenAI-compatible /chat/completions endpoint."""
 
@@ -88,91 +163,108 @@ class _HTTPBackend:
         model,
         max_tokens=_DEFAULT_MAX_TOKENS,
         request_extra=None,
-        think_chunk=_DEFAULT_THINK_CHUNK,
     ):
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.model = model
         self.max_tokens = int(max_tokens)
         self.request_extra = dict(request_extra or {})
-        self.think_chunk = int(think_chunk)
         self.last_meta = {}
-        self._json_mode = True  # optimistic; dropped if the server rejects it
+        # optimistic capabilities; each is dropped if the server rejects it
+        self._json_mode = True      # response_format json_object
+        self._schema_mode = True    # response_format json_schema (direct tier)
+        self._think_toggle = True   # chat_template_kwargs turns thinking off
+        self._stream_mode = True    # SSE streaming (thinking tier)
 
-    def complete(self, messages, temperature=0.7):
-        """Thinking runs in fixed windows of `think_chunk` tokens: every
-        checkpoint is a wake-up where looping cannot survive unexamined.
-        Concluding inside a window ends the call; running out means
-        "still thinking" — the reasoning is carried forward with verbatim
-        repetition pruned (a cut loop is named to the model, and a reply
-        rehearsed inside the loop is harvested as the answer). When the
-        thinking allowance (`max_tokens` in total) is spent, the answer
-        is demanded; an answer cut mid-way gets a completion grant sized
-        from the draft. `think_chunk=0` restores single-shot
-        completions."""
+    def complete(self, messages, temperature=0.7, think=None, schema=None):
+        """Inference climbs a two-tier ladder.
+
+        The direct tier (`think=False`, on servers whose chat template can
+        turn thinking off) answers single-shot with thinking disabled and,
+        where the server supports it, decoding constrained to `schema` —
+        cheap, fast, and immune to runaway thought. Constrained decoding
+        is never combined with thinking: it would squeeze the reasoning
+        channel shut and the thoughts would leak into the answer as prose.
+
+        Everything else is the thinking tier: one streamed completion,
+        supervised as it arrives. There are no scheduled windows — the
+        stream is cut only on evidence, the moment either channel starts
+        repeating itself verbatim. A cut carries the pruned reasoning
+        forward (a reply rehearsed inside the loop is harvested as the
+        answer); repeated cuts or a spent budget turn into a demand for
+        the answer; an answer cut mid-way by the budget gets a completion
+        grant sized from the draft."""
         debug = _debugging.get()
         st = _op_debug.get()
         # a plan's box is closed by its final `▸` step line, not by us
         conclude = not (st and st.get("plan"))
-        if self.think_chunk <= 0:
+        if think is False and self._think_toggle:
             content, reasoning, meta = self._request(
-                messages, temperature, self.max_tokens
+                messages, temperature, self.max_tokens, think, schema
             )
             self.last_meta = meta
             if debug:
-                _debug_box(
-                    None,
-                    ([("<<< thoughts", reasoning)] if reasoning else [])
-                    + [("<<< answer", content)],
-                    _meta_line(meta),
-                    close=conclude,
+                sections = ([("thoughts", reasoning)] if reasoning else []) + [
+                    ("answer", content)
+                ]
+                prefix = "<<< " + (
+                    f"step {st['round']} · " if st and st.get("plan") else ""
                 )
+                sections[0] = (prefix + sections[0][0], sections[0][1])
+                _debug_box(None, sections, _meta_line(meta), close=conclude)
             return content
+        # -- thinking tier: stream, supervise, intervene on evidence ------
         thoughts = []
-        blocks_used = 0
-        allowance = self.max_tokens  # total thinking budget across blocks
+        allowance = self.max_tokens  # total budget across interventions
+        interventions = 0
+        attempts = 0
         demands_left = 2
         content = ""
         stalled_last = False
+        printer = _StreamPrinter(st) if debug else None
         while True:
-            # phase 1: fixed thinking windows with checkpoints; phase 2:
-            # allowance spent, the answer is demanded — still one window
-            # at a time, so a model that only keeps thinking can never
-            # capture the full budget
-            demanding = allowance <= 0
+            attempts += 1
+            demanding = allowance <= 0 or interventions >= 2 or attempts > 6
             if demanding:
                 if demands_left <= 0:
                     # it never stopped thinking; the parse layer sees the
                     # length finish and raises the clear budget error
                     # instead of retrying
+                    if printer:
+                        printer.finish(_meta_line(self.last_meta), close=conclude)
                     return content
                 demands_left -= 1
-            budget = self.think_chunk
-            blocks_used += 1
-            content, reasoning, meta = self._request(
+            budget = allowance if allowance > 0 else 2048
+            content, reasoning, meta, cut = self._stream(
                 self._with_thoughts(
                     messages, thoughts, final=demanding, stalled=stalled_last
                 ),
                 temperature,
                 budget,
+                printer,
             )
-            meta["thinking_blocks"] = blocks_used
+            if cut:
+                interventions += 1
+            meta["interventions"] = interventions
             self.last_meta = meta
             allowance -= int(meta.get("completion_tokens") or budget)
             # a length finish means the REQUEST hit its token cap, not that
             # the answer is incomplete: reasoning plus a whole answer can
             # land exactly on the cap, and asking again only confuses the
             # model about an answer it already delivered
-            concluded = bool(content) and (
-                meta.get("finish_reason") != "length" or _is_complete_json(content)
+            concluded = (
+                bool(content)
+                and not cut
+                and (meta.get("finish_reason") != "length" or _is_complete_json(content))
             )
-            # a cut answer is only an answer if JSON is underway; prose in
+            # an interrupted answer is only an answer if JSON is underway
+            # and the interruption was the budget, not a loop; prose in
             # the answer channel is thinking that escaped the reasoning
-            # channel (server JSON mode off) and must not be granted the
-            # full budget
+            # channel and must not be granted the full budget
             answer_underway = (
                 bool(content)
                 and not concluded
+                and not cut
                 and content.lstrip()[:1] in ("{", "[")
             )
             carried_reasoning = stalled_reasoning = None
@@ -182,67 +274,33 @@ class _HTTPBackend:
                     carried_reasoning, stalled_reasoning = _prune_repetition(reasoning)
                 if content and not answer_underway:
                     carried_draft, stalled_draft = _prune_repetition(content)
-            stalled_last = bool(stalled_reasoning or stalled_draft)
+            stalled_last = bool(cut or stalled_reasoning or stalled_draft)
             harvested = None
-            if not concluded and not content and stalled_reasoning:
+            if not concluded and not content and (cut or stalled_reasoning):
                 harvested = _harvest_reply(reasoning)
-            if debug:
-                k = "<<< " + (
-                    f"step {st['round']} · " if st and st.get("plan") else ""
-                ) + f"block {blocks_used}"
-                pruned = " (degenerated into repetition; pruned before carrying)"
-                sections = []
-                if reasoning:
-                    label = "thoughts"
-                    if demanding:
-                        label += " (answer demanded)"
-                    if stalled_reasoning:
-                        label += pruned
-                    sections.append((label, reasoning))
+            if printer:
                 if concluded:
-                    sections.append(("answer", content))
-                elif answer_underway:
-                    sections.append(
-                        (
-                            "answer, cut mid-way (completing at full "
-                            "budget next)",
-                            content,
-                        )
-                    )
-                elif content:
-                    label = "draft (arrived in the answer channel)"
-                    if stalled_draft:
-                        label += pruned
-                    sections.append((label, content))
+                    printer.finish(_meta_line(meta), close=conclude)
                 elif harvested:
-                    sections.append(
-                        ("answer, harvested from the looping thoughts", harvested)
+                    printer.breakline()
+                    _debug_box(
+                        None,
+                        [("answer, harvested from the looping thoughts", harvested)],
+                        _meta_line(meta),
+                        close=conclude,
                     )
-                if not sections:
-                    sections.append(("thoughts", "(nothing returned)"))
-                # the block identity appears once; further sections are
-                # the same response's other channel
-                sections[0] = (f"{k} · {sections[0][0]}", sections[0][1])
-                _debug_box(
-                    None,
-                    sections,
-                    _meta_line(meta),
-                    # the final block closes the operation's tall box: an
-                    # answer, or the last demanded attempt (unless a cut
-                    # answer means the full-budget block still follows)
-                    close=conclude
-                    and (
-                        concluded
-                        or bool(harvested)
-                        or (demanding and demands_left <= 0 and not answer_underway)
-                    ),
-                )
+                elif cut:
+                    printer.note("loop detected — cut, pruned, carrying on")
+                elif answer_underway:
+                    printer.note("answer cut by the budget; granting completion")
+                else:
+                    printer.note(_meta_line(meta) or "carrying on")
             if concluded:
-                return content  # concluded within the block: chose to answer
+                return content  # chose to answer: the stream ran its course
             if harvested:
                 return harvested  # the reply was rehearsed in the thinking
             if reasoning:
-                if stalled_reasoning:
+                if cut or stalled_reasoning:
                     carried_reasoning = (
                         (carried_reasoning + "\n" if carried_reasoning else "")
                         + "(the reasoning began repeating verbatim and was "
@@ -251,14 +309,14 @@ class _HTTPBackend:
                 thoughts.append(carried_reasoning)
             if answer_underway:
                 thoughts.append(content)
-                break  # the answer is underway: full budget to finish it
+                break  # the answer is underway: a grant to finish it
             if content:
                 label = (
-                    "(a draft, cut at a checkpoint; do not continue this draft"
+                    "(a draft, interrupted; do not continue this draft"
                     + (
                         ", and it began repeating verbatim, cut where the "
                         "loop started"
-                        if stalled_draft
+                        if cut or stalled_draft
                         else ""
                     )
                     + ")\n"
@@ -269,31 +327,117 @@ class _HTTPBackend:
                     else "(a draft here only repeated itself verbatim and "
                     "was discarded; take the next concrete step instead)"
                 )
-        # phase 3: a grant to finish the answer that already began — sized
-        # from the cut draft, never the whole budget in one uncapped shot;
-        # if even this is not enough, the length finish becomes the clear
-        # budget error instead of a runaway
+        # a grant to finish the answer that already began — sized from the
+        # cut draft, never the whole budget in one uncapped shot; if even
+        # this is not enough, the length finish becomes the clear budget
+        # error instead of a runaway
         grant = min(
             self.max_tokens,
-            2 * int(meta.get("completion_tokens") or budget) + self.think_chunk,
+            2 * int(meta.get("completion_tokens") or 1024) + 2048,
         )
-        content, reasoning, meta = self._request(
+        content, reasoning, meta, cut = self._stream(
             self._with_thoughts(messages, thoughts, final=True),
             temperature,
             grant,
+            printer,
         )
-        meta["thinking_blocks"] = blocks_used
+        meta["interventions"] = interventions
         self.last_meta = meta
-        if debug:
-            prefix = "<<< " + (
-                f"step {st['round']} · " if st and st.get("plan") else ""
-            )
-            fb_sections = ([("thoughts", reasoning)] if reasoning else []) + [
-                ("answer, completed at full budget", content)
-            ]
-            fb_sections[0] = (f"{prefix}{fb_sections[0][0]}", fb_sections[0][1])
-            _debug_box(None, fb_sections, _meta_line(meta), close=conclude)
+        if printer:
+            printer.finish(_meta_line(meta), close=conclude)
         return content
+
+    def _stream(self, messages, temperature, max_tokens, printer=None):
+        """One streaming completion, watched as it arrives: each channel
+        feeds a `_LoopWatch`, and the connection is cut the moment either
+        starts repeating itself verbatim. -> (content, reasoning, meta,
+        cut). Falls back to a plain request on servers without SSE."""
+        if not self._stream_mode:
+            content, reasoning, meta = self._request(messages, temperature, max_tokens)
+            return content, reasoning, meta, False
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "top_p": 0.95,
+            "presence_penalty": 1.0,
+            "stream": True,
+            "stream_options": {"include_usage": True},
+        }
+        if self._json_mode:
+            payload["response_format"] = {"type": "json_object"}
+        payload.update(self.request_extra)
+        request = urllib.request.Request(
+            self.base_url + "/chat/completions",
+            data=json.dumps(payload).encode(),
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.api_key}",
+            },
+        )
+        reasoning_parts, content_parts = [], []
+        watches = {"thoughts": _LoopWatch(), "answer": _LoopWatch()}
+        finish = None
+        usage = {}
+        cut = False
+        try:
+            with urllib.request.urlopen(request, timeout=600) as response:
+                for raw in response:
+                    line = raw.decode("utf-8", "replace").strip()
+                    if not line.startswith("data:"):
+                        continue
+                    data = line[5:].strip()
+                    if data == "[DONE]":
+                        break
+                    event = json.loads(data)
+                    if event.get("usage"):
+                        usage = event["usage"]
+                    choices = event.get("choices") or []
+                    if not choices:
+                        continue
+                    if choices[0].get("finish_reason"):
+                        finish = choices[0]["finish_reason"]
+                    delta = choices[0].get("delta") or {}
+                    for channel, key, parts in (
+                        ("thoughts", "reasoning_content", reasoning_parts),
+                        ("answer", "content", content_parts),
+                    ):
+                        piece = delta.get(key) or ""
+                        if not piece:
+                            continue
+                        parts.append(piece)
+                        if printer:
+                            printer.write(channel, piece)
+                        if watches[channel].feed(piece):
+                            cut = True
+                    if cut:
+                        break  # closing the connection stops the runaway
+        except urllib.error.HTTPError as error:
+            if error.code in (400, 404, 422):
+                blame = ""
+                with contextlib.suppress(Exception):
+                    blame = error.read().decode("utf-8", "replace")
+                if "stream" in blame:
+                    self._stream_mode = False
+                elif self._json_mode:
+                    self._json_mode = False
+                else:
+                    self._stream_mode = False
+                return self._stream(messages, temperature, max_tokens, printer)
+            raise
+        content = "".join(content_parts)
+        reasoning = "".join(reasoning_parts)
+        meta = dict(usage)
+        # a cut aborts before the usage chunk arrives; estimate the spend
+        # so the allowance still ticks down
+        meta.setdefault(
+            "completion_tokens", max(1, (len(reasoning) + len(content)) // 3)
+        )
+        meta["finish_reason"] = "cut" if cut else finish
+        if not self._json_mode:
+            meta["json_mode"] = False
+        return content, reasoning, meta, cut
 
     def _with_thoughts(self, messages, thoughts, final, stalled=False):
         if not thoughts and not final:
@@ -302,9 +446,9 @@ class _HTTPBackend:
             "Reasoning budget spent. Emit the required JSON reply now, "
             "complete and from the beginning, nothing else."
             if final
-            else "Paused at a scheduled checkpoint; nothing was lost, and "
-            "your thoughts so far are above. Answer now with the required "
-            "JSON reply if you can, otherwise keep reasoning."
+            else "Your reasoning was interrupted; what matters is preserved "
+            "above. Answer now with the required JSON reply if you can, "
+            "otherwise keep reasoning — the next step, not a repetition."
         )
         if stalled and not final:
             nudge += (
@@ -324,21 +468,36 @@ class _HTTPBackend:
             extended.append(
                 {
                     "role": "assistant",
-                    "content": "(reasoning so far, paused at a scheduled checkpoint)\n"
+                    "content": "(reasoning so far, interrupted)\n"
                     + "\n".join(thoughts),
                 }
             )
         extended.append({"role": "user", "content": nudge})
         return extended
 
-    def _request(self, messages, temperature, max_tokens):
+    def _request(self, messages, temperature, max_tokens, think=None, schema=None):
+        direct = think is False and self._think_toggle
         payload = {
             "model": self.model,
             "messages": messages,
             "temperature": temperature,
             "max_tokens": max_tokens,
         }
-        if self._json_mode:
+        if direct:
+            # Qwen-recommended sampling for non-thinking mode
+            payload["chat_template_kwargs"] = {"enable_thinking": False}
+            payload["top_p"] = 0.8
+        else:
+            # thinking mode: wider nucleus, and a presence penalty so a
+            # quantized model is less tempted to circle its own thoughts
+            payload["top_p"] = 0.95
+            payload["presence_penalty"] = 1.0
+        if schema is not None and direct and self._schema_mode:
+            payload["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {"name": "reply", "schema": schema},
+            }
+        elif self._json_mode:
             payload["response_format"] = {"type": "json_object"}
         payload.update(self.request_extra)
         request = urllib.request.Request(
@@ -353,13 +512,32 @@ class _HTTPBackend:
             with urllib.request.urlopen(request, timeout=600) as response:
                 data = json.load(response)
         except urllib.error.HTTPError as error:
-            if self._json_mode and error.code in (400, 404, 422):
-                self._json_mode = False  # server has no JSON mode; remember
-                return self._request(messages, temperature, max_tokens)
+            if error.code in (400, 404, 422):
+                blame = ""
+                with contextlib.suppress(Exception):
+                    blame = error.read().decode("utf-8", "replace")
+                # drop the capability the server most plausibly rejected,
+                # remember, and retry; every branch clears a flag that
+                # gates it, so this terminates
+                if "chat_template" in blame and self._think_toggle:
+                    self._think_toggle = False
+                elif ("json_schema" in blame or "schema" in blame) and self._schema_mode:
+                    self._schema_mode = False
+                elif direct and schema is not None and self._schema_mode:
+                    self._schema_mode = False
+                elif direct and self._think_toggle:
+                    self._think_toggle = False
+                elif self._json_mode:
+                    self._json_mode = False  # server has no JSON mode
+                else:
+                    raise
+                return self._request(messages, temperature, max_tokens, think, schema)
             raise
         choice = data["choices"][0]
         meta = dict(data.get("usage") or {})
         meta["finish_reason"] = choice.get("finish_reason")
+        if direct:
+            meta["direct"] = True
         if not self._json_mode:
             meta["json_mode"] = False
         message = choice["message"]
@@ -377,10 +555,9 @@ class _CallableBackend:
 def _resolve_backend(spec, cfg):
     max_tokens = cfg.get("max_tokens", _DEFAULT_MAX_TOKENS)
     extra = cfg.get("request_extra")
-    chunk = cfg.get("think_chunk", _DEFAULT_THINK_CHUNK)
     if spec is None:
         return _HTTPBackend(
-            cfg["base_url"], cfg["api_key"], cfg["model"], max_tokens, extra, chunk
+            cfg["base_url"], cfg["api_key"], cfg["model"], max_tokens, extra
         )
     if isinstance(spec, str):
         if spec.startswith("file://"):
@@ -389,10 +566,10 @@ def _resolve_backend(spec, cfg):
             )
         if spec.startswith("http://") or spec.startswith("https://"):
             return _HTTPBackend(
-                spec, cfg["api_key"], cfg["model"], max_tokens, extra, chunk
+                spec, cfg["api_key"], cfg["model"], max_tokens, extra
             )
         return _HTTPBackend(
-            cfg["base_url"], cfg["api_key"], spec, max_tokens, extra, chunk
+            cfg["base_url"], cfg["api_key"], spec, max_tokens, extra
         )
     if hasattr(spec, "complete"):
         return spec
@@ -564,6 +741,70 @@ def _render_schema(schema):
     return json.dumps(schema)
 
 
+def _json_schema_of(template):
+    """A `returns=` template as a JSON Schema, for servers that can
+    constrain decoding to it. `object` and `None` mean any value."""
+    if template is None or template is object:
+        return {}
+    if isinstance(template, type):
+        name = {
+            str: "string", int: "integer", float: "number",
+            bool: "boolean", list: "array", dict: "object",
+        }.get(template)
+        return {"type": name} if name else {}
+    if isinstance(template, dict):
+        return {
+            "type": "object",
+            "properties": {k: _json_schema_of(v) for k, v in template.items()},
+            "required": list(template),
+        }
+    if isinstance(template, list):
+        out = {"type": "array"}
+        if template:
+            out["items"] = _json_schema_of(template[0])
+        return out
+    return {"const": template}
+
+
+def _query_envelope(value_schema=None):
+    """The reply contract of a single-shot question."""
+    return {
+        "type": "object",
+        "properties": {
+            "value": _json_schema_of(value_schema),
+            "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        },
+        "required": ["value", "confidence"],
+    }
+
+
+def _action_envelope(returns_schema=None):
+    """The plan protocol's reply contract: exactly one of the six actions.
+    The `const` on `action` keeps the branches disjoint; a `returns=`
+    template constrains the return branch's value to it."""
+    name = {"type": "string"}
+    confidence = {"type": "number", "minimum": 0, "maximum": 1}
+    return {"oneOf": [
+        {"type": "object", "required": ["action", "name"],
+         "properties": {"action": {"const": "get"}, "name": name}},
+        {"type": "object", "required": ["action", "name", "value"],
+         "properties": {"action": {"const": "set"}, "name": name,
+                        "value": {}, "confidence": confidence}},
+        {"type": "object", "required": ["action", "name"],
+         "properties": {"action": {"const": "delete"}, "name": name}},
+        {"type": "object", "required": ["action", "name"],
+         "properties": {"action": {"const": "call"}, "name": name,
+                        "args": {"type": "array"}}},
+        {"type": "object", "required": ["action", "name", "meaning"],
+         "properties": {"action": {"const": "define"}, "name": name,
+                        "meaning": {"type": "string"}}},
+        {"type": "object", "required": ["action", "value"],
+         "properties": {"action": {"const": "return"},
+                        "value": _json_schema_of(returns_schema),
+                        "confidence": confidence}},
+    ]}
+
+
 def _matches(value, schema):
     """Check a JSON value against a template of types/dicts/lists. -> (ok, why)"""
     if schema is None:
@@ -643,8 +884,16 @@ def _meta_line(meta):
             f"{meta.get('completion_tokens', '?')} out"
         )
     finish = meta.get("finish_reason")
-    if finish:
-        bits.append("paused at checkpoint" if finish == "length" else finish)
+    if finish == "length":
+        bits.append("hit the token budget")
+    elif finish == "cut":
+        bits.append("cut (loop detected)")
+    elif finish:
+        bits.append(finish)
+    if meta.get("interventions"):
+        bits.append(f"{meta['interventions']} intervention(s)")
+    if meta.get("direct"):
+        bits.append("direct (no thinking)")
     if meta.get("json_mode") is False:
         bits.append("freeform (server JSON mode off)")
     return " · ".join(bits)
@@ -653,6 +902,73 @@ def _meta_line(meta):
 def _snip(text, limit=100):
     text = str(text).replace("\n", " ")
     return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def _handle_receipt(handle, text):
+    """The feedback for a value too large to march through the model: a
+    shape summary, a preview, and — taught exactly when it matters — how
+    to pass the value on without retyping a byte of it."""
+    try:
+        data = json.loads(text)
+        if isinstance(data, list):
+            shape = f"a list of {len(data)} items"
+        elif isinstance(data, dict):
+            shape = "an object with keys " + ", ".join(str(k) for k in list(data)[:8])
+        else:
+            shape = f"a {type(data).__name__}"
+    except ValueError:
+        shape = "text"
+    return (
+        f"{shape}, {len(text)} chars — stored whole as {handle}. "
+        f'{{"action": "return", "value": "{handle}"}} delivers all of it, '
+        "unchanged and complete: for passing the data on, that one step is "
+        f"the whole job, done. Reading {handle} back (get) is only for "
+        "transforming or inspecting the items — never for returning them. "
+        "Never retype the data; the preview below is incomplete.\n"
+        "Preview (incomplete): "
+        + text[:300]
+        + ("…" if len(text) > 300 else "")
+    )
+
+
+def _substitute_handles(value, results):
+    """Exact-match handle strings anywhere in a JSON structure become the
+    stored data; everything else passes through untouched."""
+    if isinstance(value, str) and value in results:
+        stored = results[value]
+        try:
+            return json.loads(stored)
+        except ValueError:
+            return stored
+    if isinstance(value, list):
+        return [_substitute_handles(item, results) for item in value]
+    if isinstance(value, dict):
+        return {k: _substitute_handles(v, results) for k, v in value.items()}
+    return value
+
+
+def _told_event_line(event):
+    """One journal event rendered for the telling. A huge call result is
+    elided down to a preview — the record keeps it whole. A trailing
+    delete says what it means: the question re-opened, not answered."""
+    if event.get("event") == "condense":
+        return "(the older story, retold): " + str(event.get("summary", ""))
+    if event.get("event") == "delete":
+        return (
+            json.dumps(event, default=repr, ensure_ascii=False)
+            + " — the recorded value was retired; the question is open "
+            "again, to be answered afresh (deletion is not absence)"
+        )
+    text = json.dumps(event, default=repr, ensure_ascii=False)
+    if len(text) <= 600:
+        return text
+    slim = dict(event)
+    if "result" in slim:
+        rendered = json.dumps(slim["result"], default=repr, ensure_ascii=False)
+        if len(rendered) > 300:
+            slim["result"] = rendered[:300] + f"… ({len(rendered)} chars, elided)"
+    text = json.dumps(slim, default=repr, ensure_ascii=False)
+    return text if len(text) <= 900 else text[:900] + "…"
 
 
 def _describe_step(step):
@@ -895,6 +1211,8 @@ class Thing(metaclass=_ThingMeta):
 
     _thing_step_budget = 16
     _thing_depth_budget = 4
+    _thing_correction_budget = 6
+    _thing_telling_budget = 15  # told events beyond this get retold
     _thing_defaults: dict = {}
 
     def __init__(self, *parts, stateful=True, model=None, confidence=None, **state):
@@ -920,12 +1238,12 @@ class Thing(metaclass=_ThingMeta):
     @classmethod
     def defaults(
         cls, model=None, base_url=None, api_key=None, max_tokens=None,
-        request_extra=None, think_chunk=None,
+        request_extra=None,
     ):
         """Set class-wide backend defaults; subclasses inherit via the MRO.
         `request_extra` is merged verbatim into every HTTP payload — the
         escape hatch for server-specific knobs (thinking budgets, template
-        kwargs, reasoning effort)."""
+        kwargs, reasoning effort, sampling overrides)."""
         cfg = dict(cls.__dict__.get("_thing_defaults", {}))
         if model is not None:
             cfg["model"] = model
@@ -937,8 +1255,6 @@ class Thing(metaclass=_ThingMeta):
             cfg["max_tokens"] = int(max_tokens)
         if request_extra is not None:
             cfg["request_extra"] = dict(request_extra)
-        if think_chunk is not None:
-            cfg["think_chunk"] = int(think_chunk)
         cls._thing_defaults = cfg
 
     @classmethod
@@ -969,7 +1285,6 @@ class Thing(metaclass=_ThingMeta):
             "api_key": _DEFAULT_API_KEY,
             "model": _DEFAULT_MODEL,
             "max_tokens": _DEFAULT_MAX_TOKENS,
-            "think_chunk": _DEFAULT_THINK_CHUNK,
         }
         for klass in reversed(type(self).__mro__):
             cfg.update(getattr(klass, "_thing_defaults", None) or {})
@@ -1003,14 +1318,153 @@ class Thing(metaclass=_ThingMeta):
                     attrs.setdefault(name, value)
         return doc, attrs, methods
 
+    def _thing_telling(self):
+        """The journal as it deserves to be told: only events that still
+        carry meaning. The record (`_thing_journal`) keeps everything;
+        the telling folds away what the present state already says —
+        superseded observations, overwritten sets, stale deletions,
+        replaced definitions. Calls stay: they are the narrative. Once a
+        `condense` event exists, the covered span renders as its
+        retelling — except `define`s, which are standing contracts and
+        outlive any summary."""
+        events = self._thing_journal
+        summary = None
+        start = 0
+        for i, event in enumerate(events):
+            if event.get("event") == "condense":
+                summary = event
+                start = max(start, int(event.get("through", 0)))
+        last_write = {}
+        last_define = {}
+        last_collapse = {}
+        for i, event in enumerate(events):
+            kind = event.get("event")
+            if kind == "define":
+                last_define[event.get("name")] = i
+            if i < start:
+                continue
+            if kind in ("set", "observe", "delete"):
+                last_write[event.get("name")] = i
+            elif kind == "collapse":
+                last_collapse[event.get("type", "")] = i
+        told = []
+        if summary is not None:
+            told.append(summary)
+        for name, i in sorted(last_define.items(), key=lambda kv: kv[1]):
+            if i < start:
+                told.append(events[i])  # contracts outlive the retelling
+        for i in range(start, len(events)):
+            event = events[i]
+            kind = event.get("event")
+            if kind in ("set", "observe", "condense"):
+                continue  # state tells the first two; the summary, the third
+            if kind == "delete":
+                # only a still-standing deletion (nothing written since)
+                # is a re-opened question worth telling
+                if last_write.get(event.get("name")) == i:
+                    told.append(event)
+            elif kind == "define":
+                if last_define.get(event.get("name")) == i:
+                    told.append(event)
+            elif kind == "collapse":
+                if last_collapse.get(event.get("type", "")) == i:
+                    told.append(event)
+            else:
+                told.append(event)
+        return told
+
+    def _thing_condense_if_needed(self):
+        """When the telling outgrows its budget, one inference call
+        retells the oldest events as a single passage, appended to the
+        journal as a `condense` event. Never destructive — the record
+        keeps every event beneath the retelling — and skipped inside
+        plans, so a step never pauses to reminisce."""
+        if not self.__dict__.get("_thing_stateful", True):
+            return
+        if _op_stack.get() or self.__dict__.get("_thing_condensing"):
+            return
+        told = self._thing_telling()
+        if len(told) <= self._thing_telling_budget:
+            return
+        keep = max(3, self._thing_telling_budget // 2)
+        old = [e for e in told[:-keep] if e.get("event") != "define"]
+        if len(old) < 4:
+            return  # nothing substantial to retell
+        journal = self._thing_journal
+        anchor = told[-keep]
+        through = next((i for i, e in enumerate(journal) if e is anchor), None)
+        if through is None:
+            return
+
+        def spoken(event):
+            # calls are rendered with their roles spelled out, so the
+            # retelling cannot mistake who said or did what
+            if event.get("event") == "call":
+                args = ", ".join(repr(a) for a in event.get("args") or [])
+                result = json.dumps(
+                    event.get("result"), default=repr, ensure_ascii=False
+                )
+                return (
+                    f"the outside world called {event.get('name')}"
+                    f"({_snip(args, 300)}) and the object itself produced: "
+                    + _snip(result, 400)
+                )
+            return _told_event_line(event)
+
+        passage = "\n".join(spoken(e) for e in old)
+        origin = " | ".join(self._thing_parts) or type(self).__name__
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "Retell the oldest part of an object's story as one "
+                    "short passage (2-5 sentences), so later readers can "
+                    "drop the raw events. Keep every concrete fact, name, "
+                    "number, decision, and standing commitment; keep who "
+                    "did or said each thing — never merge different "
+                    "actors. Drop process noise and repetition. "
+                    "Never invent, never editorialize. "
+                    "Reply with exactly one JSON object: "
+                    '{"value": "<the retelling>", "confidence": <0..1>}.'
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"OBJECT: {origin}\n\nOLDEST EVENTS, in order:\n"
+                    f"{passage}\n\nRetell these as one passage."
+                ),
+            },
+        ]
+        object.__setattr__(self, "_thing_condensing", True)
+        try:
+            with _op_scope():
+                summary, confidence = self._thing_query(
+                    messages,
+                    temperature=0.3,
+                    purpose=f"{type(self).__name__} · condense",
+                    value_schema=str,
+                    check=False,
+                )
+        finally:
+            object.__setattr__(self, "_thing_condensing", False)
+        if not isinstance(summary, str) or not summary.strip():
+            return  # a failed retelling changes nothing; the record stands
+        self._thing_log(
+            {
+                "event": "condense",
+                "through": through,
+                "summary": summary.strip(),
+                "confidence": confidence,
+            }
+        )
+
     def _thing_story(self):
         self._thing_ensure()
         doc, attrs, methods = self._thing_surface()
         lines = []
         if type(self) is not Thing:
             lines.append(f"Class: {type(self).__name__}" + (f" — {doc}" if doc else ""))
-        if attrs:
-            lines.append("Class attributes (certain): " + json.dumps(attrs, default=repr, ensure_ascii=False))
         if methods:
             listing = "; ".join(
                 f"{name}(...)" + (f" — {docstr}" if docstr else "")
@@ -1022,25 +1476,71 @@ class Thing(metaclass=_ThingMeta):
         carried = self.__dict__.get("_thing_value", _UNSET)
         if carried is not _UNSET:
             lines.append(
-                "Value of this object (authoritative, confidence "
-                f"{self.__dict__.get('confidence', 0.5)}): "
+                f"Value of this object (p {self.__dict__.get('confidence', 0.5)}): "
                 + json.dumps(carried, default=repr, ensure_ascii=False)
             )
-        state = {
-            k: _plain(v)
-            for k, v in self.__dict__.items()
-            if not k.startswith("_")
-            and not (carried is not _UNSET and k == "confidence")
-        }
-        if state:
-            lines.append("Current state (authoritative): " + json.dumps(state, default=repr, ensure_ascii=False))
-        if self._thing_journal:
-            lines.append("History, oldest first:")
-            for i, event in enumerate(self._thing_journal, 1):
-                lines.append(f"  {i}. {json.dumps(event, default=repr, ensure_ascii=False)}")
+        # the three strata, told apart — the model may only revise what
+        # carries confidence, and here it can see which is which
+        written = dict(attrs)
+        imagined, slots = [], []
+        for name, value in self.__dict__.items():
+            if name.startswith("_"):
+                continue
+            if carried is not _UNSET and name == "confidence":
+                continue
+            if isinstance(value, _Pending):
+                continue
+            if (
+                isinstance(carried, dict)
+                and name in carried
+                and carried[name] == value
+            ):
+                continue  # a mirror of the carried value: already told once
+            if isinstance(value, Thing):
+                if "_thing_value" in value.__dict__:
+                    imagined.append(
+                        (
+                            name,
+                            value.__dict__["_thing_value"],
+                            value.__dict__.get("confidence", 0.5),
+                        )
+                    )
+                else:
+                    value._thing_ensure()
+                    slots.append(
+                        (name, " | ".join(value._thing_parts) or "open")
+                    )
+            else:
+                written[name] = value
+        if written:
+            lines.append(
+                "Written state (certain, untouchable): "
+                + json.dumps(written, default=repr, ensure_ascii=False)
+            )
+        if imagined:
+            lines.append(
+                "Imagined state (revisable, confidence shown): "
+                + "; ".join(
+                    f"{name} = {json.dumps(value, default=repr, ensure_ascii=False)}"
+                    f" (p {confidence:.2f})"
+                    for name, value, confidence in imagined
+                )
+            )
+        if slots:
+            lines.append(
+                "Open slots (yours to manage): "
+                + "; ".join(f"{name} — {described}" for name, described in slots)
+            )
+        told = self._thing_telling()
+        if told:
+            lines.append("History (events that still matter, oldest first):")
+            for i, event in enumerate(told, 1):
+                lines.append(f"  {i}. {_told_event_line(event)}")
         return "\n".join(lines) or "An unspecified thing."
 
-    def _thing_complete_json(self, messages, temperature, purpose="inference"):
+    def _thing_complete_json(
+        self, messages, temperature, purpose="inference", think=None, schema=None
+    ):
         backend = self._thing_backend()
         last_error = None
         st = _op_debug.get()
@@ -1049,9 +1549,15 @@ class Thing(metaclass=_ThingMeta):
                 _debug_open_op(purpose, messages, st)
             token = _purpose.set(purpose)
             try:
-                text = backend.complete(messages, temperature=temperature)
-            except TypeError:
-                text = backend.complete(messages)
+                try:
+                    text = backend.complete(
+                        messages, temperature=temperature, think=think, schema=schema
+                    )
+                except TypeError:
+                    try:
+                        text = backend.complete(messages, temperature=temperature)
+                    except TypeError:
+                        text = backend.complete(messages)
             finally:
                 _purpose.reset(token)
             meta = getattr(backend, "last_meta", None) or {}
@@ -1079,19 +1585,79 @@ class Thing(metaclass=_ThingMeta):
                         f"budget) — raise THINAIR_MAX_TOKENS / "
                         f"Thing.defaults(max_tokens=...), or shorten the story"
                     )
+                if think is False:
+                    # the direct tier answered with something unparseable;
+                    # the question has earned the thinking tier
+                    think = True
+                    if _debugging.get():
+                        _debug_box(
+                            None,
+                            [("↑ escalating", "no parseable JSON from the "
+                              "direct tier; retrying with thinking")],
+                            close=False,
+                        )
+                    continue
                 messages = messages + [
                     {"role": "assistant", "content": text[:1000]},
                     {"role": "user", "content": "Reply with exactly one JSON object and nothing else."},
                 ]
         raise RuntimeError(f"backend produced no parseable JSON: {last_error}")
 
+    def _thing_query(self, messages, temperature, purpose, value_schema=None, check=True):
+        """One single-shot question -> (value, confidence), climbing the
+        two-tier ladder: the direct tier answers first; a reply below an
+        active `require` threshold — or a refusal-shaped null, a
+        non-answer rather than true absence — earns one thinking retry
+        before LowConfidence is raised."""
+        envelope = _query_envelope(value_schema)
+        value, confidence = _answer_shape(
+            self._thing_complete_json(
+                messages, temperature, purpose, think=False, schema=envelope
+            )
+        )
+        threshold = _required.get()
+        refusal = value is None and confidence < 0.2
+        # a null sits exactly on the unknown-vs-absent boundary — the
+        # riskiest shape there is; before one may satisfy an explicit
+        # require gate, the thinking tier gets a second opinion
+        arbitrate = value is None and threshold is not None
+        if (
+            refusal
+            or arbitrate
+            or (threshold is not None and confidence < threshold)
+        ) and getattr(self._thing_backend(), "_think_toggle", False):
+            if _debugging.get():
+                if refusal:
+                    reason = f"a null at p {confidence:.2f} is a non-answer"
+                elif arbitrate and confidence >= threshold:
+                    reason = "a null at the require gate; second opinion"
+                else:
+                    reason = f"confidence {confidence:.2f} < required {threshold:.2f}"
+                _debug_box(
+                    None,
+                    [("↑ escalating", reason + "; retrying with thinking")],
+                    close=False,
+                )
+            value, confidence = _answer_shape(
+                self._thing_complete_json(
+                    messages, temperature, purpose + " · rethink",
+                    think=True, schema=envelope,
+                )
+            )
+        if check:
+            _check_required(confidence)
+        return value, confidence
+
     # -- the two continuations: read and call -------------------------------
 
     def _thing_read(self, name):
         self._thing_ensure()
+        self._thing_condense_if_needed()
         hint = ""
+        value_schema = None
         if re.match(r"(is|can|has|should|does|was|will)_", name):
             hint = " The attribute name suggests a boolean."
+            value_schema = bool
         messages = [
             {
                 "role": "system",
@@ -1102,12 +1668,18 @@ class Thing(metaclass=_ThingMeta):
                     "Confidence is the probability the value is correct. Use "
                     "natural JSON types (numbers as numbers, booleans as "
                     "booleans). A random outcome (a roll, a draw): pick one "
-                    "result, confidence is its probability. An unstated fact: "
-                    "your single best concrete guess, honestly low confidence "
-                    "when wide open. null only if no such value can exist; "
-                    'never placeholder strings like "unknown". Never '
-                    "contradict the object's data. Example reply:\n"
-                    '{"value": 8, "confidence": 0.98}'
+                    "result, confidence is its probability. Distinguish "
+                    "unknown from absent: when the attribute surely has a "
+                    "value that is merely unstated (a color, a serial number "
+                    "nobody mentioned), ALWAYS commit to one concrete, "
+                    "plausible value with honestly low confidence — never "
+                    "null, never a refusal. null means the object truly HAS "
+                    "no such value (the trailer of a car that tows none), "
+                    "held with real confidence. Never placeholder strings "
+                    'like "unknown". Never contradict the object\'s data. '
+                    "Example replies:\n"
+                    '{"value": "silver", "confidence": 0.3}\n'
+                    '{"value": null, "confidence": 0.9}'
                 ),
             },
             {
@@ -1119,20 +1691,16 @@ class Thing(metaclass=_ThingMeta):
             },
         ]
         with _op_scope():
-            value, confidence = _answer_shape(
-                self._thing_complete_json(
-                    messages,
-                    temperature=0.8,
-                    purpose=f"{type(self).__name__}.{name} · read",
-                )
+            value, confidence = self._thing_query(
+                messages,
+                temperature=0.8,
+                purpose=f"{type(self).__name__}.{name} · read",
+                value_schema=value_schema,
             )
-        _check_required(confidence)
-        origin = " | ".join(self._thing_parts) or type(self).__name__
-        child = self._thing_child(
-            f"the attribute `{name}` of ({origin})", value, confidence
-        )
+        child = self._thing_child(f"the attribute `{name}`", value, confidence)
         if self._thing_stateful:
             object.__setattr__(self, name, child)
+            object.__setattr__(child, "_thing_owner", (self, name))
             self._thing_log(
                 {
                     "event": "observe",
@@ -1146,6 +1714,7 @@ class Thing(metaclass=_ThingMeta):
     def _thing_compare(self, symbol, other):
         """An ordering comparison is a judgment made in Thing space."""
         self._thing_ensure()
+        self._thing_condense_if_needed()
         if isinstance(other, _Pending):
             other = other._resolve()
         left = self._thing_story()
@@ -1175,21 +1744,20 @@ class Thing(metaclass=_ThingMeta):
             },
         ]
         with _op_scope():
-            value, confidence = _answer_shape(
-                self._thing_complete_json(
-                    messages, temperature=0.3, purpose=f"judge `{symbol}`"
-                )
+            value, confidence = self._thing_query(
+                messages, temperature=0.3, purpose=f"judge `{symbol}`",
+                value_schema=bool,
             )
-        _check_required(confidence)
-        origin = " | ".join(self._thing_parts) or type(self).__name__
         return self._thing_child(
-            f"the judgment: ({origin}) {symbol} ({right[:120]})",
+            f"the judgment `{symbol}` against ({_snip(right, 120)})",
             bool(value),
             confidence,
         )
 
     def _thing_call(self, name, args, kwargs, stack=()):
         self._thing_ensure()
+        if not stack:
+            self._thing_condense_if_needed()
         stack = tuple(stack) + (name,)
         if len(stack) > self._thing_depth_budget:
             raise ContinuationLimit(
@@ -1221,11 +1789,13 @@ class Thing(metaclass=_ThingMeta):
                     '{"action": "define", "name": "<name>", "meaning": "<text>"}\n'
                     '{"action": "return", "value": <json>, "confidence": <0..1>}\n'
                     "Facts: `call` runs the object's real, written methods. "
-                    "Never write code. Bare written values are read-only; "
-                    "record changes to them under new names. Values carrying "
-                    "confidence are yours to change. `return` is the only way "
+                    "Never write code. Written state is certain and "
+                    "read-only; record changes to it under new names. "
+                    "Imagined state and open slots are yours to set, change, "
+                    "or delete. `return` is the only way "
                     "to finish, and its value must be written out whole, "
-                    "never abbreviated. When the job names no output format, "
+                    'never abbreviated (a stored handle string like "$1" '
+                    "counts as whole). When the job names no output format, "
                     "return data as data, exactly as produced; never invent "
                     "formatting or summaries. Never draft a long value in "
                     "your thinking: write it once, directly in the reply.\n"
@@ -1265,9 +1835,32 @@ class Thing(metaclass=_ThingMeta):
             return self._thing_plan(name, args, messages, schema, floor, stack, purpose)
 
     def _thing_plan(self, name, args, messages, schema, floor, stack, purpose):
-        for index in range(1, self._thing_step_budget + 1):
+        envelope = _action_envelope(schema)
+        think = False  # steps start on the direct tier; stumbling escalates
+        refusals = 0
+        results = {}  # handles for values too large to retype: "$1" -> raw
+        revealed = set()  # handles the model has read in full via get
+        index = 0  # real actions executed, capped by the step budget
+        turn = 0  # model replies, for the debug narration
+        corrections = 0  # rejected returns draw on their own allowance
+
+        def _rejected():
+            nonlocal corrections
+            corrections += 1
+            if corrections > self._thing_correction_budget:
+                raise ContinuationLimit(
+                    f"imagined plan for `{name}` spent its correction budget"
+                )
+
+        while True:
+            if index >= self._thing_step_budget:
+                raise ContinuationLimit(
+                    f"imagined plan for `{name}` exceeded its step budget"
+                )
+            turn += 1
             step = self._thing_complete_json(
-                messages, temperature=0.3, purpose=purpose
+                messages, temperature=0.3, purpose=purpose,
+                think=think, schema=envelope,
             )
             if not isinstance(step, dict):
                 # a bare JSON value in place of an action envelope is the
@@ -1275,13 +1868,50 @@ class Thing(metaclass=_ThingMeta):
                 step = {"action": "return", "value": step}
             action = step.get("action")
             if action == "return":
-                value = step.get("value")
+                value = _substitute_handles(step.get("value"), results)
+                # a return that tracks a stored value's prefix past what the
+                # preview showed — without ever reading it — is fabrication:
+                # the model is inventing data it has not seen
+                rendered = json.dumps(value, default=repr, ensure_ascii=False)
+                forged = None
+                if len(rendered) > 350:
+                    for handle, stored in results.items():
+                        if (
+                            handle not in revealed
+                            and rendered != stored
+                            and rendered[:250] == stored[:250]
+                        ):
+                            forged = handle
+                            break
+                if forged:
+                    _rejected()
+                    if _debugging.get():
+                        _debug_action(
+                            turn, f"return rejected: retyped {forged} from its preview"
+                        )
+                    messages.append({"role": "assistant", "content": json.dumps(step, ensure_ascii=False)})
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                f"return rejected — this retypes {forged} from "
+                                "its preview and invents the rest; the full "
+                                "value was never shown to you. Return the "
+                                f'exact string "{forged}" as the value to pass '
+                                f"the stored data unchanged, or get {forged} "
+                                "first if you truly need to transform it."
+                            ),
+                        }
+                    )
+                    continue
                 if schema is not None:
                     ok, why = _matches(value, schema)
                     if not ok:
+                        _rejected()
+                        think = True  # the direct tier fumbled the shape
                         if _debugging.get():
                             _debug_action(
-                                index, f"{action} rejected: {_snip(why)}"
+                                turn, f"{action} rejected: {_snip(why)}"
                             )
                         messages.append({"role": "assistant", "content": json.dumps(step, ensure_ascii=False)})
                         messages.append(
@@ -1296,10 +1926,35 @@ class Thing(metaclass=_ThingMeta):
                         )
                         continue
                 confidence = max(0.01, min(float(step.get("confidence", 0.5)), floor, 0.99))
+                threshold = _required.get()
+                if threshold is not None and confidence < threshold and not think:
+                    # below the required bar: one thinking retry before
+                    # LowConfidence is allowed to fly
+                    _rejected()
+                    think = True
+                    if _debugging.get():
+                        _debug_action(
+                            turn,
+                            f"return (p {confidence:.2f}) below required "
+                            f"{threshold:.2f}; rethinking",
+                        )
+                    messages.append({"role": "assistant", "content": json.dumps(step, ensure_ascii=False)})
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                f"return rejected — its confidence {confidence:.2f} "
+                                f"is below the required {threshold:.2f}. Reconsider "
+                                "with care: gather more facts with get/call if that "
+                                "helps, then return again, honestly."
+                            ),
+                        }
+                    )
+                    continue
                 _check_required(confidence)
                 if _debugging.get():
                     _debug_action(
-                        index,
+                        turn,
                         f"{action} (p {confidence:.2f}) = "
                         + _snip(json.dumps(value, default=repr, ensure_ascii=False)),
                         final=True,
@@ -1315,18 +1970,42 @@ class Thing(metaclass=_ThingMeta):
                         }
                     )
                 return self._thing_result(name, args, value, confidence)
+            index += 1  # a real action consumes a step; corrections do not
             token = _op_stack.set(_op_stack.get() + (f"{name}()",))
             try:
-                feedback, floor = self._thing_step(step, floor, stack)
+                feedback, floor = self._thing_step(step, floor, stack, results)
             except ContinuationLimit:
                 raise
             except Exception as error:
                 feedback = f"error: {type(error).__name__}: {error}"
             finally:
                 _op_stack.reset(token)
+            if action == "get" and step.get("name") in results:
+                revealed.add(step.get("name"))  # read in full: retyping is fair
+            if (
+                action in ("get", "call")
+                and len(feedback) > _HANDLE_LIMIT
+                and not str(step.get("name", "")).startswith("$")
+            ):
+                # too large to march through the model: hold it, hand back
+                # a receipt that teaches the handle right when it matters
+                handle = f"${len(results) + 1}"
+                results[handle] = feedback
+                feedback = _handle_receipt(handle, feedback)
+                if len(results) == 1:
+                    # the constrained decoder would refuse the handle string
+                    # where the schema demands a list or object; from here
+                    # on the runtime check alone guards the return's shape
+                    envelope = _action_envelope(None)
+            if feedback.startswith("refused"):
+                refusals += 1
+                if refusals >= 2 and not think:
+                    think = True  # the plan is stumbling; let the steps think
+                    if _debugging.get():
+                        _debug_action(turn, "two refusals; rethinking")
             if _debugging.get():
                 _debug_action(
-                    index, f"{_describe_step(step)} → {_snip(feedback)}"
+                    turn, f"{_describe_step(step)} → {_snip(feedback)}"
                 )
             messages.append({"role": "assistant", "content": json.dumps(step, ensure_ascii=False)})
             messages.append(
@@ -1335,24 +2014,36 @@ class Thing(metaclass=_ThingMeta):
                     "content": f"result of your {_describe_step(step)}: {feedback}",
                 }
             )
-        raise ContinuationLimit(f"imagined plan for `{name}` exceeded its step budget")
 
     def _thing_result(self, call, args, value, confidence):
         """Wrap a call's return value as a child Thing, so results chain."""
-        origin = " | ".join(self._thing_parts) or type(self).__name__
         arg_repr = ", ".join(repr(_plain(a)) for a in args)
         return self._thing_child(
-            f"the result of {call}({arg_repr}) on ({origin})", value, confidence
+            f"the result of {call}({arg_repr})", value, confidence
         )
 
-    def _thing_child(self, described, value, confidence):
+    def _thing_child(self, hop, value, confidence):
         """A Thing born from inference: carries its value and `.confidence`.
         Always a plain Thing, never the parent's class — a result is a new
         object, not the object it came from. Recast with `@ Class` when the
-        class genuinely applies."""
+        class genuinely applies. `hop` is the one step that made this
+        child; lineage renders shallow — own hop, parent's hop, root —
+        with the middle of a long chain elided, never recited."""
+        self._thing_ensure()
+        parent_hop = self.__dict__.get("_thing_hop")
+        if parent_hop is None:
+            root = _snip(
+                " | ".join(self._thing_parts) or type(self).__name__, 200
+            )
+            described = f"{hop} of ({root})"
+        else:
+            root = self.__dict__.get("_thing_root")
+            described = f"{hop} of ({parent_hop} ← … ← {root})"
         child = Thing.__new__(Thing)
         d = child._thing_ensure()
         d["_thing_parts"] = [described]
+        d["_thing_hop"] = hop
+        d["_thing_root"] = root
         d["_thing_stateful"] = self._thing_stateful
         d["_thing_model_spec"] = self._thing_model_spec
         backend = self.__dict__.get("_thing_backend_obj")
@@ -1366,10 +2057,13 @@ class Thing(metaclass=_ThingMeta):
         object.__setattr__(child, "confidence", confidence)
         return child
 
-    def _thing_step(self, step, floor, stack):
+    def _thing_step(self, step, floor, stack, results=None):
         """One plan step -> (feedback, floor)."""
+        results = results if results is not None else {}
         action = step.get("action")
         target = step.get("name", "")
+        if action == "get" and target in results:
+            return results[target], floor  # the stored value, in full
         if not isinstance(target, str) or target.startswith("_"):
             return f"refused: invalid name {target!r}", floor
         if action == "call" and target in stack:
@@ -1380,6 +2074,15 @@ class Thing(metaclass=_ThingMeta):
                 floor,
             )
         if action in ("set", "delete"):
+            if target in stack:
+                # a method is not state: recording an answer under the
+                # method's own name would shadow it and break later calls
+                return (
+                    f"refused: `{target}` is the method being executed, not "
+                    "state; record the fact under a state name (e.g. "
+                    "`engine_status`), or just return the result",
+                    floor,
+                )
             current = self.__dict__.get(target, _UNSET)
             if current is _UNSET:
                 current = getattr(type(self), target, _UNSET)
@@ -1411,19 +2114,19 @@ class Thing(metaclass=_ThingMeta):
             confidence = max(
                 0.01, min(float(confidence) if confidence is not None else floor, 0.99)
             )
-            origin = " | ".join(self._thing_parts) or type(self).__name__
             child = self._thing_child(
-                f"the attribute `{target}` as set by an imagined plan on ({origin})",
-                step.get("value"),
+                f"the attribute `{target}` as set by an imagined plan",
+                _substitute_handles(step.get("value"), results),
                 confidence,
             )
             setattr(self, target, child)
+            object.__setattr__(child, "_thing_owner", (self, target))
             return "ok", min(floor, confidence)
         if action == "delete":
             delattr(self, target)
             return "ok", floor
         if action == "call":
-            call_args = step.get("args") or []
+            call_args = _substitute_handles(step.get("args") or [], results)
             attr = getattr(self, target)
             if isinstance(attr, _Pending):
                 value = self._thing_call(target, tuple(call_args), {}, stack)
@@ -1630,7 +2333,7 @@ class Thing(metaclass=_ThingMeta):
                     self,
                     name,
                     self._thing_child(
-                        f"the attribute `{name}` of a restored object",
+                        f"the restored attribute `{name}`",
                         inner,
                         float(value.get("confidence", 0.5)),
                     ),
@@ -1656,6 +2359,17 @@ class Thing(metaclass=_ThingMeta):
     # A Thing born from inference carries its value; these delegate to it so
     # imagined values still behave like values (printing, arithmetic,
     # comparison, iteration) wherever Python lets them.
+
+    def __call__(self, *args, **kwargs):
+        """Accessing an attribute reads the recorded fact; CALLING it
+        re-derives: a Thing that lives as an attribute of an owner
+        delegates the call back as a fresh imagined method call, so a
+        recorded `can_drive` never shadows `can_drive()`."""
+        owner = self.__dict__.get("_thing_owner")
+        if owner is not None:
+            obj, name = owner
+            return obj._thing_call(name, args, kwargs)
+        raise TypeError(f"'{type(self).__name__}' object is not callable")
 
     def __bool__(self):
         value = self.__dict__.get("_thing_value", _UNSET)
@@ -1764,9 +2478,8 @@ class Thing(metaclass=_ThingMeta):
                     f"could not be approximated as {_render_schema(operand)}",
                     confidence,
                 )
-            origin = " | ".join(self._thing_parts) or type(self).__name__
             return self._thing_child(
-                f"({origin}) approximated as {_render_schema(operand)}",
+                f"the approximation as {_render_schema(operand)}",
                 value,
                 confidence,
             )
@@ -1783,8 +2496,7 @@ class Thing(metaclass=_ThingMeta):
 
     def _thing_failure(self, why, confidence):
         """A Thing whose value is gone but whose probability survives."""
-        origin = " | ".join(self._thing_parts) or type(self).__name__
-        return self._thing_child(f"({origin}) {why}", None, confidence)
+        return self._thing_child(f"a value that {why}", None, confidence)
 
     def _thing_construct(self, cls):
         """Approximate as an arbitrary class: the imagination supplies the
@@ -1821,14 +2533,14 @@ class Thing(metaclass=_ThingMeta):
                 f"({type(error).__name__})",
                 0.01,
             )
-        origin = " | ".join(self._thing_parts) or type(self).__name__
         return self._thing_child(
-            f"({origin}) approximated as {cls.__name__}", instance, confidence
+            f"the approximation as {cls.__name__}", instance, confidence
         )
 
     def _thing_collapse(self, schema=None):
         """Resolve the single (optionally typed) value a Thing stands for."""
         self._thing_ensure()
+        self._thing_condense_if_needed()
         key = _render_schema(schema) if schema is not None else ""
         cache = self.__dict__.get("_thing_collapsed") or {}
         if key in cache:
@@ -1859,14 +2571,14 @@ class Thing(metaclass=_ThingMeta):
             },
         ]
         with _op_scope():
-            value, confidence = _answer_shape(
-                self._thing_complete_json(
-                    messages,
-                    temperature=0.3,
-                    purpose=f"{type(self).__name__} @ {key} · collapse"
-                    if key
-                    else f"{type(self).__name__} · collapse",
-                )
+            value, confidence = self._thing_query(
+                messages,
+                temperature=0.3,
+                purpose=f"{type(self).__name__} @ {key} · collapse"
+                if key
+                else f"{type(self).__name__} · collapse",
+                value_schema=schema,
+                check=False,  # a mismatch must stay a diagnosis, not a raise
             )
         if schema is not None and not _matches(value, schema)[0]:
             # single shot, no retries: the mismatch itself is the answer,
