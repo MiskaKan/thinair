@@ -123,7 +123,7 @@ for i, (kind, _) in enumerate(SESSION, start=1):
         continue
     frames.append(frame(i))
     delays.append({"in": 200, "out": 260, "head": 520}.get(kind, 200))
-frames.append(frame(len(SESSION))); delays.append(4500)
+frames.append(frame(len(SESSION))); delays.append(15000)
 
 master = frames[-1].quantize(colors=24, method=Image.MEDIANCUT)
 frames = [f.quantize(palette=master, dither=Image.NONE) for f in frames]
