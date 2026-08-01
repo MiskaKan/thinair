@@ -2,13 +2,48 @@
 
 Probabilistic Python objects. Invent attributes, methods, anything out of thin air; an LLM of your choice (local or hosted) fills in the blanks, with confidence attached.
 
+<p align="center">
+  <img src="docs/thinair.gif" alt="A REPL session: a Car class extends Thing, its written attributes cost nothing, attributes nobody defined are imagined on first read with a probability attached, a low-confidence guess is typed and gated so it collapses to a falsy None instead of flowing onward, and a method nobody wrote returns a typed list." width="830">
+</p>
+
 **Code the certain, imagine the rest.**
 
-One axiom: **an object is a story, and every interaction is a continuation of it.** Everything else falls out — see [SPEC.md](SPEC.md) for the full spec.
+The entire public surface is one class, and the whole idea fits in one line: a `Thing` is **a value with a probability**.
 
-## A Thing in sixty seconds
+```python
+color = Thing("rusty red", confidence=0.4)   # exactly what the imagined read
+                                             # in the demo handed back
++color      # 'rusty red' — the value        (free, no inference)
+~color      # 0.4         — the probability  (free, no inference)
+```
 
-A `Thing` is any value with a probability, made from words:
+And that is the entire interface — you never leave Python. No prompt strings, no message arrays, no output parsing: you keep writing ordinary classes, attributes, and method calls, and the model's capabilities are simply available wherever you left a blank — always priced with a probability.
+
+Everything you write yourself — code, bare values, your own words — is certain: probability 1.0, and the model can never touch it. Everything the model fills in — a field nobody defined, a method nobody wrote — comes back as a `Thing` that admits how sure it is. And where the model gets its answers is the one axiom: **an object is a story, and every interaction is a continuation of it.** Everything else falls out — see [SPEC.md](SPEC.md) for the full spec.
+
+## What just happened
+
+Each beat of the demo is that one idea wearing a different hat:
+
+1. **Write the parts you are sure of.** `Car` is an ordinary Python class. `wheels` and `horn()` are written, so they run in CPython, cost nothing, get billed nothing, and the model can never touch them. No `Thing` is made here — certainty stays bare.
+2. **Read a field nobody defined.** `car.color` doesn't exist, so it's imagined on first read — and what comes back is a `Thing`, effectively `Thing('rusty red', confidence=0.4)`. `+` unwraps the value, `~` the probability.
+3. **Shape it with `@`.** `car.resale_value_eur @ float` types the guess — and the result is still a `Thing`: value `1200.0`, probability `0.15`. Then `@ 0.9` demands confidence: below the bar the value collapses to `None` — falsy, so it gates whole branches — while the probability survives to say why.
+4. **Call a method nobody wrote.** `list_your_problems(returns=[str])` is imagined at call time and comes back as a `Thing` carrying a real, typed list. No prompt string was written and no output was parsed — the class definition and the return shape were the whole interface.
+
+And every read joins the story: the colour and the problems imagined above are now part of who the car is, and everything later — including the chat below — builds on them.
+
+Three operators — and only `@ <type>` ever costs an inference call:
+
+| | | |
+|---|---|---|
+| `+thing` | the value | free |
+| `~thing` | the probability | free |
+| `thing @ int` | shape it as a type or schema | **one call** |
+| `thing @ 0.9` | confidence gate | free |
+
+## Anything can be a Thing
+
+You don't need a class — anything lifts into Thing space: a description in words, a bare value with your own doubt attached, a whole frozen object (`blob @ Car`, further down). The simplest is words alone — and your own words count as certain until inference touches them:
 
 ```python
 from thinair import Thing
@@ -25,7 +60,7 @@ legs = spider @ int      # collapsing happens through typing: one inference
 ~legs                    # 0.99 — the probability, a bare float
 ```
 
-`+` takes the value, `~` takes the probability, `@` shapes the Thing — and only `@ <type>` ever costs inference. Requirements chain, and an unmet one drops the value but keeps the probability, so failures explain themselves:
+Requirements chain, and an unmet one drops the value but keeps the probability, so failures explain themselves:
 
 ```python
 +(spider @ int @ 0.8)          # 8 — typed AND vouched for at p >= 0.8
@@ -83,8 +118,8 @@ car = Car("a rusty 1990 Toyota Hilux, engine coughs, "
 
 car.wheels               # 4 — bare int; no inference ran, nothing was billed
 car.horn()               # "beep" — real code, really executed
-+car.color               # "brown" — imagined; here the class was silent
-~car.color               # 0.1 — and honestly unsure about it
++car.color               # "rusty red" — imagined; here the class was silent
+~car.color               # 0.4 — and honestly unsure about it
 
 car.owner = "Miska"                  # bare assignment: authoritative, and
                                      # locked — no plan may overwrite it
@@ -129,9 +164,10 @@ while True:
 ```
 ```
 > Why did you break down on me this morning?
-Look, mate, it's a 1990 Hilux. The rust is high, the engine was coughing
-its guts out, and frankly, I was just trying to listen to some good
-Finnish schlager while falling apart.
+*cough cough* ... beep. Look, I'm a 1990 Toyota Hilux. I'm rusty, I'm tired,
+and my radio is stuck on Finnish schlager. I didn't break down on purpose;
+I just... gave up. The engine was coughing all morning. Do you have any idea
+how hard it is to start when you're this old and this red?
 ```
 
 Every turn is journaled, so the car remembers what you said — and objects can size each other up the same way, by handing Things to a Thing:
@@ -184,16 +220,15 @@ pip install thinair
 ```bash
 export THINAIR_BASE_URL="http://127.0.0.1:8000/v1"   # default
 export THINAIR_API_KEY="1234"
-export THINAIR_MODEL="Qwen3.6-35B-A3B-oQ6-mtp"
-export THINAIR_MAX_TOKENS=32768                      # answer budget; also caps total thinking
-export THINAIR_THINK_CHUNK=2048                      # thinking window size (0 = single shot)
+export THINAIR_MODEL="Qwen3.6-35B-A3B-oQ8-mtp"
+export THINAIR_MAX_TOKENS=65536                      # total budget per completion, thinking included
 ```
 
-Requests ask for the server's JSON output mode (`response_format: json_object`) and quietly fall back to freeform if the server doesn't support it. Reasoning models think in fixed windows of `THINAIR_THINK_CHUNK` tokens; every checkpoint is a wake-up where the model is nudged to answer unless more thought is truly necessary. Thinking that degenerates into verbatim repetition is pruned, the cut loop is named to the model, and a reply it kept rehearsing inside the loop is harvested as the answer. An answer cut mid-way gets a completion grant sized from the draft — never the whole budget in one shot — and a model that only keeps thinking eventually gets a clear budget error, so runaway generation can never capture the budget.
+Requests ask for the server's JSON output mode (`response_format: json_object`) and quietly fall back to freeform if the server doesn't support it. Inference climbs a two-tier ladder: questions are first answered single-shot with thinking disabled (and, where the server supports it, decoding constrained to the reply schema); only a question that stumbles — low confidence, a refusal-shaped null, unparseable output — earns the thinking tier. There the stream is supervised as it arrives and cut the moment it starts repeating itself verbatim; a reply the model kept rehearsing inside a loop is harvested as the answer, an answer cut mid-way gets a completion grant sized from the draft — never the whole budget in one shot — and a model that only keeps thinking eventually gets a clear budget error, so runaway generation can never capture the budget.
 
 or in code: `Thing.defaults(model="...", base_url="...", api_key="...")`. A URL, a provider object with `complete(messages) -> text`, or a bare callable all work per instance too: `Thing("a car", model=...)`.
 
-To see what's actually happening underneath, wrap any block in `with Thing.debug():` — every prompt and raw completion is dumped to stderr, labeled by operation (`read`, `imagine`, `judge`, `collapse`). `THINAIR_DEBUG=1` turns it on globally.
+To see what's actually happening underneath, wrap any block in `with Thing.debug():` — every prompt and raw completion is dumped to stderr, labeled by operation (`read`, `imagined`, `judge`, `collapse`, `condense`). `THINAIR_DEBUG=1` turns it on globally.
 
 Then:
 
