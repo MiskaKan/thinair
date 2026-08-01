@@ -1478,7 +1478,7 @@ class Thing(metaclass=_ThingMeta):
     LowConfidence = LowConfidence
     ContinuationLimit = ContinuationLimit
 
-    _thing_step_budget = 16
+    _thing_step_budget = 48
     _thing_depth_budget = 4
     _thing_correction_budget = 6
     _thing_telling_budget = 15  # told events beyond this get retold
