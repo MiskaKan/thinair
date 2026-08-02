@@ -1113,13 +1113,15 @@ def _handle_receipt(handle, text):
 
 
 # ---------------------------------------------------------------------------
-# The families. One line each; the first registered is the default family,
-# whose model name a Thing talks to when nobody names one.
+# The families. One line each, and one of them named as the default —
+# the family whose model name a Thing talks to when nobody names one.
 # ---------------------------------------------------------------------------
 
-from .qwen import QwenEngine  # noqa: E402  (families register below the base)
+from .deepseek import DeepSeekEngine  # noqa: E402  (families register below)
+from .qwen import QwenEngine  # noqa: E402         (the base they subclass)
 
 register(QwenEngine)
+register(DeepSeekEngine)
 
 _DEFAULT_FAMILY = QwenEngine
 _DEFAULT_MODEL = os.environ.get("THINAIR_MODEL", _DEFAULT_FAMILY.default_model)

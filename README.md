@@ -217,7 +217,7 @@ Requests ask for the server's JSON output mode (`response_format: json_object`) 
 
 Or in code: `Thing.defaults(model="...", base_url="...", api_key="...")`. A URL, a provider object with `complete(messages) -> text`, or a bare callable all work per instance too: `Thing("a car", model=...)`.
 
-Everything model-specific — prompts, sampling, reply envelopes, parsing, the ladder, the transport — lives in one subclassable class, `Thing.Engine`, and nowhere else. The base class is family-neutral; each model family is a folder under `thinair/engine/` holding a subclass with its own knobs, picked automatically from the model name (`Qwen…` → `QwenEngine`, which is also the default) and falling back to the plain OpenAI-compatible base for names nothing claims. Adapting thinair to another model is a subclass and a registry line — or, per instance, `Thing("a car", model=MyEngine())`.
+Everything model-specific — prompts, sampling, reply envelopes, parsing, the ladder, the transport — lives in one subclassable class, `Thing.Engine`, and nowhere else. The base class is family-neutral; each model family is a folder under `thinair/engine/` holding a subclass with its own knobs, picked automatically from the model name and falling back to the plain OpenAI-compatible base for names nothing claims. Two families ship: `Qwen…` → `QwenEngine` (the default), `DeepSeek…` → `DeepSeekEngine`. Adapting thinair to another model is a subclass and a registry line — or, per instance, `Thing("a car", model=MyEngine())`.
 
 To see what is happening underneath, wrap any block in `with Thing.debug():` and every prompt and raw completion is dumped to stderr, labeled by operation (`read`, `imagined`, `judge`, `collapse`, `condense`). `THINAIR_DEBUG=1` turns it on globally.
 
