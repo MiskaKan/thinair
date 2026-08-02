@@ -260,6 +260,22 @@ class Npc(Thing):
 Npc.defaults(model="file://models/npc-8b.gguf")
 ```
 
+Behind every one of those specs stands an engine: everything
+model-specific — prompts, sampling, reply envelopes, parsing, the
+two-tier ladder, the transport — in one subclassable class, reached
+through the one public name as `Thing.Engine`. The base speaks plain
+OpenAI-compatible JSON and nothing else; a model family (its default
+model name, the knob that turns its thinking off, its recommended
+sampling) is a subclass, chosen from the model name, with the base as the
+fallback for names no family claims. A custom engine is itself a valid
+`model=` spec:
+
+```python
+class Opinionated(Thing.Engine):
+    def read_prompt(self, story, name): ...   # the model's voice is yours
+f = Thing("a car", model=Opinionated())
+```
+
 ## Scene 11 — the object is a document
 
 The story is text and the state is a dict; `__getstate__()` is the dump
@@ -437,6 +453,10 @@ p.x                     # 3     resolves in strata 1–2, inference never runs,
       URL, provider object, bare callable, or (future) embedded model file
       (scene 10); the provider protocol is a single method:
       complete(messages) -> text.
+- [ ] Everything model-specific lives in `Thing.Engine` and nowhere else
+      (scene 10): a model family is a subclass picked from the model name,
+      the base is the family-neutral fallback, and an engine instance is
+      itself a valid `model=` spec.
 - [ ] `__getstate__()` dumps the full story and state as a JSON-able
       document; `blob @ Car` casts it back to life, reattaching written
       code; `pickle` works (scene 11).

@@ -19,5 +19,5 @@ Homepage = "https://github.com/miskakankkonen/thinair"
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools]
-py-modules = ["thinair"]
+[tool.setuptools.packages.find]
+include = ["thinair*"]

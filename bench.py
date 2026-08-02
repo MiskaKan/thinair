@@ -17,6 +17,7 @@ import sys
 import time
 
 from thinair import Thing
+from thinair.engine.qwen import QwenEngine
 
 SCENARIOS = []
 
@@ -472,7 +473,10 @@ def recorded_fact_never_shadows_a_method():
 
 @scenario(live=True, retries=1)
 def a_custom_engine_owns_the_prompts():
-    class OpinionatedEngine(Thing.Engine):
+    # subclass the family that drives the server this bench talks to, so
+    # the engine keeps its sampling and only the prompt changes;
+    # `Thing.Engine` itself is the family-neutral base
+    class OpinionatedEngine(QwenEngine):
         def read_prompt(self, story, name):
             messages, schema = super().read_prompt(story, name)
             messages[0]["content"] += (

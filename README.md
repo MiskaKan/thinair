@@ -204,7 +204,7 @@ class Car(Thing):
 pip install thinair
 ```
 
-Available on [PyPI](https://pypi.org/project/thinair/). No dependencies, one file, stdlib only. Point it at any OpenAI-compatible endpoint (defaults target a local server):
+Available on [PyPI](https://pypi.org/project/thinair/). No dependencies, stdlib only: one module for the object model, plus a small engine package holding everything model-specific. Point it at any OpenAI-compatible endpoint (defaults target a local server):
 
 ```bash
 export THINAIR_BASE_URL="http://127.0.0.1:8000/v1"   # default
@@ -216,6 +216,8 @@ export THINAIR_MAX_TOKENS=65536                      # total budget per completi
 Requests ask for the server's JSON output mode (`response_format: json_object`) and quietly fall back to freeform if the server doesn't support it. Inference climbs a two-tier ladder: questions are first answered single-shot with thinking disabled (and, where the server supports it, decoding constrained to the reply schema); only a question that stumbles (low confidence, a refusal-shaped null, unparseable output) earns the thinking tier. There the stream is supervised as it arrives and cut the moment it starts repeating itself verbatim. A reply the model kept rehearsing inside a loop is harvested as the answer, an answer cut mid-way gets a completion grant sized from the draft rather than the whole budget, and a model that only keeps thinking eventually gets a clear budget error, so runaway generation can never capture the budget.
 
 Or in code: `Thing.defaults(model="...", base_url="...", api_key="...")`. A URL, a provider object with `complete(messages) -> text`, or a bare callable all work per instance too: `Thing("a car", model=...)`.
+
+Everything model-specific — prompts, sampling, reply envelopes, parsing, the ladder, the transport — lives in one subclassable class, `Thing.Engine`, and nowhere else. The base class is family-neutral; each model family is a folder under `thinair/engine/` holding a subclass with its own knobs, picked automatically from the model name (`Qwen…` → `QwenEngine`, which is also the default) and falling back to the plain OpenAI-compatible base for names nothing claims. Adapting thinair to another model is a subclass and a registry line — or, per instance, `Thing("a car", model=MyEngine())`.
 
 To see what is happening underneath, wrap any block in `with Thing.debug():` and every prompt and raw completion is dumped to stderr, labeled by operation (`read`, `imagined`, `judge`, `collapse`, `condense`). `THINAIR_DEBUG=1` turns it on globally.
 
