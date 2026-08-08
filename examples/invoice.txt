@@ -1,0 +1,11 @@
+ACME Oy
+Mannerheimintie 1, 00100 Helsinki
+
+INVOICE 2024-118          Issued 2024-03-04    Due 2024-04-03
+
+Widget, large                                          999.00
+Shipping                                               250.50
+                                                    ---------
+Total                                            1 249,50 EUR
+
+VAT 24% included. Payment to FI21 1234 5600 0007 85.

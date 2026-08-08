@@ -1,9 +1,5 @@
-__pycache__/
-*.py[cod]
 .venv/
-venv/
-dist/
-build/
+__pycache__/
+.pytest_cache/
 *.egg-info/
 .DS_Store
-yle_cache.json

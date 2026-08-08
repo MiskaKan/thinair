@@ -1,23 +1,25 @@
-[project]
-name = "thinair"
-version = "0.4.0"
-description = "Probabilistic Python objects: invent attributes, methods, anything out of thin air. An LLM fills the silence, every answer carries confidence, and written code always wins."
-readme = "README.md"
-license = { file = "LICENSE" }
-authors = [{ name = "Miska Kankkonen" }]
-requires-python = ">=3.9"
-classifiers = [
-    "Development Status :: 3 - Alpha",
-    "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: MIT License",
-]
-
-[project.urls]
-Homepage = "https://github.com/miskakankkonen/thinair"
+# thinair — probabilistic objects from plural beliefs.
+# Stdlib only at runtime: no dependencies are declared because there are
+# none.  pytest is the one development tool.
 
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
+[project]
+name = "thinair"
+version = "0.1.0"
+description = "Python objects whose attributes are beliefs, not values"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
 [tool.setuptools.packages.find]
 include = ["thinair*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = ["error"]
