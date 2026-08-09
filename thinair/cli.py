@@ -257,6 +257,30 @@ def _proposer_roster(ledger):
     return roster
 
 
+def _visible_at(o, commit) -> bool:
+    """Does this opinion belong in the commit's panel?
+
+    The panel unwinds to the moment: an opinion on record by the commit's
+    time is in; anything later is out -- a next week's override must not
+    haunt last week's commit.  The one exception is a corroboration
+    *about* this commit: evaluate stamps the hash it read (``meta.at``),
+    and the ``corroborate`` verb's notes are time-attached to their commit
+    by ``history`` -- both are later measurements of exactly this state.
+    The cutoff is the commit's negotiation *end*: its own judges speak
+    after the candidate whose t is the Date.
+    """
+    if o.t <= commit.get("end", commit["t"]):
+        return True
+    meta = o.meta or {}
+    if not meta.get("corroboration"):
+        return False
+    if meta.get("at") == commit["hash"]:
+        return True
+    return any(o.belief == belief and o.attr == attr
+               and values_equal(o.value, value) and o.p == p
+               for belief, attr, value, p in commit.get("notes", ()))
+
+
 def _readings(ledger, commit):
     """Per changed cell: what every known proposer says -- ``-`` where one
     is silent.  Opinions pool across the commit's refs (the commit is the
@@ -274,9 +298,12 @@ def _readings(ledger, commit):
             label = belief_id[:44]
             latest = None
             for entity in commit["entities"]:
-                got = ledger.latest(entity, attr, belief=belief_id)
-                if got is not None and (latest is None or got.t > latest.t):
-                    latest = got
+                for got in ledger.opinions(entity=entity, attr=attr,
+                                           belief=belief_id):
+                    if not _visible_at(got, commit):
+                        continue
+                    if latest is None or got.t > latest.t:
+                        latest = got
             if latest is None:
                 print(dim(f"    {label:<46} -"))
                 continue
@@ -350,6 +377,8 @@ def _matrix_lines(ledger, commit, held, extra=(), active=None, always=False,
             for o in ledger.opinions(entity=entity, attr=attr):
                 if o.belief.startswith(("policy:", "changeset:")):
                     continue
+                if not _visible_at(o, commit):
+                    continue         # the panel unwinds to the moment
                 rows.setdefault(_base_id(ledger, o.belief, bases), {})[attr] \
                     = (o.p, similarity(o.value, held[attr]))
     for belief_id in extra:

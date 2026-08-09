@@ -977,7 +977,10 @@ def history(ledger: Ledger, entity: str | None = None) -> list[dict]:
             rounds=span["rounds"], vetoes=span["overruled"],
             unknown_judges=unknown,
             panel={final.attr: agreeing},
-            expect={final.attr: expect} if expect else {}))
+            expect={final.attr: expect} if expect else {},
+            # when the negotiation finished: its judges speak after the
+            # candidate whose t is the commit's Date
+            end=max(o.t for o in span["candidates"] + span["verdicts"])))
 
     for o in ledger:
         if entity is not None and o.entity != entity \
@@ -1003,7 +1006,7 @@ def history(ledger: Ledger, entity: str | None = None) -> list[dict]:
                 t=o.t, entity=host, kind="episode", author=o.belief,
                 message=meta["call"], changes=changes,
                 returned=(o.value, o.p), recorded_parent=meta["state"],
-                rounds=1, vetoes=[], unknown_judges=[]))
+                rounds=1, vetoes=[], unknown_judges=[], end=o.t))
             continue
         if o.frozen:
             close(key)
@@ -1017,7 +1020,7 @@ def history(ledger: Ledger, entity: str | None = None) -> list[dict]:
             events.append(dict(
                 t=o.t, entity=o.entity, kind=kind, author=o.belief,
                 message=None, changes={o.attr: (o.value, o.p, True)},
-                rounds=0, vetoes=[], unknown_judges=[]))
+                rounds=0, vetoes=[], unknown_judges=[], end=o.t))
             continue
         if "judged" in meta:
             span = spans.get(key)
@@ -1031,7 +1034,7 @@ def history(ledger: Ledger, entity: str | None = None) -> list[dict]:
                 message=None, changes={o.attr: (o.value, o.p, False)},
                 rounds=span["rounds"] if span else 1,
                 vetoes=span["overruled"] if span else [],
-                unknown_judges=[]))
+                unknown_judges=[], end=o.t))
             continue
         if _generative(meta) and "round" in meta:
             span = spans.get(key)

@@ -1034,3 +1034,32 @@ def test_a_frozen_fact_is_measurable_in_the_footer(tmp_path, capsys):
     matrix = capsys.readouterr().out
     assert "p 1.00 ±0.15" in matrix                      # σ of [1.0, 0.7]:
                                                          # the fact, priced
+
+
+def test_the_panel_unwinds_to_the_commit(tmp_path, capsys):
+    """A later override must not haunt an earlier commit: show at the
+    settle displays the panel as it stood then, and only HEAD knows the
+    override happened."""
+    ledger = SqliteLedger(tmp_path / "o.db")
+    engine = FakeEngine([{"value": 10.0, "p": 0.9}])
+
+    class Box(Thing):
+        __beliefs__ = [model("small-fast", engine=engine), human("jane")]
+        size = contract(float)
+
+    b = Box(__entity__="box-t", __ledger__=ledger)
+    +b.size                                              # settles at 10.0
+    b.size = 99.0                                        # next week's override
+
+    main(["--store", str(tmp_path / "o.db"), "log", "--oneline"])
+    settle = [l for l in capsys.readouterr().out.splitlines()
+              if "[settle]" in l][0].split()[0]
+
+    main(["--store", str(tmp_path / "o.db"), "show", settle])
+    then = capsys.readouterr().out
+    assert "99" not in then                              # not yet spoken
+    assert "10.0" in then
+
+    main(["--store", str(tmp_path / "o.db"), "show", "HEAD"])
+    now = capsys.readouterr().out
+    assert "99" in now                                   # but HEAD knows
