@@ -226,17 +226,18 @@ argument resolves the way git resolves names: a hash prefix, a branch
 (entity) name meaning that ref's tip, or `HEAD` (the newest commit
 overall; the default).  The log carries no per-commit branch column —
 membership is ancestry, so refs appear only as tip decorations, on by
-default as in git (`--no-decorate` for plain hashes).  A believed cell's
-stated p appears with the cell's
-two consensus metrics beside it — `±` the deviation of agreeing p's, `~`
-the value-overlap of dissenting readings (`evaluate.similarity`: trigram
-Jaccard for strings, relative closeness for numbers, token Jaccard for
-containers — classical, model-free) — as `p 0.93 ±0.04 ~0.13`, red where
-a declared expectation (§8) is violated, yellow where a recorded reading
-dissents on the value: `log --all --decorate --oneline --graph` shows at
-a glance where beliefs diverged, and how far.  This consensus view is
-the standard rendering of a believed cell wherever one appears — the
-log, `show`'s context lines, `blame`, the matrix footer.  `show` renders the *whole
+default as in git (`--no-decorate` for plain hashes).  A believed cell
+renders everywhere as its **trust signature** — `(p 0.93 ±0.04)`, the
+resolving belief's honest p with the agreeing voices' deviation — painted
+on the overlap gradient: the score folds every recorded reading's
+`evaluate.similarity` to the held value (trigram Jaccard for strings,
+relative closeness for numbers, token Jaccard for containers — classical,
+model-free), so green is unanimous agreement, mid-ramp is dissent, and
+distance shows as color rather than as text.  A lone unchecked voice
+stays unpainted — green must mean "the record agrees", never "nobody
+looked" — and a violated declared expectation (§8) is always the theme's
+red.  The signature is the standard rendering wherever a believed cell
+appears: the log, `show`'s context lines, `blame`, the matrix footer.  `show` renders the *whole
 tree* as of the commit with what moved highlighted and the rest as dim
 context, then a belief × attribute matrix over the tree (each cell that
 belief's latest p, shaded by its value's overlap with the held one via

@@ -109,34 +109,42 @@ def shade(overlap: float, text: str) -> str:
     return red(text)
 
 
-def _p_verdict(commit, attr, p):
-    """``("p 0.93 ±0.04 ~0.13", flag)`` -- the stated probability with the
-    cell's two consensus metrics (``±`` the deviation of agreeing p's, ``~``
-    the value-overlap of dissenting readings), and how the record judges it:
-    ``"violated"`` when a declared expectation (p bounds, max deviation) is
-    missed, ``"dissent"`` when a recorded reading holds a different value,
-    ``None`` when nothing objects.
+def _signature_text(commit, attr, p) -> str:
+    view = (commit.get("consensus") or {}).get(attr) or {}
+    dev = view.get("dev")
+    return f"p {p:g}" + (f" ±{dev:.2f}" if dev is not None else "")
+
+
+def _signature(commit, attr, p, pad=0) -> str:
+    """The trust signature of a believed cell: ``(p 0.95 ±0.02)``, painted
+    on the overlap gradient.
+
+    The number is the resolving belief's honest p with the agreeing
+    voices' spread beside it; the color is the record's verdict on the
+    *value* -- green when every recorded reading holds it, sliding toward
+    red as dissenting readings land farther away (their mean
+    ``similarity`` to the held value folds into the score).  A lone
+    unchecked voice stays unpainted: green must mean "the record agrees",
+    never "nobody looked".  A violated declared expectation is always the
+    theme's red.
     """
     view = (commit.get("consensus") or {}).get(attr) or {}
     expect = (commit.get("expect") or {}).get(attr) or {}
+    text = _signature_text(commit, attr, p)
+    if pad:
+        text = text.rjust(pad)
     dev = view.get("dev")
-    text = f"p {p:g}" + (f" ±{dev:.2f}" if dev is not None else "")
-    if view.get("similarity") is not None:
-        text += f" ~{view['similarity']:.2f}"
     bounds = expect.get("p")
-    if bounds and not (bounds[0] <= p <= bounds[1]):
-        return text, "violated"
-    if expect.get("deviation") is not None and dev is not None \
-            and dev > expect["deviation"]:
-        return text, "violated"
-    if view.get("dissent"):
-        return text, "dissent"
-    return text, None
-
-
-def _paint_verdict(text, flag):
-    return red(text) if flag == "violated" else \
-        yellow(text) if flag == "dissent" else text
+    if (bounds and not (bounds[0] <= p <= bounds[1])) \
+            or (expect.get("deviation") is not None and dev is not None
+                and dev > expect["deviation"]):
+        return red(text)
+    voices = view.get("n", 1) + view.get("dissent", 0)
+    if voices <= 1:
+        return text
+    score = (view.get("n", 1)
+             + view.get("dissent", 0) * view.get("similarity", 0.0)) / voices
+    return shade(score, text)
 
 
 def _message(commit) -> str:
@@ -146,8 +154,7 @@ def _message(commit) -> str:
     arrow = "=" if frozen else "⇒"
     stated = f"{attr} {arrow} {_value(value)}"
     if not frozen:
-        text, flag = _p_verdict(commit, attr, p)
-        stated += f" ({_paint_verdict(text, flag)})"
+        stated += f" ({_signature(commit, attr, p)})"
     return stated
 
 
@@ -350,8 +357,9 @@ def _matrix_lines(ledger, commit, held, extra=(), active=None, always=False,
     if not always and len(rows) < 2:
         return []                    # a matrix of one voice says nothing
     footer = {attr: (stats or {}).get(attr) for attr in attrs}
-    footer_texts = [text for cell in footer.values() if cell is not None
-                    for text in (cell[0],) if text is not None]
+    footer_texts = [_signature_text(owner, attr, p)
+                    for attr, cell in footer.items() if cell is not None
+                    for owner, p, frozen in (cell,) if not frozen]
     width = max(8, *(min(len(a), 14) for a in attrs),
                 *(len(text) for text in footer_texts)) + 2
     lines = ["matrix:  " + dim("(rows beliefs, columns attributes; shade = "
@@ -380,11 +388,11 @@ def _matrix_lines(ledger, commit, held, extra=(), active=None, always=False,
             if got is None:
                 line += dim("-".rjust(width))
                 continue
-            text, flag = got
-            if text is None:
+            owner, p, frozen = got
+            if frozen:
                 line += dim("frozen".rjust(width))
                 continue
-            line += _paint_verdict(text.rjust(width), flag)
+            line += _signature(owner, attr, p, pad=width)
         lines.append(line)
     return lines
 
@@ -422,18 +430,19 @@ def cmd_show(ledger, args):
     for attr in sorted(set(tree) | set(commit["changes"])):
         if attr not in commit["changes"]:
             value, p, frozen, _author = tree[attr]
-            text = (stats.get(attr) or (None, None))[0]
-            mark = "frozen" if frozen else (text or f"p {p:g}")
-            print(dim(f"  {attr} = {_value(value)}   ({mark})"))
+            if frozen:
+                print(dim(f"  {attr} = {_value(value)}   (frozen)"))
+                continue
+            owner, held_p, _frozen = stats.get(attr) or (commit, p, frozen)
+            print(dim(f"  {attr} = {_value(value)}")
+                  + f"   ({_signature(owner, attr, held_p)})")
             continue
         value, p, frozen = commit["changes"][attr]
         if frozen:
             print(green(f"+ {attr} = {_value(value)}   (frozen)"))
             continue
-        text, flag = _p_verdict(commit, attr, p)
-        line = f"+ {attr} = {_value(value)}   ({text})"
-        print(red(line) if flag == "violated" else
-              yellow(line) if flag == "dissent" else green(line))
+        print(green(f"+ {attr} = {_value(value)}")
+              + f"   ({_signature(commit, attr, p)})")
     if commit["kind"] == "episode":
         value, p = commit["returned"]
         print(f"return {_value(value)}   (p={p:g})")
@@ -500,11 +509,7 @@ def cmd_blame(ledger, args):
     for attr in sorted(latest):
         commit = latest[attr]
         value, p, frozen = commit["changes"][attr]
-        if frozen:
-            mark = "frozen"
-        else:
-            text, flag = _p_verdict(commit, attr, p)
-            mark = _paint_verdict(text, flag)
+        mark = "frozen" if frozen else _signature(commit, attr, p)
         print(f"{commit['hash']} ({commit['author'][:34]:<34} t={commit['t']:g}) "
               f"{attr} = {_value(value)}   ({mark})")
 
@@ -582,9 +587,9 @@ def _commit_at(commits, rev):
 
 
 def _cell_stats(commits, commit):
-    """Per attribute of the commit's tree: the held p with its consensus
-    view (``p 0.95 ±0.02 ~0.13``) and verdict flag, taken from the commit
-    that last moved the cell -- ``(None, None)`` for frozen cells."""
+    """``attr -> (owning commit, p, frozen)``: where each cell of the
+    commit's tree last moved -- the trust signature renders from the
+    owner's consensus."""
     index = {c["hash"]: c for c in commits}
     chain, cursor = [], commit
     while cursor is not None:
@@ -594,10 +599,9 @@ def _cell_stats(commits, commit):
     for owner in reversed(chain):
         for attr, (_value, p, frozen) in owner["changes"].items():
             already = held.get(attr)
-            if frozen or already is None or not already[0]:
-                held[attr] = (frozen, owner, p)
-    return {attr: ((None, None) if frozen else _p_verdict(owner, attr, p))
-            for attr, (frozen, owner, p) in held.items()}
+            if frozen or already is None or not already[2]:
+                held[attr] = (owner, p, frozen)
+    return held
 
 
 def _tree_at(commits, commit):

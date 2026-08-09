@@ -138,15 +138,18 @@ $ thinair ground                  # print the measurement grounding, pipe-pure
                                   # — the first command of an agentic session
 ```
 
-The log carries the settlement's texture by default: beside each stated
-probability sit the cell's two consensus metrics — `±` how far apart the
-agreeing beliefs' probabilities landed, `~` how much a *dissenting*
-reading's value overlaps the held one (trigram overlap for text, relative
-closeness for numbers) — painted red where a declared expectation
-(`contract(float, p=0.9, deviation=0.1)`) was missed and yellow where a
-recorded reading holds a different value.  Expectations mark, they never
-gate, and the answering belief never sees them — a belief by itself is
-never wrong; the spread between beliefs is the signal.  `show` renders
+Wherever a believed cell appears — the log, `show`, `blame`, the matrix
+footer — it wears its *trust signature*: `(p 0.95 ±0.02)`, the resolving
+belief's honest probability with the agreeing voices' spread, painted on
+a red-to-green gradient by how well the record's other readings hold the
+same value (trigram overlap for text, relative closeness for numbers).
+Green means the record agrees; sliding toward red means dissenting
+readings landed farther away; no color means nobody has checked yet —
+green must mean agreement, never silence.  A missed declared expectation
+(`contract(float, p=0.9, deviation=0.1)`) is always hard red.
+Expectations mark, they never gate, and the answering belief never sees
+them — a belief by itself is never wrong; the spread between beliefs is
+the signal.  `show` renders
 the whole tree with the commit's change highlighted, plus a belief ×
 attribute matrix of every probability, shaded by value overlap — pure
 green is exact agreement, pure red no overlap, and a near-miss text

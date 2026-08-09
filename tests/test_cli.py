@@ -556,7 +556,9 @@ def test_dissent_paints_the_stated_p_yellow(tmp_path, monkeypatch, capsys):
     main(["--store", str(tmp_path / "o.db"), "log", "--oneline"])
     line = [l for l in capsys.readouterr().out.splitlines()
             if "[settle]" in l][0]
-    assert "\x1b[33m" in line                            # dissent: yellow
+    signature = line.split("[settle] ")[1]               # past the yellow hash
+    assert any(code in signature for code in
+               ("\x1b[2;32m", "\x1b[33m", "\x1b[2;31m"))  # dissent: mid-ramp
 
     commit = history(ledger, entity="box-1")[-1]
     assert commit["consensus"]["size"]["dissent"] == 1
@@ -677,11 +679,12 @@ def test_dissent_shows_the_value_overlap_in_the_log(tmp_path, monkeypatch,
     main(["--store", str(tmp_path / "o.db"), "log", "--oneline"])
     line = [l for l in capsys.readouterr().out.splitlines()
             if "[settle]" in l][0]
-    assert "~0.1" in line                                # the second metric
+    assert "~" not in line                               # overlap is the
+    assert "±" in line                                   # color, not text
 
     main(["--store", str(tmp_path / "o.db"), "show", "HEAD"])
     out = capsys.readouterr().out
-    assert ", ~0.1" in out                               # on the note too
+    assert ", ~0.1" in out                               # detail on the note
 
 
 def test_show_renders_the_whole_tree_with_changes_highlighted(store, capsys):
