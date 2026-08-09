@@ -138,14 +138,18 @@ $ thinair ground                  # print the measurement grounding, pipe-pure
 ```
 
 The log carries the settlement's texture by default: beside each stated
-probability sits the cell's *deviation* — how far apart the beliefs that
-read it landed — painted red where a declared expectation
+probability sit the cell's two consensus metrics — `±` how far apart the
+agreeing beliefs' probabilities landed, `~` how much a *dissenting*
+reading's value overlaps the held one (trigram overlap for text, relative
+closeness for numbers) — painted red where a declared expectation
 (`contract(float, p=0.9, deviation=0.1)`) was missed and yellow where a
 recorded reading holds a different value.  Expectations mark, they never
 gate, and the answering belief never sees them — a belief by itself is
-never wrong; the spread between beliefs is the signal.  `show` adds a
-belief × attribute matrix of every probability, green agreeing, red
-differing.
+never wrong; the spread between beliefs is the signal.  `show` renders
+the whole tree with the commit's change highlighted, plus a belief ×
+attribute matrix of every probability, green agreeing, red differing —
+one panel per commit, because branches are pointers to content, not
+copies of it.
 
 Rounds and vetoes live *inside* their commit (`show` expands them, like
 `-p`); corroborating second opinions appear as notes; a replayed run

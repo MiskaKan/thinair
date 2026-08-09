@@ -35,7 +35,7 @@ import json
 import os
 import sys
 
-from .evaluate import history
+from .evaluate import history, similarity
 from .ledger import Ledger, Opinion, values_equal
 from .store import DEFAULT_PATH, SqliteLedger
 
@@ -92,15 +92,19 @@ def dim(text):
 
 
 def _p_verdict(commit, attr, p):
-    """``("p 0.93 ±0.04", flag)`` -- the stated probability with the cell's
-    deviation, and how the record judges it: ``"violated"`` when a declared
-    expectation (p bounds, max deviation) is missed, ``"dissent"`` when a
-    recorded reading holds a different value, ``None`` when nothing objects.
+    """``("p 0.93 ±0.04 ~0.13", flag)`` -- the stated probability with the
+    cell's two consensus metrics (``±`` the deviation of agreeing p's, ``~``
+    the value-overlap of dissenting readings), and how the record judges it:
+    ``"violated"`` when a declared expectation (p bounds, max deviation) is
+    missed, ``"dissent"`` when a recorded reading holds a different value,
+    ``None`` when nothing objects.
     """
     view = (commit.get("consensus") or {}).get(attr) or {}
     expect = (commit.get("expect") or {}).get(attr) or {}
     dev = view.get("dev")
     text = f"p {p:g}" + (f" ±{dev:.2f}" if dev is not None else "")
+    if view.get("similarity") is not None:
+        text += f" ~{view['similarity']:.2f}"
     bounds = expect.get("p")
     if bounds and not (bounds[0] <= p <= bounds[1]):
         return text, "violated"
@@ -229,49 +233,51 @@ def _proposer_roster(ledger):
 
 def _readings(ledger, commit):
     """Per changed cell: what every known proposer says -- ``-`` where one
-    is silent.  Corroborations recorded by ``thinair evaluate`` live here
-    from then on: the cache, made visible."""
+    is silent.  Opinions pool across the commit's refs (the commit is the
+    content; refs are pointers to it), latest per belief.  Corroborations
+    recorded by ``thinair evaluate`` live here from then on: the cache,
+    made visible."""
     roster = _proposer_roster(ledger)
     if not roster:
         return
     print()
     print("readings:")
-    many = len(commit["entities"]) > 1
-    for entity in commit["entities"]:
-        if many:
-            print(f"  [{entity}]")
-        for attr in sorted(commit["changes"]):
-            print(f"  {attr}:")
-            for belief_id in roster:
-                label = belief_id[:44]
-                latest = ledger.latest(entity, attr, belief=belief_id)
-                if latest is None:
-                    print(dim(f"    {label:<46} -"))
-                    continue
-                meta = latest.meta or {}
-                tag = ("corroboration" if meta.get("corroboration") else
-                       "frozen" if latest.frozen else
-                       "resolving" if belief_id == commit["author"] else "")
-                line = f"    {label:<46} {_value(latest.value, 40)}"
-                if not latest.frozen:
-                    line += f" (p {latest.p:g})"
-                print(green(line) + (dim(f"   {tag}") if tag else ""))
+    for attr in sorted(commit["changes"]):
+        print(f"  {attr}:")
+        for belief_id in roster:
+            label = belief_id[:44]
+            latest = None
+            for entity in commit["entities"]:
+                got = ledger.latest(entity, attr, belief=belief_id)
+                if got is not None and (latest is None or got.t > latest.t):
+                    latest = got
+            if latest is None:
+                print(dim(f"    {label:<46} -"))
+                continue
+            meta = latest.meta or {}
+            tag = ("corroboration" if meta.get("corroboration") else
+                   "frozen" if latest.frozen else
+                   "resolving" if belief_id == commit["author"] else "")
+            line = f"    {label:<46} {_value(latest.value, 40)}"
+            if not latest.frozen:
+                line += f" (p {latest.p:g})"
+            print(green(line) + (dim(f"   {tag}") if tag else ""))
 
 
-def _matrix(ledger, commit):
-    """Belief × attribute over the commit's cells: each cell is that
+def _matrix(ledger, commit, held):
+    """Belief × attribute over the commit's whole tree: each cell is that
     belief's latest stated p -- green where its value matches what the
-    commit holds, red where it differs, ``-`` where it is silent."""
-    attrs = sorted(commit["changes"])
+    tree holds, red where it differs, ``-`` where it is silent.  Opinions
+    pool across the commit's refs: one commit, one panel."""
+    attrs = sorted(held)
     rows: dict[str, dict] = {}
     for entity in commit["entities"]:
         for attr in attrs:
-            held = commit["changes"][attr][0]
             for o in ledger.opinions(entity=entity, attr=attr):
                 if o.belief.startswith(("policy:", "changeset:")):
                     continue
                 rows.setdefault(o.belief, {})[attr] = \
-                    (o.p, values_equal(o.value, held))
+                    (o.p, values_equal(o.value, held[attr]))
     if len(rows) < 2:
         return                       # a matrix of one voice says nothing
     width = max(8, *(min(len(a), 14) for a in attrs)) + 2
@@ -308,8 +314,17 @@ def cmd_show(ledger, args):
     print()
     print(f"    {_message(commit)}")
     print()
+    # the whole tree as of this commit, source-style; what this commit
+    # moved is highlighted, the rest is context
+    tree = _tree_at(commits, commit)
     print(f"diff --thinair {_label(commit)}")
-    for attr, (value, p, frozen) in sorted(commit["changes"].items()):
+    for attr in sorted(set(tree) | set(commit["changes"])):
+        if attr not in commit["changes"]:
+            value, p, frozen, _author = tree[attr]
+            mark = "frozen" if frozen else f"p {p:g}"
+            print(dim(f"  {attr} = {_value(value)}   ({mark})"))
+            continue
+        value, p, frozen = commit["changes"][attr]
         if frozen:
             print(green(f"+ {attr} = {_value(value)}   (frozen)"))
             continue
@@ -323,11 +338,15 @@ def cmd_show(ledger, args):
     for value, p in commit["vetoes"]:
         print(red(f"- {_value(value)}   (vetoed at p={p:g})"))
     for belief, attr, value, p in commit.get("notes", ()):
+        held = commit["changes"].get(attr)
+        overlap = ""
+        if held is not None and not values_equal(value, held[0]):
+            overlap = f", ~{similarity(value, held[0]):.2f}"
         print(dim(f"note: {belief} read {attr} as {_value(value)} "
-                  f"(p={p:g})"))
+                  f"(p={p:g}{overlap})"))
     for judge in commit.get("unknown_judges", ()):
         print(f"?     {judge} judged this; necessity unknown here")
-    _matrix(ledger, commit)
+    _matrix(ledger, commit, {attr: cell[0] for attr, cell in tree.items()})
     _readings(ledger, commit)
     print()
 

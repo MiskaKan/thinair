@@ -223,14 +223,21 @@ pure derivation over §12's `history`, spending nothing.  A *commit*
 argument resolves the way git resolves names: a hash prefix, a branch
 (entity) name meaning that ref's tip, or `HEAD` (the newest commit
 overall; the default).  A believed cell's stated p appears with the cell's
-consensus deviation beside it (`p 0.93 ±0.04`), red where a declared
-expectation (§8) is violated, yellow where a recorded reading dissents on
-the value — so `log --all --decorate --oneline --graph` shows at a glance
-where beliefs diverged.  `show` carries a belief × attribute matrix (each
-cell that belief's latest p, green agreeing / red differing) and ends with
-the readings panel: every proposer on record, per changed cell — its
-latest reading, or `-` where it never spoke — so what `evaluate` records
-is visible there from then on.  Commit identity is git's: sha1(parent |
+two consensus metrics beside it — `±` the deviation of agreeing p's, `~`
+the value-overlap of dissenting readings (`evaluate.similarity`: trigram
+Jaccard for strings, relative closeness for numbers, token Jaccard for
+containers — classical, model-free) — as `p 0.93 ±0.04 ~0.13`, red where
+a declared expectation (§8) is violated, yellow where a recorded reading
+dissents on the value: `log --all --decorate --oneline --graph` shows at
+a glance where beliefs diverged, and how far.  `show` renders the *whole
+tree* as of the commit with what moved highlighted and the rest as dim
+context, then a belief × attribute matrix over the tree (each cell that
+belief's latest p, green agreeing / red differing), then the readings
+panel: every proposer, per changed cell — its latest reading, or `-`
+where it never spoke — so what `evaluate` records is visible there from
+then on.  Matrix and readings pool opinions across the commit's refs:
+one commit is one content, so it gets one panel; branches are pointers,
+and per-ref detail stays reachable as notes and in the ledger itself.  Commit identity is git's: sha1(parent |
 tree | author | kind | message | changes) — **the entity is not in the
 hash; entities are refs.**  Anonymous runs with byte-identical histories
 collapse into one chain carrying every ref, and different histories fork
@@ -262,7 +269,7 @@ zero model calls — the import-graph assertion of invariant 7 covers
 | --- | --- |
 | driver | `evaluate(thing, order=)` — resolve every declared cell; `order` is context (the twin reshuffle); unresolvable cells profile as `gap`, never raise |
 | record | `reading` (veto-aware; an unregistered judge raises rather than reading as a low score), `verdicts`, `coverage` (resolved / vetoed / absent) |
-| agreement | `agree` / `adjacent` (scale-typed), `kappa` (chance-corrected: agreement is evidence in proportion to how likely disagreement was) |
+| agreement | `agree` / `adjacent` (scale-typed), `kappa` (chance-corrected: agreement is evidence in proportion to how likely disagreement was), `similarity` (graded 0..1 overlap, licensed by type — how far apart two readings landed where `values_equal` only answers whether they landed together) |
 | statistics | `ranks`, `median`, `spearman` (paired), `mannwhitney` (unpaired), `wilson`, `n_eff` |
 | orders | `bradley_terry` — strengths with SEs, graph connectivity, consistency (the principled transitivity reading) |
 | instrument | `reliability` (+ bespoke `compare`), `drift`, `discrimination`, `grounded` → `concordance`, `calibration`, `separation`, `tiers` |

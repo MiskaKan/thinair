@@ -655,3 +655,91 @@ def test_method_docstrings_reach_the_snapshot():
     e = snapshot(d)
     assert any("# Approve the invoice for payment" in line
                for line in e.__methods__)
+
+
+# --------------------------------------------------------------------------
+# similarity: how far apart readings landed, not just whether they agree
+# --------------------------------------------------------------------------
+
+def test_similarity_is_licensed_by_type():
+    from thinair.evaluate import similarity
+
+    assert similarity("frustrated", "frustrated") == 1.0
+    assert 0.0 < similarity("frustrated", "frustration") < 1.0
+    assert similarity("frustrated", "negative") < 0.3    # barely overlap
+    assert similarity(89.9, 89.9) == 1.0
+    assert similarity(10.0, 99.0) == pytest.approx(1 - 89 / 99)
+    assert similarity(["a", "b"], ["b", "c"]) == pytest.approx(1 / 3)
+    assert similarity("high", 4) == 0.0                  # unlike types
+    assert similarity(True, 1) == 0.0                    # bool is not 1
+
+
+def test_dissent_shows_the_value_overlap_in_the_log(tmp_path, monkeypatch,
+                                                    capsys):
+    ledger = SqliteLedger(tmp_path / "o.db")
+    engine = FakeEngine([{"value": 10.0, "p": 0.9}])
+    other = FakeEngine([{"value": 99.0, "p": 0.8}])
+
+    class Box(Thing):
+        __beliefs__ = [model("small-fast", engine=engine),
+                       model("qwen3-35b", engine=other), human("jane")]
+        size = contract(float)
+
+    b = Box(__entity__="box-3", __ledger__=ledger)
+    +b.size
+    corroborate(b, attrs=["size"])
+
+    commit = history(ledger, entity="box-3")[-1]
+    assert commit["consensus"]["size"]["similarity"] == \
+        pytest.approx(1 - 89 / 99)
+
+    main(["--store", str(tmp_path / "o.db"), "log", "--oneline"])
+    line = [l for l in capsys.readouterr().out.splitlines()
+            if "[settle]" in l][0]
+    assert "~0.1" in line                                # the second metric
+
+    main(["--store", str(tmp_path / "o.db"), "show", "HEAD"])
+    out = capsys.readouterr().out
+    assert ", ~0.1" in out                               # on the note too
+
+
+def test_show_renders_the_whole_tree_with_changes_highlighted(store, capsys):
+    main(["--store", store, "log", "--oneline", "inv-1"])
+    settle = [l for l in capsys.readouterr().out.splitlines()
+              if "[settle]" in l][0].split()[0]
+    main(["--store", store, "show", settle])
+    out = capsys.readouterr().out
+    assert "+ total = 1249.5" in out                     # the change, marked
+    assert '  source_text = "Widget 999.00' in out       # context, unmarked
+    assert "+ source_text" not in out
+
+
+def test_show_pools_readings_across_a_commits_refs(tmp_path, capsys):
+    """One commit, one panel: refs are pointers, so the readings and the
+    matrix pool their opinions instead of repeating per branch name."""
+    from thinair.beliefs import restore_config, set_config
+
+    ledger = SqliteLedger(tmp_path / "o.db")
+    engine = FakeEngine([{"value": "big", "p": 0.8}])
+
+    class Card(Thing):
+        __beliefs__ = [model("small-fast", engine=engine), human("jane")]
+        text: str
+        size = contract(str)
+
+    for name in ("card-x", "card-y"):
+        +Card(__entity__=name, __ledger__=ledger, text="same words").size
+
+    second = FakeEngine([{"value": "big", "p": 0.7}])
+    previous = set_config(None, engine=second)
+    try:
+        main(["--store", str(tmp_path / "o.db"), "evaluate"])
+        capsys.readouterr()
+    finally:
+        restore_config(None, previous)
+
+    main(["--store", str(tmp_path / "o.db"), "show", "HEAD"])
+    out = capsys.readouterr().out
+    assert "[card-x]" not in out and "[card-y]" not in out
+    corroborating = [l for l in out.splitlines() if "corroboration" in l]
+    assert len(corroborating) == 1                       # pooled, not per ref

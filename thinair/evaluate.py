@@ -61,7 +61,7 @@ from .policy import Disagreement, LowConfidence, Unresolvable
 __all__ = [
     "evaluate",
     "reading", "verdicts", "coverage",
-    "agree", "adjacent", "kappa",
+    "agree", "adjacent", "kappa", "similarity",
     "ranks", "median", "spearman", "mannwhitney", "wilson", "n_eff",
     "bradley_terry",
     "reliability", "drift", "discrimination",
@@ -281,6 +281,52 @@ def agree(a: Any, b: Any, scale: str, tol: float = 0.01) -> bool | None:
         except (TypeError, ValueError):
             return values_equal(a, b)
     return values_equal(a, b)
+
+
+def similarity(a: Any, b: Any) -> float:
+    """Graded overlap between two values, 0..1 -- how far apart two readings
+    landed, where :func:`~thinair.ledger.values_equal` only answers whether
+    they landed together.
+
+    Licensed by type, classical and model-free: numbers by relative
+    closeness, strings by trigram Jaccard (word-order-tolerant, no
+    stemming pretenses), sequences and sets by token Jaccard, dicts by the
+    mean similarity of shared keys over all keys.  Unlike types score 0 --
+    a number and a string are not "a little similar".
+    """
+    if values_equal(a, b):
+        return 1.0
+    if a is None or b is None:
+        return 0.0
+    if isinstance(a, bool) or isinstance(b, bool):
+        return 0.0
+    if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+        top = max(abs(float(a)), abs(float(b)))
+        return max(0.0, 1.0 - abs(float(a) - float(b)) / top) if top else 1.0
+    if isinstance(a, str) and isinstance(b, str):
+        ga, gb = _trigrams(a), _trigrams(b)
+        union = ga | gb
+        return len(ga & gb) / len(union) if union else 1.0
+    if isinstance(a, (list, tuple, set, frozenset)) \
+            and isinstance(b, (list, tuple, set, frozenset)):
+        sa = {normal_form(x) for x in a}
+        sb = {normal_form(x) for x in b}
+        union = sa | sb
+        return len(sa & sb) / len(union) if union else 1.0
+    if isinstance(a, dict) and isinstance(b, dict):
+        keys = set(a) | set(b)
+        if not keys:
+            return 1.0
+        return sum(similarity(a[k], b[k]) for k in keys
+                   if k in a and k in b) / len(keys)
+    return 0.0
+
+
+def _trigrams(text: str) -> set:
+    padded = f" {' '.join(text.lower().split())} "
+    if len(padded) < 3:
+        return {padded}
+    return {padded[i:i + 3] for i in range(len(padded) - 2)}
 
 
 def adjacent(a: Any, b: Any, scale: str) -> bool | None:
@@ -1087,7 +1133,7 @@ def history(ledger: Ledger, entity: str | None = None) -> list[dict]:
             if frozen:
                 continue
             ps = [p] + [vp for _b, vp in (commit.get("panel") or {}).get(attr, ())]
-            dissent = 0
+            dissent, overlaps = 0, []
             for _belief, noted_attr, noted_value, noted_p in commit.get("notes", ()):
                 if noted_attr != attr:
                     continue
@@ -1095,7 +1141,12 @@ def history(ledger: Ledger, entity: str | None = None) -> list[dict]:
                     ps.append(noted_p)
                 else:
                     dissent += 1
+                    overlaps.append(similarity(noted_value, value))
             cell_view = dict(n=len(ps), dissent=dissent)
+            if overlaps:
+                # the second metric: not "did someone disagree" but "how far
+                # away did the dissenting readings land"
+                cell_view["similarity"] = sum(overlaps) / len(overlaps)
             if len(ps) >= 2:
                 mean = sum(ps) / len(ps)
                 cell_view["dev"] = (sum((x - mean) ** 2 for x in ps) / len(ps)) ** 0.5
