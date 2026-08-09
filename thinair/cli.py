@@ -155,19 +155,16 @@ def _signature(commit, attr, p, pad=0) -> str:
     return red(text) if violated else shade(score, text)
 
 
-def _reach(ledger):
-    """Coverage for the signature's parens: of the mechanisms this client
-    could hear *on this cell*, how many have spoken -- green parens mean
-    the cell's panel is complete, red parens mean almost nobody has been
-    asked.  The pool is per attribute: every model, plus the mechanisms
-    whose scoped wrappers name the attribute, plus rebuildable mechanisms
-    no wrapper claims (directly attached, so they judge anywhere) --
-    priority's enum never counts against customer.  ``None`` on archives,
-    where askability is unknowable."""
-    if not hasattr(ledger, "belief_rows"):
-        return None
-    custom = _load_custom(ledger)
-    rows = ledger.belief_rows()
+def _attachments(ledger, custom):
+    """Which mechanisms belong to which cells -- the one notion of "the
+    cell's panel" that the matrix's ``?`` marks, the parens' coverage and
+    ``evaluate``'s consultations all obey.  ``(models, by_attr,
+    unclaimed)``: every model reads any cell; a mechanism claimed by
+    scoped wrappers belongs exactly to the attributes those wrappers
+    name (priority's enum is never customer's business); a rebuildable
+    mechanism no wrapper claims was attached directly, so it judges
+    anywhere."""
+    rows = getattr(ledger, "belief_rows", lambda: [])()
     models, claimed, by_attr = set(), set(), {}
     for row in rows:
         if row["kind"] == "ModelBelief" or row["id"].startswith("model:"):
@@ -181,6 +178,22 @@ def _reach(ledger):
     unclaimed = {row["id"] for row in rows
                  if row["id"] not in claimed and row["id"] not in models
                  and _can_fill(ledger, row["id"], custom)}
+    return models, by_attr, unclaimed
+
+
+def _askable(attachments, attr):
+    models, by_attr, unclaimed = attachments
+    return models | by_attr.get(attr, set()) | unclaimed
+
+
+def _reach(ledger):
+    """Coverage for the signature's parens: of the cell's panel
+    (`_attachments`), the fraction that have spoken -- green parens mean
+    the panel is complete, red parens mean almost nobody has been asked.
+    ``None`` on archives, where askability is unknowable."""
+    if not hasattr(ledger, "belief_rows"):
+        return None
+    attachments = _attachments(ledger, _load_custom(ledger))
 
     def coverage(commit, attr):
         bases = set(commit["changes"])
@@ -192,7 +205,7 @@ def _reach(ledger):
                 if not _visible_at(o, commit):
                     continue
                 spoken.add(_base_id(ledger, o.belief, bases))
-        pool = spoken | models | by_attr.get(attr, set()) | unclaimed
+        pool = spoken | _askable(attachments, attr)
         return (len(spoken), len(pool)) if pool else (1, 1)
 
     return coverage
@@ -463,6 +476,7 @@ def _matrix_lines(ledger, commit, held, extra=(), active=None, always=False,
         rows.setdefault(_base_id(ledger, belief_id, bases), {})
     if not always and len(rows) < 2:
         return []                    # a matrix of one voice says nothing
+    attachments = _attachments(ledger, custom)
     footer = {attr: (stats or {}).get(attr) for attr in attrs}
     footer_texts = ["p 1.00 ±0.00" if frozen
                     else _signature_text(owner, attr, p)
@@ -475,9 +489,10 @@ def _matrix_lines(ledger, commit, held, extra=(), active=None, always=False,
                                "? never asked, x unreachable from here)"),
              dim(" " * 46 + "".join(a[:14].rjust(width) for a in attrs))]
     for belief_id, cells_ in rows.items():
-        fillable = _can_fill(ledger, belief_id, custom)
         line = f"  {belief_id[:44]:<44}"
         for attr in attrs:
+            askable = belief_id in _askable(attachments, attr) \
+                or belief_id.startswith("model:")
             got = cells_.get(attr)
             if got is not None:
                 # a recorded reading always shows, frozen column or not
@@ -491,7 +506,7 @@ def _matrix_lines(ledger, commit, held, extra=(), active=None, always=False,
                 # pinned by fiat: an empty cell is not an invitation
                 line += dim("frozen".rjust(width))
                 continue
-            line += dim(("?" if fillable else "x").rjust(width))
+            line += dim(("?" if askable else "x").rjust(width))
         lines.append(line)
     if stats is not None:
         # the bottom row: what the tree holds, with the cell's consensus.
@@ -969,6 +984,7 @@ def cmd_evaluate(ledger, args):
     instruments = [model(name) for name in names]
     if belief_arg == "*":
         instruments += _reconstructible_judges(ledger, custom)
+    attachments = _attachments(ledger, custom)
     extra = [b.id for b in instruments]
     print(f"evaluate {', '.join(names)}"
           + (f" + {len(instruments) - len(names)} rebuilt validators"
@@ -1020,6 +1036,9 @@ def cmd_evaluate(ledger, args):
             scope = getattr(instrument, "scope", None)
             if scope is not None and scope != attr:
                 continue
+            if not reads and instrument.id not in _askable(attachments, attr):
+                continue                            # priority's enum is not
+                                                    # customer's business
             panel = [] if reads else [_HeldValue(cells)]
             e = _RecordSnapshot(entity, cells, deriving=attr, panel=panel)
             stamp = instrument.exposure(e, attr) if reads else None

@@ -257,7 +257,12 @@ exact, theme red none, faded/yellow between; one row per *mechanism*,
 scoped wrappers pooling into their inner belief's row since the column
 already names the attribute; an empty cell says why it is empty — `?`
 could be asked and never was, which is exactly what `evaluate` fills
-in, `x` this client has no way to call it; in a *frozen* column recorded
+in, `x` this client has no way to call it *on this cell* — askability
+follows the cell's panel (the same attachment rule as the parens'
+coverage: models anywhere, wrapper-claimed mechanisms only on their
+named attributes, unclaimed rebuildable mechanisms anywhere), and
+`evaluate` consults by the same rule, so a `?` is always a consultation
+`evaluate` would actually perform; in a *frozen* column recorded
 readings still show, but empty cells read `frozen` rather than inviting
 anyone, judged as of the commit shown — closing with a `(held)` footer
 row stating each cell's standing consensus, `p 0.95 ±0.02`, which

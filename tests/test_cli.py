@@ -1169,3 +1169,42 @@ def test_ai_readable_says_the_colors_in_text(store, capsys):
 
     main(["--store", store, "log", "--oneline", "inv-1"])   # and off again
     assert "agree=" not in capsys.readouterr().out
+
+
+def test_matrix_marks_follow_the_cells_panel(tmp_path, capsys):
+    """priority's enum reads x under customer, not ? -- a mechanism
+    claimed by scoped wrappers is only askable on the attributes its
+    wrappers name, and evaluate consults by the same rule."""
+    from thinair.beliefs import restore_config, set_config
+
+    ledger = SqliteLedger(tmp_path / "o.db")
+    engine = FakeEngine([{"value": "Anna", "p": 0.9},
+                         {"value": "high", "p": 0.8}])
+
+    class Ticket(Thing):
+        __beliefs__ = [model("small-fast", engine=engine), human("jane")]
+        source_text: str
+        customer = contract(str, extracted_from="source_text")
+        priority = contract(str, enum=["low", "high"])
+
+    t = Ticket(__entity__="tick-2", __ledger__=ledger, source_text="From Anna")
+    +t.customer
+    +t.priority
+
+    main(["--store", str(tmp_path / "o.db"), "show", "HEAD"])
+    out = capsys.readouterr().out
+    matrix = out[out.index("matrix:"):out.index("readings:")]
+    enum_row = [l for l in matrix.splitlines() if "enum[" in l][0]
+    columns = enum_row.split()
+    assert columns[-3:] == ["x", "1.00", "frozen"]       # customer, priority,
+                                                         # source_text
+    previous = set_config(None, engine=FakeEngine([{"value": "high",
+                                                    "p": 0.6}]))
+    try:
+        main(["--store", str(tmp_path / "o.db"), "evaluate", "HEAD"])
+        evaluated = capsys.readouterr().out
+    finally:
+        restore_config(None, previous)
+    judged = [l for l in evaluated.splitlines()
+              if "enum[" in l and "judges p" in l]
+    assert all(l.strip().startswith("priority") for l in judged)
