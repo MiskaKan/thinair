@@ -55,7 +55,7 @@ from collections import Counter, defaultdict
 from typing import Any, Callable, Iterable
 
 from .beliefs import lookup
-from .ledger import Ledger, values_equal
+from .ledger import Ledger, normal_form, values_equal
 from .policy import Disagreement, LowConfidence, Unresolvable
 
 __all__ = [
@@ -66,7 +66,7 @@ __all__ = [
     "bradley_terry",
     "reliability", "drift", "discrimination",
     "grounded", "concordance", "calibration", "separation", "tiers",
-    "graph", "lineage", "invalidated",
+    "graph", "lineage", "invalidated", "history",
     "LICENSED", "GRADES",
 ]
 
@@ -845,6 +845,178 @@ def graph(ledger: Ledger) -> dict:
             edges.append(dict(kind="child", src=entity, dst=head))
     return dict(entities=entities, beliefs=beliefs, cells=cells,
                 edges=edges, exposures=exposures)
+
+
+def _state_hash(cells: dict) -> str:
+    """The tree hash: byte-identical to ``thing.state_hash``'s material.
+
+    ``cells`` maps attr -> (value, p, frozen).  Matching the live formula is
+    what lets a derived episode parent be checked against the ``state``
+    pointer the episode recorded at run time.
+    """
+    import hashlib
+    material = repr(sorted((attr, normal_form(value), p, frozen)
+                           for attr, (value, p, frozen) in cells.items()))
+    return hashlib.sha1(material.encode("utf-8")).hexdigest()[:12]
+
+
+def _judge_terms(ledger: Ledger, belief_id: str):
+    """(necessary, veto_line) from the registry or the stored description;
+    ``None`` when nobody knows this judge."""
+    judge = lookup(belief_id)
+    if judge is not None:
+        return bool(getattr(judge, "necessary", False)), \
+            float(getattr(judge, "veto_line", 0.5))
+    row = getattr(ledger, "belief_row", lambda _id: None)(belief_id)
+    if row is not None:
+        return bool(row["necessary"]), float(row["veto_line"])
+    return None
+
+
+def history(ledger: Ledger, entity: str | None = None) -> list[dict]:
+    """Commits: the authored, atomic transitions of observable state.
+
+    Git's mapping, made literal.  The *tree* is the state hash (frozen
+    attributes plus standing resolutions); a *commit* is whatever moved it,
+    and only three things do -- an assignment or freeze (one cell, human or
+    code), an episode changeset (atomic, the call expression as message,
+    the parent tree recorded at run time), and a settlement (a believed
+    cell resolving).  Deliberation -- rounds, vetoes -- lives *inside* its
+    commit; corroborations are notes; replay creates nothing, exactly like
+    a checkout.  Pure derivation, zero model calls; sequence ``t`` is the
+    clock, as everywhere in the record.
+
+    Derivation caveats, stated rather than hidden: a settlement is
+    attributed to the final unvetoed generative candidate of its
+    negotiation (exact under ``Proposed``; under ``Consulted`` the spread is
+    in the record but attribution follows the tape); a veto by a judge
+    neither registered nor described in the ledger cannot be verified and
+    is surfaced in ``unknown_judges`` instead of silently resolving either
+    way.
+    """
+    events: list[dict] = []
+    spans: dict[tuple, dict] = {}          # (entity, attr) -> open negotiation
+    pending: dict[str, list] = {}          # host entity -> changeset writes
+    notes: list = []
+
+    def close(key):
+        span = spans.pop(key, None)
+        if span is None or not span["candidates"]:
+            return
+        final = span["candidates"][-1]
+        vetoed, unknown = False, []
+        for verdict in span["verdicts"]:
+            if not values_equal(verdict.value, final.value):
+                continue
+            terms = _judge_terms(ledger, verdict.belief)
+            if terms is None:
+                unknown.append(verdict.belief)
+                continue
+            necessary, line = terms
+            if necessary and verdict.p < line:
+                vetoed = True
+        if vetoed:
+            return                          # a candidate that never survived
+                                            # never changed the world
+        events.append(dict(
+            t=final.t, entity=final.entity, kind="settle",
+            author=final.belief, message=None,
+            changes={final.attr: (final.value, final.p, False)},
+            rounds=span["rounds"], vetoes=span["overruled"],
+            unknown_judges=unknown))
+
+    for o in ledger:
+        if entity is not None and o.entity != entity \
+                and not ((o.meta or {}).get("state")
+                         and o.entity.startswith(f"{entity}.")):
+            continue
+        meta = o.meta or {}
+        key = (o.entity, o.attr)
+        if meta.get("corroboration"):
+            notes.append(o)
+            continue
+        if meta.get("from_changeset"):
+            pending.setdefault(o.entity, []).append(o)
+            continue
+        if "call" in meta and "state" in meta and "changes" in meta:
+            suffix = f".{meta['call']}#{meta['state']}"
+            host = o.entity[:-len(suffix)] if o.entity.endswith(suffix) else o.entity
+            writes = pending.pop(host, [])
+            changes = {w.attr: (w.value, w.p, False) for w in writes}
+            for attr, value in (meta.get("changes") or {}).items():
+                changes.setdefault(attr, (value, 1.0, False))
+            events.append(dict(
+                t=o.t, entity=host, kind="episode", author=o.belief,
+                message=meta["call"], changes=changes,
+                returned=(o.value, o.p), recorded_parent=meta["state"],
+                rounds=1, vetoes=[], unknown_judges=[]))
+            continue
+        if o.frozen:
+            close(key)
+            kind = ("assign" if meta.get("assigned") else
+                    "fixture" if meta.get("fixture") else
+                    "code" if "code" in meta or "call" in meta else "freeze")
+            events.append(dict(
+                t=o.t, entity=o.entity, kind=kind, author=o.belief,
+                message=None, changes={o.attr: (o.value, o.p, True)},
+                rounds=0, vetoes=[], unknown_judges=[]))
+            continue
+        if "judged" in meta:
+            span = spans.get(key)
+            if span is not None:
+                span["verdicts"].append(o)
+            continue
+        if o.belief.startswith("policy:"):
+            span = spans.pop(key, None)
+            events.append(dict(
+                t=o.t, entity=o.entity, kind="settle", author=o.belief,
+                message=None, changes={o.attr: (o.value, o.p, False)},
+                rounds=span["rounds"] if span else 1,
+                vetoes=span["overruled"] if span else [],
+                unknown_judges=[]))
+            continue
+        if _generative(meta) and "round" in meta:
+            span = spans.get(key)
+            if meta["round"] == 1 and (span is None or span["candidates"]):
+                close(key)
+                span = None
+            if span is None:
+                span = spans[key] = dict(candidates=[], verdicts=[],
+                                         rounds=0, overruled=[])
+            span["rounds"] = max(span["rounds"], meta["round"])
+            previous = span["candidates"][-1] if span["candidates"] else None
+            if previous is not None and not values_equal(previous.value, o.value):
+                span["overruled"].append((previous.value, previous.p))
+            span["candidates"].append(o)
+
+    for key in list(spans):
+        close(key)
+
+    # second pass: order by t, thread the tree hashes through
+    events.sort(key=lambda ev: ev["t"])
+    cells: dict[str, dict] = {}
+    for ev in events:
+        entity_cells = cells.setdefault(ev["entity"], {})
+        ev["parent"] = _state_hash(entity_cells)
+        if ev["kind"] == "episode":
+            ev["parent_matches"] = ev["parent"] == ev["recorded_parent"]
+        for attr, (value, p, frozen) in ev["changes"].items():
+            already = entity_cells.get(attr)
+            if frozen or already is None or not already[2]:
+                entity_cells[attr] = (value, p, frozen)   # frozen wins
+        ev["hash"] = _state_hash(entity_cells)
+
+    # corroborations become notes on the commit that owns their cell
+    for note in notes:
+        owner = None
+        for ev in events:
+            if ev["entity"] == note.entity and note.attr in ev["changes"] \
+                    and ev["t"] < note.t:
+                owner = ev
+        if owner is not None:
+            owner.setdefault("notes", []).append(
+                (note.belief, note.attr, note.value, note.p))
+    return events
 
 
 def _cells_of(g: dict) -> dict:

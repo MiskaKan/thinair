@@ -107,6 +107,30 @@ classical math that spends no model calls. And the record pays a second
 dividend — relaunch your program and everything certain is served straight
 from it; nothing you or your code established is ever asked twice.
 
+## Inspect the record, git-style
+
+The ledger maps onto git so cleanly that the CLI is a deliberate copy: the
+tree is the object's state hash, a commit is whatever moved it — an
+assignment, an episode's atomic changeset, a belief settling a cell — and
+every entity is a branch with its own chain.
+
+```console
+$ thinair log inv-1 --oneline
+9c41f2ab77d1 inv-1  [episode] flag()
+5f0e88c1d24a inv-1  [settle]  total ⇒ 1249.5 (p 0.93)
+1e07b3a9c655 inv-1  [assign]  source_text = "Widget 999.00 …"
+
+$ thinair show 5f0e88c1
+$ thinair blame inv-1
+$ thinair branch
+$ thinair status
+```
+
+Rounds and vetoes live *inside* their commit (`show` expands them, like
+`-p`); corroborating second opinions appear as notes; a replayed run
+commits nothing, exactly like a checkout. `--store` points at any
+`.thinair/opinions.db` or an archived `ledger.json`.
+
 ## Install
 
 ```bash

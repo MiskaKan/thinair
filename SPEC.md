@@ -203,6 +203,10 @@ system said and exactly who said it (invariant 6 makes the id the full
 configuration); mechanism lives in code.  A fresh process can therefore
 settle any record without reconstructing the strategy's classes.
 
+The `thinair` command inspects any store or `ledger.json` archive
+git-style — `log`, `show`, `status`, `branch` (entities are branches),
+`blame` — a pure derivation over §12's `history`, spending nothing.
+
 ## 12. Settlement: `thinair.evaluate`
 
 Layer 2's first slice, as built: what the record *earned*, computed from the
@@ -219,6 +223,7 @@ zero model calls — the import-graph assertion of invariant 7 covers
 | orders | `bradley_terry` — strengths with SEs, graph connectivity, consistency (the principled transitivity reading) |
 | instrument | `reliability` (+ bespoke `compare`), `drift`, `discrimination`, `grounded` → `concordance`, `calibration`, `separation`, `tiers` |
 | record structure | `graph` (typed edges: authored / ref / host / child; exposure groups), `lineage` (upstream: what a value rests on), `invalidated` (downstream: what a change calls into question) |
+| commits | `history` — the record as authored, atomic state transitions: the tree is the state hash; assignments, episode changesets (parent tree re-derived and checked against the recorded pointer) and settlements commit; deliberation lives inside its commit; corroborations are notes; replay commits nothing |
 | data | `LICENSED` (scale type → licensed statistics), `GRADES` (vibes → claim → finding → calibrated) |
 
 Ground has two homes, one gatherer: `grounded(ledger)` reads outcomes frozen
