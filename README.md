@@ -134,8 +134,9 @@ $ thinair belief add checks.py    # register your own beliefs with the
                                   # client (list / rm to manage) — evaluate
                                   # rebuilds and consults them too
 $ thinair diff 1e07b3a9...9c41f2ab   # two trees, cell by cell, ± colored
-$ thinair ground                  # print the measurement grounding, pipe-pure
-                                  # — the first command of an agentic session
+$ thinair ground                  # the measurement grounding + a client
+                                  # manual for agents, pipe-pure — the
+                                  # first command of an agentic session
 ```
 
 Wherever a believed cell appears — the log, `show`, `blame`, the matrix

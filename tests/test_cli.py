@@ -1290,3 +1290,14 @@ def test_the_resolving_reading_renders_bold(store, monkeypatch, capsys):
     judge_row = [l for l in matrix.splitlines()
                  if l.strip().startswith("tokenSubset")][0]
     assert "\x1b[1;" not in judge_row                    # judges stay plain
+
+
+def test_ground_teaches_the_client_to_agents(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    main(["ground"])
+    out = capsys.readouterr().out
+    assert "the thinair client, for agents" in out
+    assert "--ai-readable" in out                        # the blindness cure
+    assert "thinair belief add" in out                   # how to extend
+    assert "def judge(self, value, e, attr):" in out     # a working example
+    assert not (tmp_path / ".thinair").exists()          # still store-free

@@ -287,9 +287,11 @@ collapse into one chain carrying every ref, and different histories fork
 exactly where they diverge; a commit's Date is the first time its state
 was reached.  The tree itself stays the bare state hash episodes point at.
 Output colors only a terminal; `NO_COLOR` wins.  `thinair ground` prints
-the shipped GROUNDING.md plus a generated roster of the built-in beliefs,
-store-free and pipe-pure, so an agentic session's first command can be its
-own grounding.  Two commands write.  `evaluate [commit] [belief|*]`
+the shipped GROUNDING.md plus two generated appendices — the built-in
+belief roster, and a client manual for agents (the command set,
+`--ai-readable`, how to add beliefs, what the marks mean) — store-free
+and pipe-pure, so an agentic session's first command can be its own
+grounding *and* its own tool manual.  Two commands write.  `evaluate [commit] [belief|*]`
 rebuilds the commit's tree as a sealed snapshot, consults reconstructible
 beliefs, and records the answers as corroborations, idempotent per
 (commit, belief, cell) — a collapsed commit's refs share one evaluation,

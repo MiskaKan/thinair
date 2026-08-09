@@ -1154,15 +1154,100 @@ def _builtin_roster() -> str:
     return "\n".join(lines)
 
 
+def _client_manual() -> str:
+    """The CLI, taught to the agent that will drive it."""
+    return '''
+---
+
+## Appendix: the thinair client, for agents
+
+You are likely a coding agent in a repository whose `.thinair/` holds a
+record.  The `thinair` command is git for that record.  **Always pass
+`--ai-readable`**: it states the display's color channels as text --
+`agree=` (value agreement among recorded readings, 1.00 = unanimous),
+`asked=N/M` (how much of the cell's panel has spoken), and
+`expect-violated` (a declared expectation was missed).  Without it you
+are blind to the most load-bearing part of the output.
+
+### Inspect
+
+    thinair --ai-readable status                    the store, summarized
+    thinair --ai-readable log --all --oneline --graph
+    thinair --ai-readable show [rev]                whole tree + the matrix
+    thinair --ai-readable blame <entity>            who set each cell, when
+    thinair diff A...B                              two trees, cell by cell
+    thinair branch [-d name]                        entities are branches
+
+A `rev` is a hash prefix, a branch (entity) name, or `HEAD`.  A believed
+cell renders as `(p 0.95 ±0.02)` -- the resolving belief's own honest
+probability, with the agreeing voices' spread beside it (`±0.00` means
+unmeasured, not certain: check `asked=`).  In the matrix, `?` marks a
+consultation `evaluate` would actually perform, `x` a belief this
+client cannot reach on that cell, `frozen` a cell pinned by fiat.
+
+### Measure
+
+    thinair --ai-readable evaluate [rev] [belief|*]
+
+Rebuilds the commit's tree, consults every reconstructible belief
+(models by id; validators from their stored configurations), and
+records the answers as corroborations -- idempotent per (commit,
+belief, cell), so re-running is free.  This is the command that turns
+`?` into numbers and `asked=1/3` into `asked=3/3`.  Frozen cells are
+skipped by default -- a fact is not a question -- and
+`--include-frozen` prices the facts too.  Models need an endpoint:
+`THINAIR_MODEL`, `THINAIR_BASE_URL`, `THINAIR_API_KEY`.
+
+### Extend
+
+Add your own instrument when nothing built-in checks what matters:
+
+    # sentences.py
+    from thinair.beliefs import Discriminative
+
+    class EndsWithPeriod(Discriminative):
+        """The candidate text finishes its sentence."""
+
+        def judge(self, value, e, attr):
+            if not isinstance(value, str):
+                return None                    # no opinion off-type
+            return 1.0 if value.endswith(".") else (0.2, "unfinished")
+
+    $ thinair belief add sentences.py       # copies into .thinair/beliefs/
+    $ thinair belief list                   # and: thinair belief rm <name>
+
+`judge` returns `None` (no opinion), a probability, or `(p, reason)`;
+`e` is a sealed snapshot -- read other cells as `e.attr.value`.
+Registered classes rebuild from the record's stored configurations, so
+`evaluate '*'` consults them beside the built-ins; module-level
+*instances* register under durable ids and serve live.  A belief the
+application attaches with `necessary=True` gains a veto at read time;
+registered-only beliefs corroborate -- they never gate.
+
+### Declare (in the application's Python, not the CLI)
+
+Docstrings are prompt material: the class docstring is the entity's
+purpose, `contract(doc=...)` joins the attribute's description, and a
+method's first docstring line rides along with its signature.
+`contract(p=0.9, deviation=0.1)` declares expectations -- stamped into
+the record and judged there, never shown to the answering belief,
+never a gate.  `eager=True` resolves at construction.  Changing
+`__beliefs__` is a `[belief]` commit: the strategy is part of the
+history.  The theory is above; the contract of every guarantee is
+SPEC.md.
+'''
+
+
 def cmd_ground(_ledger, _args):
-    """The grounding -- GROUNDING.md verbatim, then a generated roster of
-    the built-in beliefs this installation ships.  Nothing else on stdout,
-    so the output pipes straight into an agent's context; the first command
-    of an agentic session."""
+    """The grounding -- GROUNDING.md verbatim, then two generated
+    appendices: the built-in belief roster and the client manual for
+    agents.  Nothing else on stdout, so the output pipes straight into an
+    agent's context; the first command of an agentic session."""
     from importlib.resources import files
     sys.stdout.write(files("thinair").joinpath("GROUNDING.md").read_text(
         encoding="utf-8"))
     sys.stdout.write(_builtin_roster())
+    sys.stdout.write(_client_manual())
 
 
 def main(argv=None) -> int:
