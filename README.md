@@ -124,12 +124,17 @@ $ thinair show 5f0e88c1
 $ thinair blame inv-1
 $ thinair branch
 $ thinair status
+$ thinair beliefs 5f0e88c1        # who spoke (or could) at that commit
+$ thinair evaluate '*' 5f0e88c1   # consult beliefs against that commit's
+                                  # state — agreements and DIFFERs, recorded
 ```
 
 Rounds and vetoes live *inside* their commit (`show` expands them, like
 `-p`); corroborating second opinions appear as notes; a replayed run
 commits nothing, exactly like a checkout. `--store` points at any
-`.thinair/opinions.db` or an archived `ledger.json`.
+`.thinair/opinions.db` or an archived `ledger.json` (archives are
+read-only: every command works on them except `evaluate`, which spends
+model calls and records what it hears).
 
 ## Install
 

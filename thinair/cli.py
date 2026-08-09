@@ -10,6 +10,10 @@ commands are deliberate copies:
     thinair status                              the store, summarized
     thinair branch                              entities and their heads
     thinair blame <entity>                      every cell: who set it, when
+    thinair beliefs [commit]                    who spoke (or could) there
+    thinair evaluate [belief] [commit]          consult beliefs against a
+                                                commit's state -- spends
+                                                calls, records corroborations
 
 ``--store`` points anywhere: the default ``.thinair/opinions.db``, any
 SQLite store, or a committed ``ledger.json`` archive -- the inspector is a
@@ -24,7 +28,7 @@ import os
 import sys
 
 from .evaluate import history
-from .ledger import Ledger
+from .ledger import Ledger, Opinion, values_equal
 from .store import DEFAULT_PATH, SqliteLedger
 
 KINDS = {"assign": "assign", "settle": "settle", "episode": "episode",
@@ -156,6 +160,159 @@ def cmd_blame(ledger, args):
               f"{attr} = {_value(value)}   ({mark})")
 
 
+class _RecordSnapshot:
+    """A sealed snapshot built from a commit's tree -- no live Thing needed.
+
+    Carries the same surface a belief reads off a real snapshot.  Contracts
+    and purpose are class code, absent here, so a reading taken this way has
+    its *own* exposure -- a leaner context than the original run's -- and
+    the stamp records exactly that; settlement weighs it accordingly.
+    """
+
+    def __init__(self, entity, cells, deriving):
+        object.__setattr__(self, "_cells", {
+            attr: Opinion(belief=author or "record", entity=entity, attr=attr,
+                          value=value, p=p, t=1.0, frozen=frozen)
+            for attr, (value, p, frozen, author) in cells.items()
+            if attr != deriving})
+        object.__setattr__(self, "__entity__", entity)
+
+    __class_name__ = "Record"
+    __purpose__ = ""
+    __value__ = None
+    __p__ = 0.0
+    __provenance__ = ()
+    __contracts__: dict = {}
+    __methods__: tuple = ()
+    __arguments__: dict = {}
+    __objections__: tuple = ()
+    __owner__ = None
+    __episode__ = None
+    __call_arguments__ = None
+    __beliefs__: list = []
+
+    def __getattr__(self, name):
+        try:
+            return object.__getattribute__(self, "_cells")[name]
+        except KeyError:
+            raise AttributeError(name) from None
+
+    def __setattr__(self, name, value):
+        raise AttributeError("a snapshot is sealed")
+
+    def __attrs__(self):
+        return dict(object.__getattribute__(self, "_cells"))
+
+    def __opinion__(self, attr):
+        return object.__getattribute__(self, "_cells").get(attr)
+
+
+def _commit_at(commits, prefix):
+    if prefix is None:
+        if not commits:
+            sys.exit("fatal: empty record")
+        return commits[-1]                                 # HEAD: the newest
+    matches = [c for c in commits if c["hash"].startswith(prefix)]
+    if not matches:
+        sys.exit(f"fatal: bad revision '{prefix}'")
+    return matches[-1]
+
+
+def _tree_at(commits, commit):
+    """attr -> (value, p, frozen, author) for the commit's entity, as of it."""
+    cells: dict[str, tuple] = {}
+    for earlier in commits:
+        if earlier["entity"] != commit["entity"] or earlier["t"] > commit["t"]:
+            continue
+        for attr, (value, p, frozen) in earlier["changes"].items():
+            already = cells.get(attr)
+            if frozen or already is None or not already[2]:
+                cells[attr] = (value, p, frozen, earlier["author"])
+    return cells
+
+
+def _model_names(ledger):
+    """The reconstructible instruments the record knows: model belief names,
+    parsed from durable ids (invariant 6 makes the id the configuration)."""
+    names = []
+    for belief_id in ledger.beliefs():
+        if belief_id.startswith("model:") and "@T" in belief_id:
+            name = belief_id[len("model:"):].split("@T")[0]
+            if name not in names:
+                names.append(name)
+    return names
+
+
+def cmd_beliefs(ledger, args):
+    commits = history(ledger)
+    scope = None
+    if args.commit:
+        commit = _commit_at(commits, args.commit)
+        scope = commit["entity"]
+        spoke = {o.belief for o in ledger.opinions(entity=scope)}
+        print(f"beliefs on {commit['hash']} ({scope}):")
+    else:
+        spoke = set(ledger.beliefs())
+        print("beliefs on record:")
+    for belief_id in sorted(spoke):
+        row = getattr(ledger, "belief_row", lambda _id: None)(belief_id) or {}
+        marks = []
+        if row.get("proposes") or belief_id.startswith("model:"):
+            marks.append("proposes")
+        if row.get("necessary"):
+            marks.append(f"necessary@{row['veto_line']:g}")
+        if belief_id.startswith("model:"):
+            marks.append("reconstructible")
+        tail = f"  [{', '.join(marks)}]" if marks else ""
+        description = row.get("description")
+        note = f"  -- {description}" if description and description != belief_id \
+            else ""
+        print(f"  {belief_id}{tail}{note}")
+
+
+def cmd_evaluate(ledger, args):
+    if not hasattr(ledger, "belief_row"):
+        sys.exit("fatal: archives are read-only; evaluate needs a store")
+    from .beliefs import model
+
+    commits = history(ledger)
+    commit = _commit_at(commits, args.commit)
+    entity = commit["entity"]
+    cells = _tree_at(commits, commit)
+    if args.belief == "*":
+        names = _model_names(ledger)
+        if not names:
+            sys.exit("fatal: no reconstructible belief has spoken here; "
+                     "name one: thinair evaluate <model-name>")
+    else:
+        raw = args.belief
+        names = [raw[len("model:"):].split("@T")[0]
+                 if raw.startswith("model:") else raw]
+
+    print(f"evaluate {', '.join(names)} @ {commit['hash']} ({entity})")
+    for name in names:
+        belief = model(name)
+        for attr in sorted(cells):
+            e = _RecordSnapshot(entity, cells, deriving=attr)
+            stamp = belief.exposure(e, attr)
+            prior = ledger.opinions(entity=entity, attr=attr, belief=belief.id)
+            if any((o.meta or {}).get("exposure") == stamp for o in prior):
+                print(f"  {attr:<18} {belief.id}: asked and answered")
+                continue
+            got = belief(e, attr)
+            if got is None:
+                continue
+            ledger.add(Opinion(
+                belief=belief.id, entity=entity, attr=attr,
+                value=+got, p=~got, frozen=False,
+                meta=dict(getattr(got, "meta", None) or {},
+                          corroboration=True, at=commit["hash"])))
+            held, _p, _frozen, _author = cells[attr]
+            verdict = "agrees" if values_equal(+got, held) else \
+                f"DIFFERS from {_value(held)}"
+            print(f"  {attr:<18} ⇒ {_value(+got)} (p {~got:g})  {verdict}")
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         prog="thinair", description="inspect a thinair record, git-style")
@@ -180,6 +337,17 @@ def main(argv=None) -> int:
     blame = sub.add_parser("blame", help="every cell: who set it, when")
     blame.add_argument("entity")
     blame.set_defaults(run=cmd_blame)
+
+    beliefs = sub.add_parser("beliefs", help="who spoke (or could) at a commit")
+    beliefs.add_argument("commit", nargs="?", default=None)
+    beliefs.set_defaults(run=cmd_beliefs)
+
+    evaluate = sub.add_parser(
+        "evaluate", help="consult beliefs against a commit's state "
+                         "(spends calls, records corroborations)")
+    evaluate.add_argument("belief", nargs="?", default="*")
+    evaluate.add_argument("commit", nargs="?", default=None)
+    evaluate.set_defaults(run=cmd_evaluate)
 
     args = parser.parse_args(argv)
     args.run(open_store(args.store), args)

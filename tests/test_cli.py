@@ -168,3 +168,67 @@ def test_cli_reads_a_json_archive(tmp_path, capsys):
 def test_cli_refuses_a_missing_store(tmp_path):
     with pytest.raises(SystemExit):
         main(["--store", str(tmp_path / "nope.db"), "status"])
+
+
+# --------------------------------------------------------------------------
+# evaluate and beliefs: consultation from the terminal
+# --------------------------------------------------------------------------
+
+def test_beliefs_lists_who_spoke_at_a_commit(store, capsys):
+    main(["--store", store, "log", "--oneline"])
+    head = capsys.readouterr().out.split()[0]
+    main(["--store", store, "beliefs", head])
+    out = capsys.readouterr().out
+    assert "inv-1" in out and "model:small-fast" in out
+    assert "reconstructible" in out and "human:jane" in out
+
+    main(["--store", store, "beliefs"])
+    assert "beliefs on record:" in capsys.readouterr().out
+
+
+def test_evaluate_consults_against_head_and_records(store, capsys):
+    from thinair.beliefs import restore_config, set_config
+
+    engine = FakeEngine([{"value": 1249.5, "p": 0.66}])
+    previous = set_config(None, engine=engine)
+    try:
+        main(["--store", store, "evaluate", "small-fast"])
+        out = capsys.readouterr().out
+        assert "agrees" in out                     # total re-read the same
+        assert "DIFFERS" in out                    # note read as 1249.5
+        spent = engine.call_count
+        assert spent >= 3                          # one consult per cell
+
+        main(["--store", store, "evaluate", "small-fast"])
+        again = capsys.readouterr().out
+        assert "asked and answered" in again       # idempotent by exposure
+        assert engine.call_count == spent
+    finally:
+        restore_config(None, previous)
+
+    ledger = SqliteLedger(store)
+    noted = [o for o in ledger.opinions(entity="inv-1", attr="total")
+             if (o.meta or {}).get("corroboration")]
+    assert any((o.meta or {}).get("at") for o in noted)
+
+
+def test_evaluate_star_uses_every_reconstructible_belief(store, capsys):
+    from thinair.beliefs import restore_config, set_config
+
+    engine = FakeEngine([{"value": 1249.5, "p": 0.5}])
+    previous = set_config(None, engine=engine)
+    try:
+        main(["--store", store, "evaluate"])       # belief defaults to *
+        out = capsys.readouterr().out
+        assert "small-fast" in out and "qwen3-35b" in out
+    finally:
+        restore_config(None, previous)
+
+
+def test_evaluate_refuses_a_read_only_archive(tmp_path):
+    ledger = Ledger()
+    scripted_run(ledger)
+    path = tmp_path / "ledger.json"
+    ledger.dump(path)
+    with pytest.raises(SystemExit):
+        main(["--store", str(path), "evaluate"])

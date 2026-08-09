@@ -205,7 +205,13 @@ settle any record without reconstructing the strategy's classes.
 
 The `thinair` command inspects any store or `ledger.json` archive
 git-style — `log`, `show`, `status`, `branch` (entities are branches),
-`blame` — a pure derivation over §12's `history`, spending nothing.
+`blame`, `beliefs [commit]` — a pure derivation over §12's `history`,
+spending nothing.  The one exception is `evaluate [belief|*] [commit]`
+(HEAD by default): it rebuilds the commit's tree as a sealed snapshot,
+consults reconstructible beliefs (model ids parse back into configurations
+— invariant 6), and records the answers as corroborations on the same
+cells, idempotent by exposure; archives are refused, because evaluation
+writes.
 
 ## 12. Settlement: `thinair.evaluate`
 
