@@ -133,8 +133,11 @@ snapshot to `(changeset, return_value, p)`.
 * The return value faces the discriminative panel like any other candidate.
 * Every write must target a declared, unfrozen attribute and pass the full
   per-attribute pipeline.  Commit is atomic: all of it or none of it.
-* Repetition keys on `(entity, state hash, call expression)`.  `returns=` is
-  stripped from the identity — it governs acceptance, not identity.
+* Repetition keys on `(entity, state hash, call expression)`, where the
+  state hash covers the host *and every Thing-valued argument* — an argument
+  whose state changed invalidates the memo exactly like an interleaved
+  assignment on the host.  `returns=` is stripped from the identity — it
+  governs acceptance, not identity.
 
 Disambiguation: contract-declared name called → re-derivation; real method →
 real code; any other called name → episode.  Plain access never runs one.

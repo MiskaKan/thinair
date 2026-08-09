@@ -69,8 +69,30 @@ class Episode:
         self.action_budget = action_budget
         self.expression = call_expression(name, self.args, self.kwargs)
         self.entity = f"{thing.__entity__}.{self.expression}"
-        self.state = state_hash(thing)
+        self.state = self._state()
         self.cell = f"{self.entity}#{self.state}"
+
+    def _state(self) -> str:
+        """The state this episode is a pure function of -- all of it.
+
+        A Thing-valued argument's snapshot is part of what the episode saw,
+        so its state belongs in the repetition key: an argument that changed
+        must invalidate the memo exactly like an interleaved assignment on
+        the host does.  The expression alone cannot carry this -- it renders
+        a Thing by entity, which is stable across state changes on purpose.
+        With no Thing arguments the key is the host's hash alone, unchanged.
+        """
+        material = [state_hash(self.thing)]
+        for argument in self.args:
+            if isinstance(argument, Thing):
+                material.append(state_hash(argument))
+        for _name, argument in sorted(self.kwargs.items()):
+            if isinstance(argument, Thing):
+                material.append(state_hash(argument))
+        if len(material) == 1:
+            return material[0]
+        import hashlib
+        return hashlib.sha1("+".join(material).encode("utf-8")).hexdigest()[:12]
 
     # -- the two actions that touch live state ---------------
     def get(self, attr):

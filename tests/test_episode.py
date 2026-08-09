@@ -254,6 +254,36 @@ def test_a_committed_changeset_triggers_a_fresh_episode():
     assert engine.call_count == 2
 
 
+def test_a_changed_thing_argument_triggers_a_fresh_episode():
+    """The argument's snapshot is part of what the episode saw, so its state
+    is part of the repetition key -- a changed argument must invalidate the
+    memo exactly like an interleaved assignment on the host does."""
+    inv, engine, ledger = invoice([ret("prioritize it"), ret("drop everything")])
+
+    class Doc(Thing):
+        __beliefs__ = [human("desk")]
+        title: str
+
+    doc = Doc(__entity__="doc-1", __ledger__=ledger, title="Q3 report")
+    assert +inv.operate(doc) == "prioritize it"
+    doc.title = "URGENT: building on fire"
+    assert +inv.operate(doc) == "drop everything"
+    assert engine.call_count == 2
+
+
+def test_an_unchanged_thing_argument_still_hits_the_memo():
+    inv, engine, ledger = invoice([ret("prioritize it")])
+
+    class Doc(Thing):
+        __beliefs__ = [human("desk")]
+        title: str
+
+    doc = Doc(__entity__="doc-1", __ledger__=ledger, title="Q3 report")
+    assert +inv.operate(doc) == "prioritize it"
+    assert +inv.operate(doc) == "prioritize it"
+    assert engine.call_count == 1
+
+
 def test_different_arguments_are_different_cells():
     inv, engine, _ = invoice([ret("terse"), ret("full")])
     assert +inv.summarize(style="terse") == "terse"
