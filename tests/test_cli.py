@@ -250,6 +250,16 @@ def test_evaluate_star_uses_every_reconstructible_belief(store, capsys):
         restore_config(None, previous)
 
 
+def test_ground_prints_the_grounding_pipe_pure(tmp_path, monkeypatch, capsys):
+    """No store needed, none created, nothing on stdout but the file."""
+    monkeypatch.chdir(tmp_path)
+    assert main(["ground"]) == 0
+    out = capsys.readouterr().out
+    assert out.startswith("# thinair — The Measurement Space")
+    assert "Pillar I" in out and "Part 2" in out
+    assert not (tmp_path / ".thinair").exists()
+
+
 def test_evaluate_refuses_a_read_only_archive(tmp_path):
     ledger = Ledger()
     scripted_run(ledger)

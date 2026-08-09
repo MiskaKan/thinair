@@ -128,6 +128,8 @@ $ thinair status
 $ thinair beliefs 5f0e88c1        # who spoke (or could) at that commit
 $ thinair evaluate '*' 5f0e88c1   # consult beliefs against that commit's
                                   # state — agreements and DIFFERs, recorded
+$ thinair ground                  # print the measurement grounding, pipe-pure
+                                  # — the first command of an agentic session
 ```
 
 Rounds and vetoes live *inside* their commit (`show` expands them, like

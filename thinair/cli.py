@@ -14,6 +14,9 @@ commands are deliberate copies:
     thinair evaluate [belief] [commit]          consult beliefs against a
                                                 commit's state -- spends
                                                 calls, records corroborations
+    thinair ground                              print the measurement
+                                                grounding (GROUNDING.md) --
+                                                pipe it to an agent
 
 ``--store`` points anywhere: the default ``.thinair/opinions.db``, any
 SQLite store, or a committed ``ledger.json`` archive -- the inspector is a
@@ -355,6 +358,17 @@ def cmd_evaluate(ledger, args):
             print(f"  {attr:<18} ⇒ {_value(+got)} (p {~got:g})  {verdict}")
 
 
+def cmd_ground(_ledger, _args):
+    """The grounding, verbatim -- nothing else on stdout, so the output can
+    be piped straight into an agent's context.  The first command of an
+    agentic session: it teaches the four pillars, the strategy protocol,
+    and the framework mapping, exactly as the shipped GROUNDING.md states
+    them."""
+    from importlib.resources import files
+    sys.stdout.write(files("thinair").joinpath("GROUNDING.md").read_text(
+        encoding="utf-8"))
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         prog="thinair", description="inspect a thinair record, git-style")
@@ -398,8 +412,14 @@ def main(argv=None) -> int:
     evaluate.add_argument("commit", nargs="?", default=None)
     evaluate.set_defaults(run=cmd_evaluate)
 
+    ground = sub.add_parser(
+        "ground", help="print the measurement grounding; pipe it to an agent")
+    ground.set_defaults(run=cmd_ground, needs_store=False)
+
     args = parser.parse_args(argv)
-    args.run(open_store(args.store), args)
+    ledger = open_store(args.store) if getattr(args, "needs_store", True) \
+        else None
+    args.run(ledger, args)
     return 0
 
 
