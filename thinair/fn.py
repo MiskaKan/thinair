@@ -218,7 +218,12 @@ def _purpose(spec) -> str:
 
 
 def _meta(spec, bound):
+    from .thing import references
+
     meta = {"call": spec.qualname, "args": list(bound.args)}
+    refs = references((bound.args, bound.kwargs))
+    if refs:
+        meta["refs"] = refs
     if not spec.pure:
         meta["observed"] = True                      # a sensor reading
     return meta

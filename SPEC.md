@@ -197,6 +197,7 @@ zero model calls — the import-graph assertion of invariant 7 covers
 | statistics | `ranks`, `median`, `spearman` (paired), `mannwhitney` (unpaired), `wilson`, `n_eff` |
 | orders | `bradley_terry` — strengths with SEs, graph connectivity, consistency (the principled transitivity reading) |
 | instrument | `reliability` (+ bespoke `compare`), `drift`, `discrimination`, `grounded` → `concordance`, `calibration`, `separation`, `tiers` |
+| record structure | `graph` (typed edges: authored / ref / host / child; exposure groups), `lineage` (upstream: what a value rests on), `invalidated` (downstream: what a change calls into question) |
 | data | `LICENSED` (scale type → licensed statistics), `GRADES` (vibes → claim → finding → calibrated) |
 
 Ground has two homes, one gatherer: `grounded(ledger)` reads outcomes frozen
@@ -204,7 +205,11 @@ Ground has two homes, one gatherer: `grounded(ledger)` reads outcomes frozen
 alone; `ground=fn` maps measured entities to parallel ground entities that
 stay invisible to the instrument.  Model opinions carry an `exposure`
 fingerprint in `meta` (a hash of the rendered context), so dissimilarity in
-mechanism AND exposure is computable from the ledger after the fact.
+mechanism AND exposure is computable from the ledger after the fact.  Where
+a Thing or Cell crosses into the record — assignment, episode arguments,
+`fn` arguments — `meta.refs` keeps the durable addresses (`entity`,
+`entity#attr`) that value-reduction would otherwise destroy; the record's
+dependency graph is thereby a pure derivation, never a stored structure.
 
 ## 13. Building a strategy
 

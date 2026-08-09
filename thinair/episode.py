@@ -19,8 +19,8 @@ from typing import Any
 from .beliefs import MemoBelief, as_judgment
 from .ledger import Opinion, arguments_id
 from .policy import Attempt, Route, Unresolvable
-from .thing import (Cell, Thing, _build_snapshot, commit, propose, review,
-                    state_hash)
+from .thing import (Cell, Thing, _build_snapshot, commit, propose, references,
+                    review, state_hash)
 
 __all__ = ["Episode", "run", "call_expression", "ACTION_BUDGET", "CORRECTIONS",
            "MAX_DEPTH", "MAX_OBSERVATION"]
@@ -272,6 +272,9 @@ def run(thing, name, args=(), kwargs=None):
             "state": episode.state,
             "changes": {o.attr: o.value for o in validated},
         }
+        refs = references((episode.args, episode.kwargs))
+        if refs:
+            provenance["refs"] = refs
         for key in ("model", "actions", "why"):
             if key in (getattr(got, "meta", None) or {}):
                 provenance[key] = got.meta[key]

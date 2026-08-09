@@ -66,6 +66,7 @@ __all__ = [
     "bradley_terry",
     "reliability", "drift", "discrimination",
     "grounded", "concordance", "calibration", "separation", "tiers",
+    "graph", "lineage", "invalidated",
     "LICENSED", "GRADES",
 ]
 
@@ -756,3 +757,140 @@ def tiers(ledger: Ledger, validation: Callable[[Any], bool],
     total = findings + checking
     return dict(findings=findings, validation=checking, total=total,
                 validation_share=round(checking / total, 3) if total else None)
+
+
+# --------------------------------------------------------------------------
+# the record as a graph
+# --------------------------------------------------------------------------
+
+_DEPENDENCY_KINDS = ("ref", "host", "child")
+
+
+def graph(ledger: Ledger) -> dict:
+    """The record's structure, derived: nodes and typed edges.
+
+    Nodes are strings -- an entity id, a belief id, or a cell address
+    ``entity#attr``.  Edges, deduplicated:
+
+    * ``authored`` -- belief -> cell, with how many opinions and whether any
+      froze.
+    * ``ref`` -- cell -> what its value crossed the boundary with
+      (``meta["refs"]``: entity ids and cell addresses; the provenance
+      ``_plain`` and call rendering would otherwise destroy).
+    * ``host`` -- an episode's call-cell entity -> the Thing it ran on,
+      recovered exactly from provenance (``call`` + ``state``), never by
+      parsing entity ids.
+    * ``child`` -- entity ``a#b`` -> entity ``a``, when both appear as
+      entities in the record.
+
+    ``exposures`` groups readings by context fingerprint: the readings in
+    one group saw the same rendered context, so their agreement shares
+    exposure and is cheap (Pillar III).  The whole structure is a derived
+    instrument (Pillar IV): rebuildable from any ledger, never stored,
+    never authoritative.
+    """
+    entities: list[str] = []
+    beliefs: list[str] = []
+    cells: list[tuple[str, str]] = []
+    seen_entity, seen_belief, seen_cell = set(), set(), set()
+    authored: dict[tuple, dict] = {}
+    seen_edge, links = set(), []
+    exposures: dict[str, list] = {}
+    for o in ledger:
+        cell = f"{o.entity}#{o.attr}"
+        if o.entity not in seen_entity:
+            seen_entity.add(o.entity)
+            entities.append(o.entity)
+        if o.belief not in seen_belief:
+            seen_belief.add(o.belief)
+            beliefs.append(o.belief)
+        if (o.entity, o.attr) not in seen_cell:
+            seen_cell.add((o.entity, o.attr))
+            cells.append((o.entity, o.attr))
+        row = authored.setdefault((o.belief, cell), dict(n=0, frozen=False))
+        row["n"] += 1
+        row["frozen"] = row["frozen"] or o.frozen
+        meta = o.meta or {}
+        for ref in meta.get("refs") or ():
+            key = ("ref", cell, ref)
+            if key not in seen_edge:
+                seen_edge.add(key)
+                links.append(dict(kind="ref", src=cell, dst=ref))
+        if "exposure" in meta:
+            exposures.setdefault(meta["exposure"], []).append(
+                (o.belief, o.entity, o.attr))
+        if "call" in meta and "state" in meta:
+            suffix = f".{meta['call']}#{meta['state']}"
+            if o.entity.endswith(suffix) and len(o.entity) > len(suffix):
+                key = ("host", o.entity, o.entity[:-len(suffix)])
+                if key not in seen_edge:
+                    seen_edge.add(key)
+                    links.append(dict(kind="host", src=key[1], dst=key[2]))
+    edges = [dict(kind="authored", src=belief, dst=cell, **row)
+             for (belief, cell), row in authored.items()]
+    edges.extend(links)
+    for entity in entities:
+        head, sep, _tail = entity.rpartition("#")
+        if sep and head in seen_entity:
+            edges.append(dict(kind="child", src=entity, dst=head))
+    return dict(entities=entities, beliefs=beliefs, cells=cells,
+                edges=edges, exposures=exposures)
+
+
+def _cells_of(g: dict) -> dict:
+    out: dict[str, list] = {}
+    for entity, attr in g["cells"]:
+        out.setdefault(entity, []).append(f"{entity}#{attr}")
+    return out
+
+
+def lineage(g: dict, node: str) -> list[str]:
+    """Everything upstream of ``node``: what its value transitively rests on.
+
+    ``node`` is an entity id or a cell address.  The walk follows dependency
+    edges (``ref``, ``host``, ``child``) plus containment -- a cell rests on
+    its entity, so an episode result's lineage includes the episode's host
+    and everything the call was handed.
+    """
+    dep: dict[str, list] = {}
+    for edge in g["edges"]:
+        if edge["kind"] in _DEPENDENCY_KINDS:
+            dep.setdefault(edge["src"], []).append(edge["dst"])
+    entity_of = {f"{e}#{a}": e for e, a in g["cells"]}
+    out: set[str] = set()
+    frontier = [node]
+    while frontier:
+        n = frontier.pop()
+        steps = list(dep.get(n, ()))
+        if n in entity_of:
+            steps.append(entity_of[n])
+        for step in steps:
+            if step != node and step not in out:
+                out.add(step)
+                frontier.append(step)
+    return sorted(out)
+
+
+def invalidated(g: dict, node: str) -> list[str]:
+    """Everything downstream of ``node``: what a change to it calls into
+    question.  The staleness question, generalized into a query -- "this
+    entity's state moved; which episode results and derived cells were
+    computed from the old world?"  A bare entity seeds with all its cells;
+    reaching an entity spreads to the cells that belong to it (an
+    invalidated episode invalidates its result).
+    """
+    rdep: dict[str, list] = {}
+    for edge in g["edges"]:
+        if edge["kind"] in _DEPENDENCY_KINDS:
+            rdep.setdefault(edge["dst"], []).append(edge["src"])
+    cells_of = _cells_of(g)
+    seeds = {node, *cells_of.get(node, ())}
+    out: set[str] = set()
+    frontier = list(seeds)
+    while frontier:
+        n = frontier.pop()
+        for step in list(rdep.get(n, ())) + cells_of.get(n, []):
+            if step not in out and step not in seeds:
+                out.add(step)
+                frontier.append(step)
+    return sorted(out)

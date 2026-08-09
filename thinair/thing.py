@@ -430,10 +430,14 @@ class Thing(metaclass=ThingMeta):
             object.__setattr__(self, name, value)
             return
         author = resident_human(self)
+        meta = {"assigned": True}
+        refs = references(value)
+        if refs:
+            meta["refs"] = refs
         self.__ledger__.add(Opinion(
             belief=author.id, entity=self.__entity__, attr=name,
             value=_plain(value), p=1.0, frozen=True,
-            meta={"assigned": True}))
+            meta=meta))
         self.__root__.__resolved__.pop((self.__entity__, name), None)
         self.__root__.__coerced__.clear()
 
@@ -707,6 +711,37 @@ def _plain(value):
     """A Thing reduces to its carried value; everything else is itself."""
     unwrap = getattr(type(value), "__thinair_unwrap__", None)
     return unwrap(value) if unwrap is not None else value
+
+
+def references(value) -> list[str]:
+    """Durable references carried by a value crossing into the record.
+
+    ``_plain`` and call rendering reduce Things and Cells to their values --
+    the right identity for *comparison* -- but the reduction destroys
+    provenance: the record keeps ``"Q3"`` with no trace that it came from
+    ``doc-1#title``.  This walk collects what the reduction discards, so the
+    boundary can stamp it into ``meta["refs"]``: a Thing contributes its
+    entity, a Cell its ``entity#attr`` address, containers are walked.  A
+    plain object contributes nothing -- no identity, no reference; wrap it
+    as a Thing to give it one.
+    """
+    out: list[str] = []
+
+    def walk(v):
+        if isinstance(v, Cell):                     # before Thing: Cell is one
+            entity, attr = v.__cell__
+            out.append(f"{entity}#{attr}")
+        elif isinstance(v, Thing):
+            out.append(v.__entity__)
+        elif isinstance(v, dict):
+            for x in v.values():
+                walk(x)
+        elif isinstance(v, (list, tuple, set, frozenset)):
+            for x in v:
+                walk(x)
+
+    walk(value)
+    return list(dict.fromkeys(out))                 # dedupe, order kept
 
 
 # --------------------------------------------------------------------------
