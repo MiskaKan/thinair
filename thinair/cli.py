@@ -405,9 +405,10 @@ def _readings(ledger, commit):
             if not latest.frozen:
                 line += f" (p {latest.p:g})"
             # shaded like the matrix: how far this reading sits from what
-            # the commit holds
+            # the commit holds -- and the reading in use renders bold
             held = commit["changes"][attr][0]
-            print(shade(similarity(latest.value, held), line)
+            print(shade(similarity(latest.value, held), line,
+                        bold=belief_id == commit["author"])
                   + (dim(f"   {tag}") if tag else ""))
 
 

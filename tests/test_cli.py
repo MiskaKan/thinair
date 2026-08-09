@@ -1101,10 +1101,12 @@ def test_readings_shade_by_agreement_with_the_held_value(tmp_path,
     main(["--store", str(tmp_path / "o.db"), "show", "HEAD"])
     readings = capsys.readouterr().out.split("readings:")[1]
     jane = [l for l in readings.splitlines() if "human:jane" in l][0]
-    assert "\x1b[32m" in jane                            # holds the value
+    assert "\x1b[1;32m" in jane                          # holds it -- bold,
+                                                         # it is the one in use
     model_line = [l for l in readings.splitlines()
                   if "model:small-fast" in l][0]
     assert "\x1b[2;31m" in model_line or "\x1b[31m" in model_line
+    assert "\x1b[1;" not in model_line                   # overruled: plain
 
 
 def test_parens_shade_by_evaluation_coverage(store, monkeypatch, capsys):
