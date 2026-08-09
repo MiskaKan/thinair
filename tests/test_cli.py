@@ -624,7 +624,7 @@ def test_ground_appends_the_builtin_roster(tmp_path, monkeypatch, capsys):
     main(["ground"])
     out = capsys.readouterr().out
     assert "built-in beliefs" in out
-    assert "`TokenSubset`" in out and "`Range`" in out
+    assert "`TokenSubsetBelief`" in out and "`RangeBelief`" in out
     assert not (tmp_path / ".thinair").exists()
 
 
@@ -757,7 +757,7 @@ def test_matrix_merges_scoped_rows_and_marks_the_unreachable(store, capsys):
     out = capsys.readouterr().out
     matrix = out[out.index("matrix:"):out.index("readings:")]
     assert "@total" not in matrix                        # merged away
-    assert "tokenSubset[source_text" in matrix           # the mechanism row
+    assert "tokenSubsetBelief[source_text" in matrix           # the mechanism row
     jane = [l for l in matrix.splitlines()
             if l.strip().startswith("human:jane")][0]
     assert "x" in jane                                   # nobody to call
@@ -1198,7 +1198,7 @@ def test_matrix_marks_follow_the_cells_panel(tmp_path, capsys):
     main(["--store", str(tmp_path / "o.db"), "show", "HEAD"])
     out = capsys.readouterr().out
     matrix = out[out.index("matrix:"):out.index("readings:")]
-    enum_row = [l for l in matrix.splitlines() if "enum[" in l][0]
+    enum_row = [l for l in matrix.splitlines() if "enumBelief[" in l][0]
     columns = enum_row.split()
     assert columns[-3:] == ["x", "1.00", "frozen"]       # customer, priority,
                                                          # source_text
@@ -1210,7 +1210,7 @@ def test_matrix_marks_follow_the_cells_panel(tmp_path, capsys):
     finally:
         restore_config(None, previous)
     judged = [l for l in evaluated.splitlines()
-              if "enum[" in l and "judges p" in l]
+              if "enumBelief[" in l and "judges p" in l]
     assert all(l.strip().startswith("priority") for l in judged)
 
 

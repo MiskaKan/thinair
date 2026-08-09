@@ -153,7 +153,7 @@ def test_the_demo_class_matches_the_plan():
     assert ids[1].startswith("model:large-think")
     assert "/think" in ids[1]
     assert "human:jane" in ids
-    assert any(i == "tokenSubset[source_text,kinds=[numbers]]" for i in ids)
+    assert any(i == "tokenSubsetBelief[source_text,kinds=[numbers]]" for i in ids)
 
 
 def test_the_demo_reads_a_real_invoice_file():

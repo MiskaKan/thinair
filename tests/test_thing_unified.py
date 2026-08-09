@@ -33,7 +33,7 @@ def test_a_thing_with_a_shape_declares_like_contract():
     spec = Ticket.__contracts__["priority"]
     assert spec.template is str and spec.enum == ["low", "normal", "high"]
     # the declaration attached its validators to the one attachment point
-    assert any(getattr(b, "id", "").startswith("enum[")
+    assert any(getattr(b, "id", "").startswith("enumBelief[")
                for b in Ticket.__beliefs__)
 
     t = Ticket(__ledger__=Ledger())
@@ -216,20 +216,20 @@ def test_a_beliefs_list_is_first_class_declaration():
     attribute, veto rights honored, and described to the model exactly as
     the named options would be -- `enum=` / `range=` are shorthand for
     this, never more."""
-    from thinair.validators import Enum, Range
+    from thinair.validators import EnumBelief, RangeBelief
 
     class Ticket(Thing):
         __beliefs__ = [ScriptedBelief({"amount": (20_000.0, 0.9),
                                        "priority": ("low", 0.9)},
                                       "scripted:lists")]
-        amount = Thing(float, beliefs=[Range(0, 10_000)])
-        priority = Thing(str, beliefs=[Enum(["low", "high"])])
+        amount = Thing(float, beliefs=[RangeBelief(0, 10_000)])
+        priority = Thing(str, beliefs=[EnumBelief(["low", "high"])])
 
     # the law reaches the prompt: the model is told what will be enforced
     assert "10000" in Ticket.__contracts__["amount"].describe()
     assert "one of 'low', 'high'" in Ticket.__contracts__["priority"].describe()
 
     t = Ticket(__ledger__=Ledger())
-    assert +t.priority == "low"                  # Range is scoped off priority
+    assert +t.priority == "low"                  # RangeBelief is scoped off priority
     with pytest.raises(Unresolvable):
         +t.amount                                # 20_000 vetoed, never served

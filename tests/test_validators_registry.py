@@ -14,45 +14,45 @@ import pytest
 from thinair import validators as V
 from thinair.beliefs import Belief, Discriminative
 from thinair.ledger import Ledger, Opinion
-from thinair.validators.consistency import Relation
+from thinair.validators.consistency import RelationBelief
 
 from fakes import FakeSnapshot
 
 #: one constructed instance per class, with the arguments each one needs.
 SAMPLES = {
-    V.Schema: (float,),
-    V.Format: ("email",),
-    V.Checksum: ("luhn",),
-    V.Range: (0, 100),
-    V.Enum: (["a", "b"],),
-    V.Length: (1, 10),
-    V.Unique: (),
-    V.Sorted: (),
-    V.Parses: ("json",),
-    V.Verbatim: ("source_text",),
-    V.Normalized: ("source_text",),
-    V.Fuzzy: ("source_text",),
-    V.TokenSubset: ("source_text",),
-    V.QuoteIntegrity: ("source_text",),
-    V.SpanValid: ("source_text",),
-    V.FrozenConsistent: (),
-    V.NonEcho: (),
-    V.SumsTo: (["a", "b"], "t"),
-    V.ItemsSumTo: ("items", "amount", "t"),
-    V.Recompute: ("t", sum, ["a"]),
-    V.TemporalOrder: ("a", "b"),
-    V.Conservation: ("i", "o", "d"),
-    V.FunctionalDependency: ("k", "v"),
-    V.MutuallyExclusive: (["a", "b"],),
-    V.IsoCountry: (),
-    V.IsoCurrency: (),
-    V.Timezone: (),
-    V.CalendarFact: (),
-    V.Executes: (),
-    V.PassesTests: ([bool],),
-    V.RoundTrip: ("json",),
-    V.Calculator: (),
-    V.RegexBehavior: (["a"],),
+    V.SchemaBelief: (float,),
+    V.FormatBelief: ("email",),
+    V.ChecksumBelief: ("luhn",),
+    V.RangeBelief: (0, 100),
+    V.EnumBelief: (["a", "b"],),
+    V.LengthBelief: (1, 10),
+    V.UniqueBelief: (),
+    V.SortedBelief: (),
+    V.ParsesBelief: ("json",),
+    V.VerbatimBelief: ("source_text",),
+    V.NormalizedBelief: ("source_text",),
+    V.FuzzyBelief: ("source_text",),
+    V.TokenSubsetBelief: ("source_text",),
+    V.QuoteIntegrityBelief: ("source_text",),
+    V.SpanValidBelief: ("source_text",),
+    V.FrozenConsistentBelief: (),
+    V.NonEchoBelief: (),
+    V.SumsToBelief: (["a", "b"], "t"),
+    V.ItemsSumToBelief: ("items", "amount", "t"),
+    V.RecomputeBelief: ("t", sum, ["a"]),
+    V.TemporalOrderBelief: ("a", "b"),
+    V.ConservationBelief: ("i", "o", "d"),
+    V.FunctionalDependencyBelief: ("k", "v"),
+    V.MutuallyExclusiveBelief: (["a", "b"],),
+    V.IsoCountryBelief: (),
+    V.IsoCurrencyBelief: (),
+    V.TimezoneBelief: (),
+    V.CalendarFactBelief: (),
+    V.ExecutesBelief: (),
+    V.PassesTestsBelief: ([bool],),
+    V.RoundTripBelief: ("json",),
+    V.CalculatorBelief: (),
+    V.RegexBehaviorBelief: (["a"],),
 }
 
 ALL = V.validators()
@@ -68,7 +68,7 @@ def test_every_exported_validator_is_in_a_family():
     exported = {
         name for name in V.__all__
         if isinstance(getattr(V, name), type) and issubclass(getattr(V, name), Belief)
-        and getattr(V, name) is not Relation
+        and getattr(V, name) is not RelationBelief
     }
     listed = {cls.__name__ for cls in ALL}
     assert exported == listed
@@ -87,7 +87,7 @@ def test_every_family_module_is_fully_exported():
             name for name, obj in vars(module).items()
             if isinstance(obj, type) and issubclass(obj, Belief)
             and obj.__module__ == module.__name__
-            and not name.startswith("_") and obj is not Relation
+            and not name.startswith("_") and obj is not RelationBelief
         }
         assert defined <= {cls.__name__ for cls in ALL}, module.__name__
 
@@ -122,7 +122,7 @@ def test_every_validator_is_a_belief(belief):
 @pytest.mark.parametrize("belief", INSTANCES, ids=IDS)
 def test_every_validator_is_discriminative(belief):
     """None of them can speak into an empty cell -- that is what a check is."""
-    assert isinstance(belief, (Discriminative, Relation))
+    assert isinstance(belief, (Discriminative, RelationBelief))
     assert belief.proposes is False
 
 
@@ -254,7 +254,7 @@ def test_validators_never_write_to_the_ledger_themselves():
                      beliefs=[lambda x, a: ("2024-02-29", 0.9)],
                      source_text="2024-02-29", value="carried")
     for belief in INSTANCES:
-        if isinstance(belief, V.Executes):
+        if isinstance(belief, V.ExecutesBelief):
             continue                                  # would need the opt-in
         belief(e, getattr(belief, "virtual", "some_attribute"))
         belief(e, "some_attribute")

@@ -9,15 +9,15 @@ from __future__ import annotations
 import pytest
 
 from thinair.validators import (
-    Checksum,
-    Enum,
-    Format,
-    Length,
-    Parses,
-    Range,
-    Schema,
-    Sorted,
-    Unique,
+    ChecksumBelief,
+    EnumBelief,
+    FormatBelief,
+    LengthBelief,
+    ParsesBelief,
+    RangeBelief,
+    SchemaBelief,
+    SortedBelief,
+    UniqueBelief,
     match_template,
     template_to_json_schema,
 )
@@ -86,22 +86,22 @@ def test_a_mismatch_reason_names_the_path():
 
 
 # --------------------------------------------------------------------------
-# Schema — doubles as the structured-output contract
+# SchemaBelief — doubles as the structured-output contract
 # --------------------------------------------------------------------------
 
 def test_schema_judges_p_in_zero_one():
-    schema = Schema(float)
+    schema = SchemaBelief(float)
     assert p_of(schema, 1249.5) == 1.0
     assert p_of(schema, "1249.5") == 0.0
 
 
 def test_schema_is_necessary_by_default():
-    assert Schema(float).necessary is True
+    assert SchemaBelief(float).necessary is True
 
 
 def test_the_same_schema_object_drives_the_engine_and_the_check():
     """One object, so the constraint and the check cannot drift."""
-    schema = Schema([{"desc": str, "amount": float}])
+    schema = SchemaBelief([{"desc": str, "amount": float}])
     emitted = schema.json_schema()
     assert emitted["type"] == "array"
     assert emitted["items"]["properties"]["amount"]["type"] == "number"
@@ -118,7 +118,7 @@ def test_template_to_json_schema_maps_scalars(template, kind):
 
 
 # --------------------------------------------------------------------------
-# Format
+# FormatBelief
 # --------------------------------------------------------------------------
 
 FORMAT_ROWS = [
@@ -144,24 +144,24 @@ FORMAT_ROWS = [
 
 @pytest.mark.parametrize("kind,value,ok", FORMAT_ROWS)
 def test_format(kind, value, ok):
-    assert p_of(Format(kind), value) == (1.0 if ok else 0.0)
+    assert p_of(FormatBelief(kind), value) == (1.0 if ok else 0.0)
 
 
 def test_format_rejects_an_unknown_kind():
     with pytest.raises(ValueError):
-        Format("astrological-sign")
+        FormatBelief("astrological-sign")
 
 
 def test_format_has_nothing_to_say_about_a_non_string():
-    """None is the scoping mechanism: an unscoped Format sits in
+    """None is the scoping mechanism: an unscoped FormatBelief sits in
     ``__beliefs__`` and is consulted for every attribute, so it must stay
-    silent about the ones it was never meant to check.  Type is Schema's job.
+    silent about the ones it was never meant to check.  Type is SchemaBelief's job.
     """
-    assert p_of(Format("email"), 42) is None
+    assert p_of(FormatBelief("email"), 42) is None
 
 
 # --------------------------------------------------------------------------
-# Checksum — including the classic near-misses
+# ChecksumBelief — including the classic near-misses
 # --------------------------------------------------------------------------
 
 CHECKSUM_ROWS = [
@@ -181,7 +181,7 @@ CHECKSUM_ROWS = [
 ]
 
 #: candidates that are not identifiers of the scheme's shape at all -- these
-#: draw silence, not a veto, so an unscoped Checksum cannot kill a vendor name.
+#: draw silence, not a veto, so an unscoped ChecksumBelief cannot kill a vendor name.
 CHECKSUM_OUT_OF_SCOPE = [
     ("luhn", 42), ("luhn", "hello"), ("isbn10", "123"),
     ("ean13", "4006381333931999"), ("iban", None), ("luhn", True),
@@ -190,12 +190,12 @@ CHECKSUM_OUT_OF_SCOPE = [
 
 @pytest.mark.parametrize("kind,value,ok", CHECKSUM_ROWS)
 def test_checksum(kind, value, ok):
-    assert p_of(Checksum(kind), value) == (1.0 if ok else 0.0)
+    assert p_of(ChecksumBelief(kind), value) == (1.0 if ok else 0.0)
 
 
 @pytest.mark.parametrize("kind,value", CHECKSUM_OUT_OF_SCOPE)
 def test_checksum_abstains_on_things_that_are_not_its_kind_of_identifier(kind, value):
-    assert p_of(Checksum(kind), value) is None
+    assert p_of(ChecksumBelief(kind), value) is None
 
 
 @pytest.mark.parametrize("fn,good,bad", [
@@ -214,7 +214,7 @@ def test_a_transposition_is_caught_where_the_algorithm_can_catch_it():
 
 
 # --------------------------------------------------------------------------
-# Range, Enum, Length, Unique, Sorted
+# RangeBelief, EnumBelief, LengthBelief, UniqueBelief, SortedBelief
 # --------------------------------------------------------------------------
 
 @pytest.mark.parametrize("lo,hi,value,expected", [
@@ -229,19 +229,19 @@ def test_a_transposition_is_caught_where_the_algorithm_can_catch_it():
     (0, 10, True, None),                              # a bool is not a number
 ])
 def test_range(lo, hi, value, expected):
-    assert p_of(Range(lo, hi), value) == expected
+    assert p_of(RangeBelief(lo, hi), value) == expected
 
 
 def test_range_needs_a_bound():
     with pytest.raises(ValueError):
-        Range()
+        RangeBelief()
 
 
 @pytest.mark.parametrize("value,expected", [
     ("paid", 1.0), ("PAID", 1.0), ("overdue", 0.0),
 ])
 def test_enum_uses_the_normalizing_comparator(value, expected):
-    assert p_of(Enum(["paid", "pending"]), value) == expected
+    assert p_of(EnumBelief(["paid", "pending"]), value) == expected
 
 
 @pytest.mark.parametrize("lo,hi,value,expected", [
@@ -252,7 +252,7 @@ def test_enum_uses_the_normalizing_comparator(value, expected):
     (1, 3, 42, None),                                 # nothing to measure -- silence
 ])
 def test_length(lo, hi, value, expected):
-    assert p_of(Length(lo, hi), value) == expected
+    assert p_of(LengthBelief(lo, hi), value) == expected
 
 
 @pytest.mark.parametrize("value,expected", [
@@ -263,7 +263,7 @@ def test_length(lo, hi, value, expected):
     ("text", None),
 ])
 def test_unique(value, expected):
-    assert p_of(Unique(), value) == expected
+    assert p_of(UniqueBelief(), value) == expected
 
 
 @pytest.mark.parametrize("kwargs,value,expected", [
@@ -275,11 +275,11 @@ def test_unique(value, expected):
     ({}, [1], 1.0),
 ])
 def test_sorted(kwargs, value, expected):
-    assert p_of(Sorted(**kwargs), value) == expected
+    assert p_of(SortedBelief(**kwargs), value) == expected
 
 
 # --------------------------------------------------------------------------
-# Parses — compiles without executing
+# ParsesBelief — compiles without executing
 # --------------------------------------------------------------------------
 
 PARSE_ROWS = [
@@ -294,7 +294,7 @@ PARSE_ROWS = [
 
 @pytest.mark.parametrize("kind,value,expected", PARSE_ROWS)
 def test_parses(kind, value, expected):
-    assert p_of(Parses(kind), value) == expected
+    assert p_of(ParsesBelief(kind), value) == expected
 
 
 def test_parses_python_does_not_execute_it():
@@ -306,7 +306,7 @@ def test_parses_python_does_not_execute_it():
     if os.path.exists(target):                        # pragma: no cover
         os.remove(target)
     code = f"open({target!r}, 'w').write('ran')"
-    assert p_of(Parses("python"), code) == 1.0
+    assert p_of(ParsesBelief("python"), code) == 1.0
     assert not os.path.exists(target)
 
 
@@ -314,8 +314,8 @@ def test_parses_python_does_not_execute_it():
 # family behavior shared by every member
 # --------------------------------------------------------------------------
 
-FAMILY_A = [Schema(float), Format("email"), Checksum("luhn"), Range(0, 10),
-            Enum(["a"]), Length(1, 2), Unique(), Sorted(), Parses("json")]
+FAMILY_A = [SchemaBelief(float), FormatBelief("email"), ChecksumBelief("luhn"), RangeBelief(0, 10),
+            EnumBelief(["a"]), LengthBelief(1, 2), UniqueBelief(), SortedBelief(), ParsesBelief("json")]
 
 
 @pytest.mark.parametrize("belief", FAMILY_A, ids=lambda b: b.id)

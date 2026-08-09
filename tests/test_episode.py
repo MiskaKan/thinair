@@ -9,7 +9,7 @@ from thinair.beliefs import model
 from thinair.episode import ACTION_BUDGET, CORRECTIONS, call_expression
 from thinair.ledger import Ledger
 from thinair.policy import Unresolvable
-from thinair.validators import NonEcho
+from thinair.validators import NonEchoBelief
 
 from fakes import FakeEngine
 
@@ -86,7 +86,7 @@ def test_a_scripted_episode_commits_a_multi_cell_changeset_atomically():
 
 def test_one_necessary_check_failure_leaves_zero_cells_applied():
     inv, engine, ledger = invoice([
-        ret("done", {"status": "paid", "vat": 99.0}),  # vat is out of Range(0, 1)
+        ret("done", {"status": "paid", "vat": 99.0}),  # vat is out of RangeBelief(0, 1)
     ])
     with pytest.raises(Unresolvable) as caught:
         inv.mark_paid()
@@ -361,7 +361,7 @@ def test_a_scripted_echo_is_vetoed_by_non_echo_and_re_proposed():
     elaborated = ("Two line items make up the sum: a large widget at 999.00 "
                   "and shipping at 250.50, before any Finnish VAT is removed.")
     inv, engine, _ = invoice([ret(carried), ret(carried), ret(elaborated)],
-                             extra=[NonEcho()])
+                             extra=[NonEchoBelief()])
     child = inv.explain_in_depth()
     assert +child == carried                          # nothing to echo yet
 

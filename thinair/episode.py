@@ -216,7 +216,7 @@ def run(thing, name, args=(), kwargs=None):
 
         # The return value is a candidate like any other: the discriminative
         # panel judges it, and a `necessary` member vetoes it.
-        # ``NonEcho`` earns its keep here.
+        # ``NonEchoBelief`` earns its keep here.
         _, echoes = review(thing, name, +got, ~got, record=False,
                            entity=episode.cell, episode=episode,
                            arguments=arguments, call_arguments=episode.args)
@@ -302,11 +302,11 @@ def _validate(thing, changes):
 
 def _check_return(thing, name, value, p, returns):
     """A ``returns=``-typed call vetoes a wrong-shape return."""
-    from .validators import Schema
+    from .validators import SchemaBelief
 
     if returns.template is Any:
         return value, []
-    verdict = Schema(returns.template).judge(value, None, name)
+    verdict = SchemaBelief(returns.template).judge(value, None, name)
     if verdict == 1.0:
         return value, []
     reason = verdict[1] if isinstance(verdict, tuple) else "wrong shape"

@@ -16,8 +16,8 @@ from typing import Any
 from ..beliefs import Discriminative, value_at
 from ..ledger import values_equal
 
-__all__ = ["Verbatim", "Normalized", "Fuzzy", "TokenSubset", "QuoteIntegrity",
-           "SpanValid", "FrozenConsistent", "NonEcho", "normalize_text",
+__all__ = ["VerbatimBelief", "NormalizedBelief", "FuzzyBelief", "TokenSubsetBelief", "QuoteIntegrityBelief",
+           "SpanValidBelief", "FrozenConsistentBelief", "NonEchoBelief", "normalize_text",
            "numbers_in", "entities_in"]
 
 _PUNCT = dict.fromkeys(
@@ -98,7 +98,7 @@ class _Grounded(Discriminative):
         return f"grounded in {self.source_attr}"
 
 
-class Verbatim(_Grounded):
+class VerbatimBelief(_Grounded):
     """``v in thing.<source_attr>``.  p ∈ {0, 1}."""
 
     necessary = True
@@ -116,7 +116,7 @@ class Verbatim(_Grounded):
                      f"{self.source_attr}")
 
 
-class Normalized(_Grounded):
+class NormalizedBelief(_Grounded):
     """Found after casefold + whitespace/punctuation normalization."""
 
     necessary = True
@@ -134,7 +134,7 @@ class Normalized(_Grounded):
                      f"{self.source_attr}")
 
 
-class Fuzzy(_Grounded):
+class FuzzyBelief(_Grounded):
     """Graded p from the best-matching source span.  Never ``necessary``."""
 
     necessary = False
@@ -161,7 +161,7 @@ class Fuzzy(_Grounded):
                 f"best source overlap {ratio:.2f} is below floor {self.floor}")
 
 
-class TokenSubset(_Grounded):
+class TokenSubsetBelief(_Grounded):
     """Every number (and optionally entity) in ``v`` appears in the source.
 
     ``necessary`` for numbers by default: a number absent from the input is the
@@ -204,7 +204,7 @@ class TokenSubset(_Grounded):
 _QUOTED = re.compile(r'"([^"]{3,})"|“([^”]{3,})”')
 
 
-class QuoteIntegrity(_Grounded):
+class QuoteIntegrityBelief(_Grounded):
     """Quoted spans match the source verbatim even when the rest paraphrases."""
 
     necessary = True
@@ -224,7 +224,7 @@ class QuoteIntegrity(_Grounded):
                 f"quoted but not in {self.source_attr}: {bad[0][:80]!r}")
 
 
-class SpanValid(_Grounded):
+class SpanValidBelief(_Grounded):
     """Candidate ``{start, end, text}`` satisfies ``source[start:end] == text``."""
 
     necessary = True
@@ -251,7 +251,7 @@ class SpanValid(_Grounded):
         return 1.0
 
 
-class FrozenConsistent(Discriminative):
+class FrozenConsistentBelief(Discriminative):
     """``v`` does not contradict the cell's latest frozen opinion."""
 
     necessary = True
@@ -270,7 +270,7 @@ class FrozenConsistent(Discriminative):
                      f"(per {pinned.belief})")
 
 
-class NonEcho(Discriminative):
+class NonEchoBelief(Discriminative):
     """The candidate is not a near-copy of the entity's own carried value.
 
     Default for elaboration-shaped calls, attached ``necessary=True`` there: a
@@ -309,3 +309,4 @@ def _token_overlap(before: list[str], after: list[str]) -> float:
     old, new = Counter(before), Counter(after)
     shared = sum((old & new).values())
     return shared / max(1, len(after))
+

@@ -13,11 +13,11 @@ from typing import Any, Callable, Iterable
 from ..beliefs import Belief, Judgment, as_judgment, value_at
 from ..ledger import normal_form, values_equal
 
-__all__ = ["Relation", "SumsTo", "ItemsSumTo", "Recompute", "TemporalOrder",
-           "Conservation", "FunctionalDependency", "MutuallyExclusive"]
+__all__ = ["RelationBelief", "SumsToBelief", "ItemsSumToBelief", "RecomputeBelief", "TemporalOrderBelief",
+           "ConservationBelief", "FunctionalDependencyBelief", "MutuallyExclusiveBelief"]
 
 
-class Relation(Belief):
+class RelationBelief(Belief):
     """A judgment about several cells.
 
     Answers at its own virtual attribute (``…name(args)``) using resolved state,
@@ -84,7 +84,7 @@ def _number(value: Any) -> float | None:
     return float(value)
 
 
-class SumsTo(Relation):
+class SumsToBelief(RelationBelief):
     """The parts add up to the total."""
 
     def __init__(self, parts_attrs: Iterable[str], total_attr: str,
@@ -109,7 +109,7 @@ class SumsTo(Relation):
                      f"{self.total_attr} = {total!r}")
 
 
-class ItemsSumTo(Relation):
+class ItemsSumToBelief(RelationBelief):
     """A list attribute's ``field`` values add up to another attribute."""
 
     def __init__(self, items_attr: str, field: str, total_attr: str,
@@ -143,8 +143,8 @@ class ItemsSumTo(Relation):
                      f"{got!r}, but {self.total_attr} is {total!r}")
 
 
-class Recompute(Relation):
-    """Recompute ``target`` from ``inputs`` with a pure function."""
+class RecomputeBelief(RelationBelief):
+    """RecomputeBelief ``target`` from ``inputs`` with a pure function."""
 
     def __init__(self, target: str, fn: Callable, inputs: Iterable[str],
                  tol: float = 1e-6, **options: Any) -> None:
@@ -176,7 +176,7 @@ class Recompute(Relation):
                      f"{', '.join(self.inputs)} gives {expected!r}")
 
 
-class TemporalOrder(Relation):
+class TemporalOrderBelief(RelationBelief):
     """``before`` is not after ``after``."""
 
     def __init__(self, before: str, after: str, **options: Any) -> None:
@@ -214,7 +214,7 @@ def _as_instant(value: Any):
     return None
 
 
-class Conservation(Relation):
+class ConservationBelief(RelationBelief):
     """``inflow - outflow == delta``: nothing appears from nowhere."""
 
     def __init__(self, inflow: str, outflow: str, delta: str,
@@ -237,7 +237,7 @@ class Conservation(Relation):
                      f"{self.delta} = {numbers[self.delta]!r}")
 
 
-class FunctionalDependency(Relation):
+class FunctionalDependencyBelief(RelationBelief):
     """Within a list of records, ``key`` determines ``value``."""
 
     def __init__(self, key: str, value: str, over: str | None = None,
@@ -270,7 +270,7 @@ class FunctionalDependency(Relation):
         return 1.0
 
 
-class MutuallyExclusive(Relation):
+class MutuallyExclusiveBelief(RelationBelief):
     """At most one of these flags is true."""
 
     def __init__(self, flags: Iterable[str], **options: Any) -> None:
@@ -288,3 +288,4 @@ class MutuallyExclusive(Relation):
         if len(on) <= 1:
             return 1.0
         return (0.0, f"mutually exclusive flags are all set: {', '.join(on)}")
+

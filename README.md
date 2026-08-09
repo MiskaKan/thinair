@@ -4,12 +4,12 @@ Python objects whose attributes are beliefs, not values.
 
 ```python
 from thinair import Thing, model, human
-from thinair.validators import TokenSubset
+from thinair.validators import TokenSubsetBelief
 
 class Invoice(Thing):
     """An invoice document to be understood."""
     __beliefs__ = [model("deepseek-v4-flash"), human("jane"),
-                   TokenSubset("source_text")]
+                   TokenSubsetBelief("source_text")]
     source_text: str
     total = Thing(float, extracted_from="source_text", range=(0, 1e6))
 

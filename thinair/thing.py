@@ -81,7 +81,7 @@ class Contract:
 
     Contracts are **sugar and nothing else**.  Everything a contract does, it
     does by appending scoped beliefs to the one attachment point, and
-    the ``Schema`` it builds is the same object that constrains the engine's
+    the ``SchemaBelief`` it builds is the same object that constrains the engine's
     structured output and performs the post-hoc check -- so the two cannot
     drift.
     """
@@ -179,26 +179,26 @@ class Contract:
 
         out = []
         if self.template is not Any:
-            self.schema = V.Schema(self.template, necessary=self.necessary)
+            self.schema = V.SchemaBelief(self.template, necessary=self.necessary)
             out.append(self.schema)
         if self.extracted_from:
             out.append(self._grounding(V))
         if self.range is not None:
-            out.append(V.Range(self.range[0], self.range[1],
+            out.append(V.RangeBelief(self.range[0], self.range[1],
                                necessary=self.necessary))
         if self.enum is not None:
-            out.append(V.Enum(self.enum, necessary=self.necessary))
+            out.append(V.EnumBelief(self.enum, necessary=self.necessary))
         if self.length is not None:
-            out.append(V.Length(self.length[0], self.length[1],
+            out.append(V.LengthBelief(self.length[0], self.length[1],
                                 necessary=self.necessary))
         if self.format is not None:
-            out.append(V.Format(self.format, necessary=self.necessary))
+            out.append(V.FormatBelief(self.format, necessary=self.necessary))
         if self.checksum is not None:
-            out.append(V.Checksum(self.checksum, necessary=self.necessary))
+            out.append(V.ChecksumBelief(self.checksum, necessary=self.necessary))
         if self.unique:
-            out.append(V.Unique(necessary=self.necessary))
+            out.append(V.UniqueBelief(necessary=self.necessary))
         if self.elaborates:
-            out.append(V.NonEcho(necessary=True))
+            out.append(V.NonEchoBelief(necessary=True))
         out.extend(self._extra)
         scoped = [Scoped(attr, b) for b in out]
         if self.sums_to:
@@ -213,18 +213,18 @@ class Contract:
         A verbatim check is right for a string and wrong for everything
         else -- ``1249.5`` is never a substring of "Total 1 249,50 EUR", so
         a literal reading would veto every correct numeric extraction.
-        Numbers and containers get ``TokenSubset`` instead, ``necessary``
+        Numbers and containers get ``TokenSubsetBelief`` instead, ``necessary``
         because a missing number is the classic hallucination tell.
         """
         if self.template is str:
-            return V.Verbatim(self.extracted_from, necessary=self.necessary)
-        return V.TokenSubset(self.extracted_from, necessary=self.necessary)
+            return V.VerbatimBelief(self.extracted_from, necessary=self.necessary)
+        return V.TokenSubsetBelief(self.extracted_from, necessary=self.necessary)
 
     def _sums_to(self, V, attr):
         field = _single_numeric_field(self.template)
         if field is None:
-            return V.SumsTo([attr], self.sums_to, necessary=self.necessary)
-        return V.ItemsSumTo(attr, field, self.sums_to, necessary=self.necessary)
+            return V.SumsToBelief([attr], self.sums_to, necessary=self.necessary)
+        return V.ItemsSumToBelief(attr, field, self.sums_to, necessary=self.necessary)
 
     def __repr__(self) -> str:                       # pragma: no cover - cosmetic
         return f"<contract {self.attr or '?'}: {self.describe()}>"
@@ -1522,7 +1522,7 @@ def _coerce(cell, schema):
     ``t`` with zero work; a candidate that cannot conform returns a
     ``None``-carrying Thing whose ``~`` keeps the diagnostic p.
     """
-    from .validators import Schema
+    from .validators import SchemaBelief
 
     if not isinstance(cell, Cell):
         raise TypeError("coercion applies to an attribute, not a Thing")
@@ -1531,7 +1531,7 @@ def _coerce(cell, schema):
     if cached is not None:
         return cached
 
-    check = Schema(schema)
+    check = SchemaBelief(schema)
     opinion = cell.__resolve__()
     if opinion is not None and check.judge(opinion.value, None, cell.__attr__) == 1.0:
         cell.__root__.__coerced__[key] = cell

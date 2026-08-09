@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 
-from thinair.validators import CalendarFact, IsoCountry
+from thinair.validators import CalendarFactBelief, IsoCountryBelief
 from thinair.validators.grounding import normalize_text, numbers_in
 
 SHINGLE = 5
@@ -42,7 +42,7 @@ def _fingerprint(record):
 
 def run(items):
     """``{...}`` -- everything derivable from the corpus for zero calls."""
-    calendar, country = CalendarFact(), IsoCountry()
+    calendar, country = CalendarFactBelief(), IsoCountryBelief()
     per_item, dateline_faults = {}, []
 
     for item in items:

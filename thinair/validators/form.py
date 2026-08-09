@@ -15,8 +15,8 @@ from ..beliefs import Discriminative
 from ..ledger import values_equal
 
 __all__ = ["render_template",
-           "Schema", "Format", "Checksum", "Range", "Enum", "Length", "Unique",
-           "Sorted", "Parses", "match_template", "template_to_json_schema",
+           "SchemaBelief", "FormatBelief", "ChecksumBelief", "RangeBelief", "EnumBelief", "LengthBelief", "UniqueBelief",
+           "SortedBelief", "ParsesBelief", "match_template", "template_to_json_schema",
            "luhn_ok", "isbn10_ok", "isbn13_ok", "ean13_ok", "iban_ok"]
 
 
@@ -113,7 +113,7 @@ def render_template(template: Any) -> str:
 
 
 def template_to_json_schema(template: Any) -> dict:
-    """The same template as a JSON Schema, for structured-output constraints."""
+    """The same template as a JSON SchemaBelief, for structured-output constraints."""
     if template is None:
         return {"type": "null"}
     if template is Any:
@@ -139,7 +139,7 @@ def template_to_json_schema(template: Any) -> dict:
     return {"const": template}
 
 
-class Schema(Discriminative):
+class SchemaBelief(Discriminative):
     """Value matches a type/shape template.
 
     Doubles as the structured-output contract handed to engines -- the *same*
@@ -198,7 +198,7 @@ def _iso_datetime(text: str) -> bool:
         return False
 
 
-class Format(Discriminative):
+class FormatBelief(Discriminative):
     """Regex/parser validation of a scalar's shape."""
 
     necessary = True
@@ -296,7 +296,7 @@ def iban_ok(text: str) -> bool:
     return total == 1
 
 
-class Checksum(Discriminative):
+class ChecksumBelief(Discriminative):
     """Self-checking identifiers: a wrong digit is a hallucination tell."""
 
     necessary = True
@@ -336,15 +336,15 @@ class Checksum(Discriminative):
 # plain bounds
 # --------------------------------------------------------------------------
 
-class Range(Discriminative):
+class RangeBelief(Discriminative):
     necessary = True
 
     def __init__(self, lo: float | None = None, hi: float | None = None,
                  **options: Any) -> None:
         if lo is None and hi is None:
-            raise ValueError("Range needs at least one bound")
+            raise ValueError("RangeBelief needs at least one bound")
         if lo is not None and hi is not None and lo > hi:
-            raise ValueError(f"Range({lo}, {hi}) is empty")
+            raise ValueError(f"RangeBelief({lo}, {hi}) is empty")
         self.lo, self.hi = lo, hi
         super().__init__(lo, hi, **options)
 
@@ -352,10 +352,10 @@ class Range(Discriminative):
         return f"between {self.lo} and {self.hi}"
 
     def judge(self, value: Any, e: Any, attr: str) -> Any:
-        # A non-number is out of scope, not wrong: an unscoped Range sits in
+        # A non-number is out of scope, not wrong: an unscoped RangeBelief sits in
         # __beliefs__ and is consulted for *every* attribute, so it
         # must stay silent about the ones it was never meant to bound.  None
-        # is the scoping mechanism; Schema is what polices type.
+        # is the scoping mechanism; SchemaBelief is what polices type.
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             return None
         if self.lo is not None and value < self.lo:
@@ -365,7 +365,7 @@ class Range(Discriminative):
         return 1.0
 
 
-class Enum(Discriminative):
+class EnumBelief(Discriminative):
     necessary = True
 
     def __init__(self, members, **options: Any) -> None:
@@ -381,15 +381,15 @@ class Enum(Discriminative):
         return (0.0, f"{value!r} is not one of {self.members!r}")
 
 
-class Length(Discriminative):
+class LengthBelief(Discriminative):
     necessary = True
 
     def __init__(self, lo: int | None = None, hi: int | None = None,
                  **options: Any) -> None:
         if lo is None and hi is None:
-            raise ValueError("Length needs at least one bound")
+            raise ValueError("LengthBelief needs at least one bound")
         if lo is not None and hi is not None and lo > hi:
-            raise ValueError(f"Length({lo}, {hi}) is empty")
+            raise ValueError(f"LengthBelief({lo}, {hi}) is empty")
         self.lo, self.hi = lo, hi
         super().__init__(lo, hi, **options)
 
@@ -408,7 +408,7 @@ class Length(Discriminative):
         return 1.0
 
 
-class Unique(Discriminative):
+class UniqueBelief(Discriminative):
     necessary = True
 
     def describe(self) -> str:
@@ -427,7 +427,7 @@ class Unique(Discriminative):
         return 1.0 if not dupes else (0.0, f"duplicate item(s): {dupes!r}")
 
 
-class Sorted(Discriminative):
+class SortedBelief(Discriminative):
     necessary = True
 
     def __init__(self, key: str | None = None, reverse: bool = False,
@@ -454,7 +454,7 @@ class Sorted(Discriminative):
         return 1.0 if not bad else (0.0, f"out of order at {bad[0]!r}")
 
 
-class Parses(Discriminative):
+class ParsesBelief(Discriminative):
     """JSON / Python / regex compiles without executing."""
 
     necessary = True
@@ -482,3 +482,4 @@ class Parses(Discriminative):
             return 1.0
         except Exception as exc:
             return (0.0, f"does not parse as {self.kind}: {exc}")
+

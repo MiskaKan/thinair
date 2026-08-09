@@ -477,8 +477,8 @@ def test_consensus_counts_readers_apart_from_judges():
     ledger = Ledger()
     ledger.add(Opinion(belief="model:a", entity="e9", attr="size", value=4,
                        p=0.9, meta={"model": "a", "round": 1}))
-    ledger.add(Opinion(belief="schema[int]", entity="e9", attr="size",
-                       value=4, p=1.0, meta={"judged": "schema[int]"}))
+    ledger.add(Opinion(belief="schemaBelief[int]", entity="e9", attr="size",
+                       value=4, p=1.0, meta={"judged": "schemaBelief[int]"}))
     view = history(ledger, entity="e9")[-1]["consensus"]["size"]
     assert view["readers"] == 1                    # the judge never counts
 

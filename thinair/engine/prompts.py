@@ -158,7 +158,7 @@ def attribute_messages(e: Any, attr: str, contract: Any = None,
 
 
 def response_schema(schema: Any = None) -> dict:
-    """The ``{"value", "p"}`` envelope, constrained by a Schema when present."""
+    """The ``{"value", "p"}`` envelope, constrained by a SchemaBelief when present."""
     value_schema = {}
     if schema is not None and hasattr(schema, "json_schema"):
         value_schema = schema.json_schema()

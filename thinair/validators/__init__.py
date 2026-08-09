@@ -14,11 +14,11 @@ A form  the candidate alone                 True
 B grou  candidate + the entity's own state  mostly True
 C cons  several cells at once               True
 D refe  a pinned vendored table             False
-E exec  candidate + a runtime               True (``Executes`` opt-in)
+E exec  candidate + a runtime               True (``ExecutesBelief`` opt-in)
 ======  ==================================  =================
 
 Every default is overridable at the attachment site —
-``Verbatim("source_text", necessary=False)`` demotes a veto to a
+``VerbatimBelief("source_text", necessary=False)`` demotes a veto to a
 measurement, and nothing else about the belief changes.
 
 The whole library contains **zero model calls** (invariant 7); that is
@@ -28,50 +28,50 @@ precisely what its independence is made of.
 from __future__ import annotations
 
 from .consistency import (
-    Conservation,
-    FunctionalDependency,
-    ItemsSumTo,
-    MutuallyExclusive,
-    Recompute,
-    Relation,
-    SumsTo,
-    TemporalOrder,
+    ConservationBelief,
+    FunctionalDependencyBelief,
+    ItemsSumToBelief,
+    MutuallyExclusiveBelief,
+    RecomputeBelief,
+    RelationBelief,
+    SumsToBelief,
+    TemporalOrderBelief,
 )
 from .executable import (
     ALLOW_EXEC_ENV,
-    Calculator,
-    Executes,
+    CalculatorBelief,
+    ExecutesBelief,
     ExecutionRefused,
-    PassesTests,
-    RegexBehavior,
-    RoundTrip,
+    PassesTestsBelief,
+    RegexBehaviorBelief,
+    RoundTripBelief,
     calculate,
 )
 from .form import (
-    Checksum,
-    Enum,
-    Format,
-    Length,
-    Parses,
-    Range,
-    Schema,
-    Sorted,
-    Unique,
+    ChecksumBelief,
+    EnumBelief,
+    FormatBelief,
+    LengthBelief,
+    ParsesBelief,
+    RangeBelief,
+    SchemaBelief,
+    SortedBelief,
+    UniqueBelief,
     match_template,
     render_template,
     template_to_json_schema,
 )
 from .grounding import (
-    FrozenConsistent,
-    Fuzzy,
-    NonEcho,
-    Normalized,
-    QuoteIntegrity,
-    SpanValid,
-    TokenSubset,
-    Verbatim,
+    FrozenConsistentBelief,
+    FuzzyBelief,
+    NonEchoBelief,
+    NormalizedBelief,
+    QuoteIntegrityBelief,
+    SpanValidBelief,
+    TokenSubsetBelief,
+    VerbatimBelief,
 )
-from .reference import CalendarFact, IsoCountry, IsoCurrency, Timezone
+from .reference import CalendarFactBelief, IsoCountryBelief, IsoCurrencyBelief, TimezoneBelief
 
 #: family letter -> the classes it contains, in canonical order.
 #: This is the registry: a plain mapping anyone can read, iterate, or
@@ -79,28 +79,28 @@ from .reference import CalendarFact, IsoCountry, IsoCurrency, Timezone
 #: conformance test in ``tests/test_validators_registry.py`` then covers it
 #: with no new test code.
 FAMILIES = {
-    "A": (Schema, Format, Checksum, Range, Enum, Length, Unique, Sorted, Parses),
+    "A": (SchemaBelief, FormatBelief, ChecksumBelief, RangeBelief, EnumBelief, LengthBelief, UniqueBelief, SortedBelief, ParsesBelief),
     "B": (
-        Verbatim,
-        Normalized,
-        Fuzzy,
-        TokenSubset,
-        QuoteIntegrity,
-        SpanValid,
-        FrozenConsistent,
-        NonEcho,
+        VerbatimBelief,
+        NormalizedBelief,
+        FuzzyBelief,
+        TokenSubsetBelief,
+        QuoteIntegrityBelief,
+        SpanValidBelief,
+        FrozenConsistentBelief,
+        NonEchoBelief,
     ),
     "C": (
-        SumsTo,
-        ItemsSumTo,
-        Recompute,
-        TemporalOrder,
-        Conservation,
-        FunctionalDependency,
-        MutuallyExclusive,
+        SumsToBelief,
+        ItemsSumToBelief,
+        RecomputeBelief,
+        TemporalOrderBelief,
+        ConservationBelief,
+        FunctionalDependencyBelief,
+        MutuallyExclusiveBelief,
     ),
-    "D": (IsoCountry, IsoCurrency, Timezone, CalendarFact),
-    "E": (Executes, PassesTests, RoundTrip, Calculator, RegexBehavior),
+    "D": (IsoCountryBelief, IsoCurrencyBelief, TimezoneBelief, CalendarFactBelief),
+    "E": (ExecutesBelief, PassesTestsBelief, RoundTripBelief, CalculatorBelief, RegexBehaviorBelief),
 }
 
 FAMILY_NAMES = {
@@ -112,10 +112,10 @@ FAMILY_NAMES = {
 }
 
 #: validators that must never appear in a default belief list, and why.
-#: ``Executes`` runs model-generated code; an interactive human blocks.  The
+#: ``ExecutesBelief`` runs model-generated code; an interactive human blocks.  The
 #: read pipeline consults this when it assembles defaults.
 NEVER_DEFAULT = {
-    Executes: "runs model-generated code; opt in explicitly",
+    ExecutesBelief: "runs model-generated code; opt in explicitly",
 }
 
 
@@ -134,20 +134,21 @@ def family_of(cls):
 
 __all__ = [
     # family A — form
-    "Schema", "Format", "Checksum", "Range", "Enum", "Length", "Unique",
-    "Sorted", "Parses", "match_template", "template_to_json_schema",
+    "SchemaBelief", "FormatBelief", "ChecksumBelief", "RangeBelief", "EnumBelief", "LengthBelief", "UniqueBelief",
+    "SortedBelief", "ParsesBelief", "match_template", "template_to_json_schema",
     "render_template",
     # family B — grounding
-    "Verbatim", "Normalized", "Fuzzy", "TokenSubset", "QuoteIntegrity",
-    "SpanValid", "FrozenConsistent", "NonEcho",
+    "VerbatimBelief", "NormalizedBelief", "FuzzyBelief", "TokenSubsetBelief", "QuoteIntegrityBelief",
+    "SpanValidBelief", "FrozenConsistentBelief", "NonEchoBelief",
     # family C — internal consistency
-    "Relation", "SumsTo", "ItemsSumTo", "Recompute", "TemporalOrder",
-    "Conservation", "FunctionalDependency", "MutuallyExclusive",
+    "RelationBelief", "SumsToBelief", "ItemsSumToBelief", "RecomputeBelief", "TemporalOrderBelief",
+    "ConservationBelief", "FunctionalDependencyBelief", "MutuallyExclusiveBelief",
     # family D — pinned reference tables
-    "IsoCountry", "IsoCurrency", "Timezone", "CalendarFact",
+    "IsoCountryBelief", "IsoCurrencyBelief", "TimezoneBelief", "CalendarFactBelief",
     # family E — executable
-    "Executes", "PassesTests", "RoundTrip", "Calculator", "RegexBehavior",
+    "ExecutesBelief", "PassesTestsBelief", "RoundTripBelief", "CalculatorBelief", "RegexBehaviorBelief",
     "ExecutionRefused", "calculate", "ALLOW_EXEC_ENV",
     # the registry itself
     "FAMILIES", "FAMILY_NAMES", "NEVER_DEFAULT", "validators", "family_of",
 ]
+

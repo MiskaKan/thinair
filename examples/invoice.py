@@ -24,7 +24,7 @@ from thinair import (
     model,
     snapshot,
 )
-from thinair.validators import TokenSubset
+from thinair.validators import TokenSubsetBelief
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -39,7 +39,7 @@ def build(engine=None, escalation=None):
             model("small-fast", engine=engine),               # default proposer
             model("large-think", think=True, engine=escalation),  # escalation tier
             human("jane"),                                    # speaks through assignment
-            TokenSubset("source_text"),
+            TokenSubsetBelief("source_text"),
         ]
         source_text: str
         total = contract(float, extracted_from="source_text", range=(0, 1e6))

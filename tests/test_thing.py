@@ -21,7 +21,7 @@ from thinair.policy import (
     Unresolvable,
 )
 from thinair.thing import Cell, Snapshot, Thing, contract, freeze, snapshot
-from thinair.validators import Range, Schema, TokenSubset
+from thinair.validators import RangeBelief, SchemaBelief, TokenSubsetBelief
 
 from fakes import FakeEngine
 
@@ -150,7 +150,7 @@ def test_latest_frozen_wins_and_every_predecessor_survives():
 def test_freezing_bypasses_the_veto_gate_deliberately():
     """Authority outranks contracts; validators gate only proposals."""
     inv, engine, _ = make([{"value": 1249.5, "p": 0.93}])
-    inv.total = -5                                   # against Range(0, 1e6)
+    inv.total = -5                                   # against RangeBelief(0, 1e6)
     assert +inv.total == -5
     assert engine.call_count == 0
 
@@ -169,7 +169,7 @@ def test_there_is_no_deletion():
 def test_a_high_confidence_proposal_failing_a_necessary_check_is_re_proposed():
     """Invariant 5 as a test: never resolved, always re-proposed."""
     inv, engine, ledger = make([
-        {"value": 9_999_999.0, "p": 0.99},           # outside Range(0, 1e6)
+        {"value": 9_999_999.0, "p": 0.99},           # outside RangeBelief(0, 1e6)
         {"value": 1249.5, "p": 0.7},
     ])
     total = inv.total
@@ -204,8 +204,8 @@ def test_appending_a_validator_changes_no_resolved_value_or_p():
     """Invariant 5 as a test: verdicts are measurement."""
     plain, engine_a, _ = make([{"value": 1249.5, "p": 0.62}])
     loaded, engine_b, ledger = make([{"value": 1249.5, "p": 0.62}],
-                                    extra=[TokenSubset("source_text"),
-                                           Schema(float), Range(0, 1e6)])
+                                    extra=[TokenSubsetBelief("source_text"),
+                                           SchemaBelief(float), RangeBelief(0, 1e6)])
     assert (+plain.total, ~plain.total) == (+loaded.total, ~loaded.total)
     assert engine_a.call_count == engine_b.call_count == 1
     # ...and the extra voices are all in the ledger, all agreeing, all ignored
@@ -214,7 +214,7 @@ def test_appending_a_validator_changes_no_resolved_value_or_p():
 
 def test_permuting_discriminative_members_changes_no_opinion():
     """List position carries no visibility semantics."""
-    checks = [TokenSubset("source_text"), Schema(float), Range(0, 1e6)]
+    checks = [TokenSubsetBelief("source_text"), SchemaBelief(float), RangeBelief(0, 1e6)]
 
     def run(order):
         inv, engine, ledger = make([{"value": 1249.5, "p": 0.71}], extra=order)
@@ -329,8 +329,8 @@ def test_a_manual_survey_costs_one_evaluation_per_belief():
 # --------------------------------------------------------------------------
 
 def test_the_proposer_is_evaluated_once_per_round_however_many_validators_pull():
-    checks = [TokenSubset("source_text"), Schema(float), Range(0, 1e6),
-              Schema(float), Range(0, 2e6)]
+    checks = [TokenSubsetBelief("source_text"), SchemaBelief(float), RangeBelief(0, 1e6),
+              SchemaBelief(float), RangeBelief(0, 2e6)]
     inv, engine, _ = make([{"value": 1249.5, "p": 0.93}], extra=checks)
     +inv.total
     assert engine.call_count == 1

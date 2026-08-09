@@ -1,14 +1,14 @@
 """Family E — executable checks: the strongest and the priciest.
 
 These beliefs judge a candidate by *running something*.  Two of them —
-``Calculator`` and ``RoundTrip`` — run only their own code and are safe
-anywhere.  ``PassesTests`` runs callables the user supplied, so its risk is
-the user's own.  ``Executes`` runs **model-generated code** and is therefore
+``CalculatorBelief`` and ``RoundTripBelief`` — run only their own code and are safe
+anywhere.  ``PassesTestsBelief`` runs callables the user supplied, so its risk is
+the user's own.  ``ExecutesBelief`` runs **model-generated code** and is therefore
 gated behind an explicit opt-in; it is never in a default belief list.
 
 Determinism, as everywhere, means reproducible rather than binary: the same
 snapshot must yield the same ``(v, p)``.  A test suite that depends on wall
-clock or network is the user's bug, not the framework's — but ``Executes``
+clock or network is the user's bug, not the framework's — but ``ExecutesBelief``
 does what it can, running in a scratch directory with the network stubbed
 out of the child interpreter.
 """
@@ -27,11 +27,11 @@ from ..beliefs import Discriminative, code_identity
 from ..ledger import values_equal
 
 __all__ = [
-    "Executes",
-    "PassesTests",
-    "RoundTrip",
-    "Calculator",
-    "RegexBehavior",
+    "ExecutesBelief",
+    "PassesTestsBelief",
+    "RoundTripBelief",
+    "CalculatorBelief",
+    "RegexBehaviorBelief",
     "ExecutionRefused",
     "calculate",
     "ALLOW_EXEC_ENV",
@@ -41,7 +41,7 @@ ALLOW_EXEC_ENV = "THINAIR_ALLOW_EXEC"
 
 
 class ExecutionRefused(RuntimeError):
-    """Raised when ``Executes`` is consulted without an explicit opt-in.
+    """Raised when ``ExecutesBelief`` is consulted without an explicit opt-in.
 
     A programming error, not an epistemic one — hence an exception rather
     than a low ``p``.  The user asked for model-generated code to be run and
@@ -50,7 +50,7 @@ class ExecutionRefused(RuntimeError):
 
 
 # --------------------------------------------------------------------------
-# Calculator — an ast walk, never eval
+# CalculatorBelief — an ast walk, never eval
 # --------------------------------------------------------------------------
 
 _BIN = {
@@ -132,7 +132,7 @@ def calculate(expression):
     return _Arith().visit(tree)
 
 
-class Calculator(Discriminative):
+class CalculatorBelief(Discriminative):
     """Re-evaluate arithmetic the candidate asserts.
 
     Judges three shapes: a bare expression (``"12 * 3"`` — must evaluate), an
@@ -222,7 +222,7 @@ class Calculator(Discriminative):
 
 
 # --------------------------------------------------------------------------
-# RoundTrip
+# RoundTripBelief
 # --------------------------------------------------------------------------
 
 def _rt_json(v):
@@ -255,7 +255,7 @@ _ROUNDTRIPS = {
 }
 
 
-class RoundTrip(Discriminative):
+class RoundTripBelief(Discriminative):
     """``parse(format(v)) == v``: the candidate survives a serialization cycle.
 
     A value that changes when written out and read back is malformed in a way
@@ -288,10 +288,10 @@ class RoundTrip(Discriminative):
 
 
 # --------------------------------------------------------------------------
-# RegexBehavior
+# RegexBehaviorBelief
 # --------------------------------------------------------------------------
 
-class RegexBehavior(Discriminative):
+class RegexBehaviorBelief(Discriminative):
     """The candidate *is* a regex, judged by what it matches.
 
     Graded: p is the fraction of the positive/negative examples the pattern
@@ -304,7 +304,7 @@ class RegexBehavior(Discriminative):
     def __init__(self, positives=(), negatives=(), **options):
         positives, negatives = tuple(positives), tuple(negatives)
         if not positives and not negatives:
-            raise ValueError("RegexBehavior needs at least one example")
+            raise ValueError("RegexBehaviorBelief needs at least one example")
         super().__init__(positives, negatives, **options)
         self.positives = positives
         self.negatives = negatives
@@ -333,10 +333,10 @@ class RegexBehavior(Discriminative):
 
 
 # --------------------------------------------------------------------------
-# PassesTests
+# PassesTestsBelief
 # --------------------------------------------------------------------------
 
-class PassesTests(Discriminative):
+class PassesTestsBelief(Discriminative):
     """Each test callable is one check; the suite is graded.
 
     A test is any callable taking the candidate.  Returning ``False`` or
@@ -350,7 +350,7 @@ class PassesTests(Discriminative):
     def __init__(self, test_fns, **options):
         tests = tuple(test_fns)
         if not tests:
-            raise ValueError("PassesTests needs at least one test")
+            raise ValueError("PassesTestsBelief needs at least one test")
         for t in tests:
             if not callable(t):
                 raise TypeError(f"test {t!r} is not callable")
@@ -381,7 +381,7 @@ class PassesTests(Discriminative):
 
 
 # --------------------------------------------------------------------------
-# Executes — opt-in, subprocess, scratch dir, no network
+# ExecutesBelief — opt-in, subprocess, scratch dir, no network
 # --------------------------------------------------------------------------
 
 #: prelude injected ahead of the candidate: severs the obvious network paths
@@ -390,10 +390,10 @@ class PassesTests(Discriminative):
 _NO_NETWORK = """\
 import socket as _s
 def _denied(*a, **k):
-    raise OSError("network disabled by thinair Executes")
+    raise OSError("network disabled by thinair ExecutesBelief")
 class _NoSocket(_s.socket):
     def __init__(self, *a, **k):
-        raise OSError("network disabled by thinair Executes")
+        raise OSError("network disabled by thinair ExecutesBelief")
 _s.socket = _NoSocket
 _s.create_connection = _denied
 _s.socketpair = _denied
@@ -408,11 +408,11 @@ def _exec_allowed(explicit):
     return os.environ.get(ALLOW_EXEC_ENV, "").strip().lower() in {"1", "true", "yes", "on"}
 
 
-class Executes(Discriminative):
+class ExecutesBelief(Discriminative):
     """The candidate is code that runs to completion without raising.
 
     **This runs model-generated code.**  It refuses to do so unless the user
-    said as much, either per-belief (``Executes(allow_exec=True)``) or per
+    said as much, either per-belief (``ExecutesBelief(allow_exec=True)``) or per
     process (``THINAIR_ALLOW_EXEC=1``).  Consulting a belief that has neither
     raises ``ExecutionRefused`` — a programming error deserves an exception,
     not a quiet zero.
@@ -448,7 +448,7 @@ class Executes(Discriminative):
         if not self.allowed:
             raise ExecutionRefused(
                 f"{self.id} would run model-generated code. Pass "
-                f"Executes(allow_exec=True) or set {ALLOW_EXEC_ENV}=1 to permit it."
+                f"ExecutesBelief(allow_exec=True) or set {ALLOW_EXEC_ENV}=1 to permit it."
             )
         with tempfile.TemporaryDirectory(prefix="thinair-exec-") as cwd:
             script = os.path.join(cwd, "candidate.py")
@@ -482,3 +482,4 @@ class Executes(Discriminative):
         tail = (proc.stderr or "").strip().splitlines()
         last = tail[-1] if tail else f"exit status {proc.returncode}"
         return 0.0, f"raised: {last}"
+

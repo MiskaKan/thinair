@@ -245,7 +245,7 @@ def test_the_ledger_alone_answers_who_said_what():
 
 
 def test_a_fabricated_number_is_vetoed_offline():
-    """TokenSubset is necessary on people_affected; 999 is in no item."""
+    """TokenSubsetBelief is necessary on people_affected; 999 is in no item."""
     engine = FakeEngine([{"value": 999, "p": 0.99}])
     belief = model("deepseek-v4-flash", engine=engine)
     ledger = Ledger()

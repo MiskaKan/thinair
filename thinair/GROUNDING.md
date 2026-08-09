@@ -345,8 +345,7 @@ of it:
   `model`, `human`, `corroborate` (consult the beliefs the read never asked, recording
   second opinions into the same cells for settlement) and `fn` — functions as cells: a
   call is a read of a `(call_id, "result")` cell; pure code freezes it (memoization),
-  model-served calls stay opinions. `contract`, `freeze`, `snapshot` survive as
-  compatibility spellings of moves the surface above already makes.
+  model-served calls stay opinions. `contract`, `freeze`, `snapshot` remain as compatibility spellings.
 - **Settlement ships with the framework**: `thinair.evaluate` reads the
   ledger back — veto-aware readings, scale-licensed agreement, chance-corrected
   kappa, Bradley–Terry, reliability, drift, discrimination, concordance with the
@@ -381,7 +380,7 @@ expensive way:
   wants the truth frozen on a *separate entity carrying the same axis names* — `fn`
   maps measured entity id → ground entity id (`lambda e: f"gold-{e}"`) — never on a
   sibling cell the instrument could see.
-- **Match the grounding law to the axis.** Span checks (`Fuzzy`, `Verbatim`) test text
+- **Match the grounding law to the axis.** Span checks (`FuzzyBelief`, `VerbatimBelief`) test text
   against its source; on an axis of *abstractions* they read low everywhere and, being
   non-necessary, fail silently — the axis looks validated and is not. Abstraction axes
   earn grounding from dissimilar-path agreement, not spans.
@@ -402,7 +401,5 @@ document.
 
 ---
 
-A measurement strategy per Part 2 has value before any code exists: the plan can be
-judged before a single call is spent. But wherever thinair is installed, the strategy
-is a waypoint, not the destination: write the program, run it, and let the record it
-leaves judge the strategy.
+Wherever thinair is installed, the strategy is a waypoint, not the destination: write
+the program, run it, and let the record it leaves judge the strategy.

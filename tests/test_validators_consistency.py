@@ -15,14 +15,14 @@ import pytest
 from thinair.beliefs import Judgment
 from thinair.ledger import Ledger, Opinion
 from thinair.validators import (
-    Conservation,
-    FunctionalDependency,
-    ItemsSumTo,
-    MutuallyExclusive,
-    Recompute,
-    Relation,
-    SumsTo,
-    TemporalOrder,
+    ConservationBelief,
+    FunctionalDependencyBelief,
+    ItemsSumToBelief,
+    MutuallyExclusiveBelief,
+    RecomputeBelief,
+    RelationBelief,
+    SumsToBelief,
+    TemporalOrderBelief,
 )
 
 from fakes import FakeSnapshot
@@ -45,13 +45,13 @@ def at_virtual(belief, **cells):
 # --------------------------------------------------------------------------
 
 def test_a_relation_names_a_virtual_attribute():
-    belief = SumsTo(["net", "vat"], "total")
+    belief = SumsToBelief(["net", "vat"], "total")
     assert belief.virtual == "…" + belief.id
-    assert belief.virtual.startswith("…sumsTo[")
+    assert belief.virtual.startswith("…sumsToBelief[")
 
 
 def test_a_virtual_verdict_is_a_boolean_about_the_relation():
-    belief = SumsTo(["net", "vat"], "total")
+    belief = SumsToBelief(["net", "vat"], "total")
     good = at_virtual(belief, net=1000.0, vat=249.5, total=1249.5)
     bad = at_virtual(belief, net=1000.0, vat=249.5, total=9999.0)
     assert (+good, ~good) == (True, 1.0)
@@ -61,7 +61,7 @@ def test_a_virtual_verdict_is_a_boolean_about_the_relation():
 def test_a_virtual_opinion_has_the_same_record_shape_as_any_other():
     """Invariant 1: no second record type, virtual or not."""
     ledger = Ledger()
-    belief = SumsTo(["net", "vat"], "total")
+    belief = SumsToBelief(["net", "vat"], "total")
     got = at_virtual(belief, net=1.0, vat=2.0, total=3.0)
     ledger.add(Opinion(belief=belief.id, entity="inv-1", attr=belief.virtual,
                        value=+got, p=~got, meta=dict(got.meta)))
@@ -71,7 +71,7 @@ def test_a_virtual_opinion_has_the_same_record_shape_as_any_other():
 
 
 def test_a_relation_is_undecided_while_a_cell_is_missing():
-    assert at_virtual(SumsTo(["net", "vat"], "total"), net=1.0, total=3.0) is None
+    assert at_virtual(SumsToBelief(["net", "vat"], "total"), net=1.0, total=3.0) is None
 
 
 # --------------------------------------------------------------------------
@@ -79,7 +79,7 @@ def test_a_relation_is_undecided_while_a_cell_is_missing():
 # --------------------------------------------------------------------------
 
 def test_a_relation_judges_the_candidate_at_a_related_attribute():
-    belief = SumsTo(["net", "vat"], "total")
+    belief = SumsToBelief(["net", "vat"], "total")
     e = FakeSnapshot(beliefs=[lambda x, a: (1249.5, 0.93)],
                      net=999.0, vat=250.5)
     got = belief(e, "total")
@@ -88,7 +88,7 @@ def test_a_relation_judges_the_candidate_at_a_related_attribute():
 
 
 def test_a_relation_vetoes_a_candidate_that_breaks_it():
-    belief = SumsTo(["net", "vat"], "total")
+    belief = SumsToBelief(["net", "vat"], "total")
     e = FakeSnapshot(beliefs=[lambda x, a: (9999.0, 0.99)], net=999.0, vat=250.5)
     got = belief(e, "total")
     assert (+got, ~got) == (9999.0, 0.0)          # high confidence, still vetoed
@@ -97,20 +97,20 @@ def test_a_relation_vetoes_a_candidate_that_breaks_it():
 
 def test_a_relation_substitutes_the_candidate_for_the_standing_resolution():
     """The candidate under judgment replaces the cell's current value."""
-    belief = SumsTo(["net", "vat"], "total")
+    belief = SumsToBelief(["net", "vat"], "total")
     e = FakeSnapshot(beliefs=[lambda x, a: (1249.5, 0.93)],
                      net=999.0, vat=250.5, total=9999.0)
     assert ~belief(e, "total") == 1.0
 
 
 def test_a_relation_is_silent_at_an_unrelated_attribute():
-    belief = SumsTo(["net", "vat"], "total")
+    belief = SumsToBelief(["net", "vat"], "total")
     e = FakeSnapshot(beliefs=[lambda x, a: ("ACME Oy", 0.9)], net=1.0, vat=2.0)
     assert belief(e, "vendor") is None
 
 
 def test_a_relation_is_silent_when_nothing_is_proposed():
-    belief = SumsTo(["net", "vat"], "total")
+    belief = SumsToBelief(["net", "vat"], "total")
     assert belief(resolved(net=1.0, vat=2.0), "total") is None
 
 
@@ -127,7 +127,7 @@ def test_a_relation_is_silent_when_nothing_is_proposed():
     (dict(net=True, vat=250.5, total=1249.5), None),               # bool is not a number
 ])
 def test_sums_to(cells, expected):
-    got = at_virtual(SumsTo(["net", "vat"], "total"), **cells)
+    got = at_virtual(SumsToBelief(["net", "vat"], "total"), **cells)
     assert (None if got is None else +got) is expected
 
 
@@ -139,40 +139,40 @@ def test_sums_to(cells, expected):
     (dict(line_items="not a list", total=0.0), None),
 ])
 def test_items_sum_to(cells, expected):
-    got = at_virtual(ItemsSumTo("line_items", "amount", "total"), **cells)
+    got = at_virtual(ItemsSumToBelief("line_items", "amount", "total"), **cells)
     assert (None if got is None else +got) is expected
 
 
 def test_items_sum_to_vetoes_a_bad_total_against_good_items():
-    belief = ItemsSumTo("line_items", "amount", "total")
+    belief = ItemsSumToBelief("line_items", "amount", "total")
     e = FakeSnapshot(beliefs=[lambda x, a: (9999.0, 0.95)], line_items=ITEMS)
     assert ~belief(e, "total") == 0.0
 
 
 def test_items_sum_to_vetoes_bad_items_against_a_frozen_total():
     """The relation works in both directions -- it is about cells, not roles."""
-    belief = ItemsSumTo("line_items", "amount", "total")
+    belief = ItemsSumToBelief("line_items", "amount", "total")
     invented = [{"desc": "Widget", "amount": 500.0}]
     e = FakeSnapshot(beliefs=[lambda x, a: (invented, 0.9)], total=1249.5)
     assert ~belief(e, "line_items") == 0.0
 
 
 def test_recompute():
-    belief = Recompute("net", lambda total, vat: total / (1 + vat), ["total", "vat"])
+    belief = RecomputeBelief("net", lambda total, vat: total / (1 + vat), ["total", "vat"])
     assert +at_virtual(belief, total=1249.5, vat=0.24, net=1007.66) is False
     assert +at_virtual(belief,
                        total=1249.5, vat=0.24, net=1249.5 / 1.24) is True
 
 
 def test_recompute_survives_a_raising_function():
-    belief = Recompute("net", lambda a, b: a / b, ["total", "vat"])
+    belief = RecomputeBelief("net", lambda a, b: a / b, ["total", "vat"])
     got = at_virtual(belief, total=1249.5, vat=0, net=1.0)
     assert (+got, ~got) == (False, 0.0)
     assert "ZeroDivisionError" in got.meta["reason"]
 
 
 def test_recompute_tolerance_is_configurable():
-    belief = Recompute("net", lambda t, v: t / (1 + v), ["total", "vat"], tol=0.01)
+    belief = RecomputeBelief("net", lambda t, v: t / (1 + v), ["total", "vat"], tol=0.01)
     assert +at_virtual(belief, total=1249.5, vat=0.24, net=1007.66) is True
 
 
@@ -187,7 +187,7 @@ def test_recompute_tolerance_is_configurable():
     ("whenever", "2024-01-01", False),                        # not orderable
 ])
 def test_temporal_order(a, b, expected):
-    got = at_virtual(TemporalOrder("issued", "due"), issued=a, due=b)
+    got = at_virtual(TemporalOrderBelief("issued", "due"), issued=a, due=b)
     assert +got is expected
 
 
@@ -197,7 +197,7 @@ def test_temporal_order(a, b, expected):
     (dict(paid=100.0, refunded=20.0), None),
 ])
 def test_conservation(cells, expected):
-    got = at_virtual(Conservation("paid", "refunded", "net_change"), **cells)
+    got = at_virtual(ConservationBelief("paid", "refunded", "net_change"), **cells)
     assert (None if got is None else +got) is expected
 
 
@@ -209,7 +209,7 @@ def test_conservation(cells, expected):
     ("not records", None),
 ])
 def test_functional_dependency(records, expected):
-    got = at_virtual(FunctionalDependency("sku", "price", over="line_items"),
+    got = at_virtual(FunctionalDependencyBelief("sku", "price", over="line_items"),
                      line_items=records)
     assert (None if got is None else +got) is expected
 
@@ -221,7 +221,7 @@ def test_functional_dependency(records, expected):
     (dict(paid=True), None),                                  # only one is known
 ])
 def test_mutually_exclusive(cells, expected):
-    got = at_virtual(MutuallyExclusive(["paid", "overdue"]), **cells)
+    got = at_virtual(MutuallyExclusiveBelief(["paid", "overdue"]), **cells)
     assert (None if got is None else +got) is expected
 
 
@@ -230,13 +230,13 @@ def test_mutually_exclusive(cells, expected):
 # --------------------------------------------------------------------------
 
 FAMILY_C = [
-    SumsTo(["net", "vat"], "total"),
-    ItemsSumTo("line_items", "amount", "total"),
-    Recompute("net", lambda t, v: t / (1 + v), ["total", "vat"]),
-    TemporalOrder("issued", "due"),
-    Conservation("paid", "refunded", "net_change"),
-    FunctionalDependency("sku", "price", over="line_items"),
-    MutuallyExclusive(["paid", "overdue"]),
+    SumsToBelief(["net", "vat"], "total"),
+    ItemsSumToBelief("line_items", "amount", "total"),
+    RecomputeBelief("net", lambda t, v: t / (1 + v), ["total", "vat"]),
+    TemporalOrderBelief("issued", "due"),
+    ConservationBelief("paid", "refunded", "net_change"),
+    FunctionalDependencyBelief("sku", "price", over="line_items"),
+    MutuallyExclusiveBelief(["paid", "overdue"]),
 ]
 
 
@@ -258,7 +258,7 @@ def test_every_relation_is_undecided_on_an_empty_entity(belief):
 
 def test_a_user_can_write_a_relation_in_five_lines():
     """Relations are user-level code, like every other belief."""
-    class NotOverdrawn(Relation):
+    class NotOverdrawn(RelationBelief):
         def cells(self):
             return ("balance",)
 

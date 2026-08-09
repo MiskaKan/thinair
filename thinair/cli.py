@@ -1278,13 +1278,13 @@ def _builtin_roster() -> str:
 
     lines = [
         "", "---", "",
-        "## Appendix: built-in beliefs in this installation",
+        "## Appendix: built-in beliefs",
         "",
-        "Generated from the running package.  Generative: `model(name, "
-        "think=, temperature=)` (an LLM), `human(name, interactive=)`, and "
-        "any function via `thinair.fn` (code; its results freeze).  "
-        "Validators (`from thinair.validators import <Name>`; most arrive "
-        "automatically via `contract(...)` options):", ""]
+        "Generative: `model(name, think=, temperature=)`, `human(name, "
+        "interactive=)`, and any function via `thinair.fn` (code; results "
+        "freeze).  Validators (`from thinair.validators import <Name>`; "
+        "the declaration options `enum=`, `range=`, ... are shorthand "
+        "for these):", ""]
     for name in getattr(V, "__all__", ()):
         obj = getattr(V, name, None)
         if not (_inspect.isclass(obj) and issubclass(obj, Belief)):
@@ -1311,7 +1311,7 @@ count, their concord is built in; `agree=unopposed` means one reading,
 which nothing could have contradicted -- no evidence either way),
 `asked=N/M` (how much of the cell's panel has spoken), and
 `expect-violated` (a declared expectation was missed).  Without it you
-are blind to the most load-bearing part of the output.
+are blind to half the output.
 
 ### Build -- the deliverable is a running program
 
@@ -1323,13 +1323,13 @@ strategy must be designed from raw data, is Part 2: `ground --full`.)
 The whole skeleton:
 
     from thinair import Thing, model
-    from thinair.validators import TokenSubset
+    from thinair.validators import TokenSubsetBelief
 
     Thing.__default__ = model("deepseek-v4-flash")   # panels fall back here
 
     class Ticket(Thing):
         """A support ticket to be understood."""   # prompt material
-        __beliefs__ = [TokenSubset("source_text")]
+        __beliefs__ = [TokenSubsetBelief("source_text")]
         source_text: str                           # you supply this
         customer = Thing(str, extracted_from="source_text")
         priority = Thing(str, enum=["low", "normal", "high"])
@@ -1366,11 +1366,10 @@ reasoning models think for minutes, and that is working, not hanging.
     thinair branch [-d name]                        entities are branches
 
 A `rev` is a hash prefix, a branch (entity) name, or `HEAD`.  A believed
-cell renders as `(p 0.95 ±0.02)` -- the resolving belief's own honest
-probability, with the agreeing voices' spread beside it (`±0.00` means
-unmeasured, not certain: check `asked=`).  In the matrix, `?` marks a
-consultation `evaluate` would actually perform, `x` a belief this
-client cannot reach on that cell, `frozen` a cell pinned by fiat.
+cell renders as `(p 0.95 ±0.02)` -- the resolving belief's own p, the
+agreeing voices' spread beside it (`±0.00` = unmeasured, not certain:
+check `asked=`).  Matrix marks: `?` a consultation `evaluate` would
+perform, `x` unreachable on that cell, `frozen` pinned by fiat.
 
 ### Measure
 
@@ -1436,9 +1435,9 @@ Add your own instrument when nothing built-in checks what matters:
 `e` is a sealed snapshot -- read other cells as `e.attr.value`.
 Registered classes rebuild from the record's stored configurations, so
 `evaluate '*'` consults them beside the built-ins; module-level
-*instances* register under durable ids and serve live.  A belief the
-application attaches with `necessary=True` gains a veto at read time;
-registered-only beliefs corroborate -- they never gate.
+*instances* register under durable ids and serve live.  `necessary=True`
+at the attachment site gains a veto at read time; registered-only
+beliefs corroborate, never gate.
 
 ### Declare (in the application's Python, not the CLI)
 
@@ -1446,7 +1445,7 @@ Docstrings are prompt material: the class docstring is the entity's
 purpose, `Thing(..., doc=...)` joins the attribute's description, and a
 method's first docstring line rides along with its signature.
 Instruments attach declaratively -- `Thing(float,
-beliefs=[Range(0, 10_000)])`: auto-scoped, veto terms kept, described
+beliefs=[RangeBelief(0, 10_000)])`: auto-scoped, veto terms kept, described
 to the model; `enum=`, `range=`, ... are shorthand for this.
 `Thing(str, p=0.9, deviation=0.1)` declares expectations -- stamped
 into the record and judged there, never shown to the answering belief,

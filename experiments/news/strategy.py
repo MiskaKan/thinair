@@ -8,10 +8,14 @@ entity's own attributes" --- arrive as ordinary code beliefs.
 
 from __future__ import annotations
 
+# DISCLOSURE (2026-08-09): mechanically renamed validator classes to their
+# thinair 2.2 *Belief names (Calculator -> CalculatorBelief, IsoCountry ->
+# IsoCountryBelief).  No behavioral change.  The pre-registered original --
+# the bytes the runlog.json hash stamps -- is preserved in git history.
 from thinair import Thing, contract, human, model
 from thinair.beliefs import Discriminative, value_at
 from thinair.ledger import values_equal
-from thinair.validators import Calculator, IsoCountry
+from thinair.validators import CalculatorBelief, IsoCountryBelief
 
 from corpus import CERTAINTY, HORIZON, MEASURAND
 
@@ -113,7 +117,7 @@ def story_class(proposer, name="Story"):
         __beliefs__=[proposer, human("desk")],
         __annotations__={"text": str},
         country=contract(
-            str, length=(2, 2), beliefs=[IsoCountry(necessary=False)],
+            str, length=(2, 2), beliefs=[IsoCountryBelief(necessary=False)],
             doc="the ISO 3166-1 alpha-2 code of the country in the dateline"),
         people_affected=contract(
             int, extracted_from="text", range=(0, 10_000_000),
@@ -127,7 +131,7 @@ def story_class(proposer, name="Story"):
                 "record: " + _RUBRIC(HORIZON)),
         ratio_claim=contract(
             {"expression": str, "result": float},
-            beliefs=[Calculator(necessary=False)],
+            beliefs=[CalculatorBelief(necessary=False)],
             doc="the item's own arithmetic about itself, transcribed and not "
                 "corrected: expression is a plain arithmetic expression built "
                 "only from numbers the item states, result is the figure the "

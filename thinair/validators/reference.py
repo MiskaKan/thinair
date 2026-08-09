@@ -7,7 +7,7 @@ pure function of the snapshot (invariant 3).
 
 Default ``necessary = False``: a name missing from a hand-vendored table is
 weak evidence of a wrong answer, so these beliefs measure rather than veto.
-``CalendarFact`` is the exception the plan allows — date-to-weekday is pure
+``CalendarFactBelief`` is the exception the plan allows — date-to-weekday is pure
 computation, not a table, so it may be given veto rights at the attachment
 site.
 """
@@ -20,10 +20,10 @@ import re
 from ..beliefs import Discriminative
 
 __all__ = [
-    "IsoCountry",
-    "IsoCurrency",
-    "Timezone",
-    "CalendarFact",
+    "IsoCountryBelief",
+    "IsoCurrencyBelief",
+    "TimezoneBelief",
+    "CalendarFactBelief",
     "COUNTRIES",
     "CURRENCIES",
     "COUNTRIES_REVISION",
@@ -149,7 +149,7 @@ class _Table(Discriminative):
         return p, f"{self.hit_phrase} {self.revision}: {'; '.join(hits[:3])}"
 
 
-class IsoCountry(_Table):
+class IsoCountryBelief(_Table):
     """The candidate names a country in the pinned ISO 3166-1 snapshot.
 
     Accepts alpha-2, alpha-3, numeric, or the common English name — the point
@@ -174,7 +174,7 @@ class IsoCountry(_Table):
         return False, raw
 
 
-class IsoCurrency(_Table):
+class IsoCurrencyBelief(_Table):
     """The candidate names a currency in the pinned ISO 4217 snapshot."""
 
     revision = CURRENCIES_REVISION
@@ -193,7 +193,7 @@ class IsoCurrency(_Table):
         return False, raw
 
 
-class Timezone(_Table):
+class TimezoneBelief(_Table):
     """The candidate names an IANA zone the running interpreter knows.
 
     The table is ``zoneinfo``'s, i.e. the platform tzdata — pinned by the
@@ -226,7 +226,7 @@ _WEEKDAYS = (
 )
 
 
-class CalendarFact(_Table):
+class CalendarFactBelief(_Table):
     """Date arithmetic asserted by the candidate actually holds.
 
     Pure computation, not a table — so this one may reasonably be attached
@@ -288,3 +288,4 @@ class CalendarFact(_Table):
         if claimed != actual:
             return False, f"{date.isoformat()} is a {actual.title()}, not {claimed.title()}"
         return True, f"{date.isoformat()} is a {actual.title()}"
+

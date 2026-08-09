@@ -156,10 +156,10 @@ same object.  `beliefs=` entries are first-class declarations, not
 second-class attachments: each is auto-scoped to the attribute, keeps its
 veto terms, and its `describe()` joins the prompt description — the named
 options are shorthand over the same validator library
-(`enum=[...]` ≡ `beliefs=[Enum([...])]`), and the two spellings must not
+(`enum=[...]` ≡ `beliefs=[EnumBelief([...])]`), and the two spellings must not
 diverge.  (A Thing constructed with a positional shape is a
 *declaration*: no entity, no ledger, no record — the metaclass consumes it
-at class creation.)  The `Schema` a contract builds is the
+at class creation.)  The `SchemaBelief` a contract builds is the
 same object that constrains the engine's structured output and performs the
 post-hoc check.  Docstrings are prompt material: the class docstring is the
 snapshot's `purpose`, `doc=` joins the contract's description, and a real

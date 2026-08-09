@@ -29,7 +29,7 @@ def test_ledger_accepts_exactly_one_record_type():
 
 def test_every_kind_of_belief_lands_in_the_same_shape():
     led = Ledger()
-    for belief in ("model:small-fast@v1", "verbatim[source_text]", "human:jane",
+    for belief in ("model:small-fast@v1", "verbatimBelief[source_text]", "human:jane",
                    "code:net_total@abc123", "fixture:test_x"):
         led.add(op(belief=belief))
     assert {type(o) for o in led} == {Opinion}

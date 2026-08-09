@@ -1,6 +1,6 @@
 """Family E — executable checks: the strongest and the priciest.
 
-``Executes`` is the one belief in the library that runs code it did not
+``ExecutesBelief`` is the one belief in the library that runs code it did not
 write, so most of what is asserted here is about its refusal to do so
 uninvited.
 """
@@ -13,12 +13,12 @@ import pytest
 
 from thinair.validators import (
     ALLOW_EXEC_ENV,
-    Calculator,
-    Executes,
+    CalculatorBelief,
+    ExecutesBelief,
     ExecutionRefused,
-    PassesTests,
-    RegexBehavior,
-    RoundTrip,
+    PassesTestsBelief,
+    RegexBehaviorBelief,
+    RoundTripBelief,
     calculate,
 )
 
@@ -86,7 +86,7 @@ def test_the_module_contains_no_eval():
 
 
 # --------------------------------------------------------------------------
-# Calculator
+# CalculatorBelief
 # --------------------------------------------------------------------------
 
 @pytest.mark.parametrize("value,expected", [
@@ -105,24 +105,24 @@ def test_the_module_contains_no_eval():
     ({"result": 4}, None),
 ])
 def test_calculator(value, expected):
-    assert p_of(Calculator(), value) == expected
+    assert p_of(CalculatorBelief(), value) == expected
 
 
 def test_calculator_judges_at_the_precision_the_claim_was_stated_to():
     """"1007.66" asserts two decimals, and is checked to two."""
-    assert p_of(Calculator(), "1249.50 / 1.24 = 1007.66") == 1.0
-    assert p_of(Calculator(), "1249.50 / 1.24 = 1007.67") == 0.0
-    assert p_of(Calculator(tol=0.0), "1249.50 / 1.24 = 1007.66") == 0.0
-    assert p_of(Calculator(tol=0.01), "1249.50 / 1.24 = 1007.66") == 1.0
+    assert p_of(CalculatorBelief(), "1249.50 / 1.24 = 1007.66") == 1.0
+    assert p_of(CalculatorBelief(), "1249.50 / 1.24 = 1007.67") == 0.0
+    assert p_of(CalculatorBelief(tol=0.0), "1249.50 / 1.24 = 1007.66") == 0.0
+    assert p_of(CalculatorBelief(tol=0.01), "1249.50 / 1.24 = 1007.66") == 1.0
 
 
 def test_calculator_explains_the_arithmetic_it_did():
-    got = Calculator()(head("12 * 3 = 37"), "x")
+    got = CalculatorBelief()(head("12 * 3 = 37"), "x")
     assert "36" in got.meta["reason"] and "37" in got.meta["reason"]
 
 
 # --------------------------------------------------------------------------
-# RoundTrip
+# RoundTripBelief
 # --------------------------------------------------------------------------
 
 @pytest.mark.parametrize("fmt,value,expected", [
@@ -140,50 +140,50 @@ def test_calculator_explains_the_arithmetic_it_did():
     ("python", "def f(:", 0.0),
 ])
 def test_round_trip(fmt, value, expected):
-    assert p_of(RoundTrip(fmt), value) == expected
+    assert p_of(RoundTripBelief(fmt), value) == expected
 
 
 def test_round_trip_rejects_an_unknown_format():
     with pytest.raises(ValueError):
-        RoundTrip("papyrus")
+        RoundTripBelief("papyrus")
 
 
 def test_round_trip_catches_what_a_shape_check_cannot():
     """``"2024-02-30"`` is a well-formed string and an impossible date."""
-    from thinair.validators import Schema
+    from thinair.validators import SchemaBelief
 
-    assert p_of(Schema(str), "2024-02-30") == 1.0
-    assert p_of(RoundTrip("date"), "2024-02-30") == 0.0
+    assert p_of(SchemaBelief(str), "2024-02-30") == 1.0
+    assert p_of(RoundTripBelief("date"), "2024-02-30") == 0.0
 
 
 # --------------------------------------------------------------------------
-# RegexBehavior
+# RegexBehaviorBelief
 # --------------------------------------------------------------------------
 
 def test_regex_behavior_is_graded_by_examples():
-    belief = RegexBehavior(positives=["a@b.com", "x@y.fi"], negatives=["nope", "a@b"])
+    belief = RegexBehaviorBelief(positives=["a@b.com", "x@y.fi"], negatives=["nope", "a@b"])
     assert p_of(belief, r"^\S+@\S+\.\S+$") == 1.0
     assert p_of(belief, r"^\S+@\S+$") == 0.75                # matches "a@b" too
     assert p_of(belief, r"^nothing$") == 0.5                 # misses both positives
 
 
 def test_regex_behavior_flunks_a_pattern_that_does_not_compile():
-    belief = RegexBehavior(positives=["a"])
+    belief = RegexBehaviorBelief(positives=["a"])
     got = belief(head(r"^(a$"), "x")
     assert ~got == 0.0 and "compile" in got.meta["reason"]
 
 
 def test_regex_behavior_needs_examples():
     with pytest.raises(ValueError):
-        RegexBehavior()
+        RegexBehaviorBelief()
 
 
 def test_regex_behavior_says_nothing_about_a_non_string():
-    assert p_of(RegexBehavior(positives=["a"]), 42) is None
+    assert p_of(RegexBehaviorBelief(positives=["a"]), 42) is None
 
 
 # --------------------------------------------------------------------------
-# PassesTests — each test callable is one check
+# PassesTestsBelief — each test callable is one check
 # --------------------------------------------------------------------------
 
 def positive(v):
@@ -199,18 +199,18 @@ def explodes(v):
 
 
 def test_passes_tests_is_graded():
-    assert p_of(PassesTests([positive, under_ten]), 5) == 1.0
-    assert p_of(PassesTests([positive, under_ten]), 42) == 0.5
-    assert p_of(PassesTests([positive, under_ten]), -1) == 0.5
+    assert p_of(PassesTestsBelief([positive, under_ten]), 5) == 1.0
+    assert p_of(PassesTestsBelief([positive, under_ten]), 42) == 0.5
+    assert p_of(PassesTestsBelief([positive, under_ten]), -1) == 0.5
 
 
 def test_a_failing_assertion_carries_its_message():
-    got = PassesTests([under_ten])(head(42), "x")
+    got = PassesTestsBelief([under_ten])(head(42), "x")
     assert "not under ten" in got.meta["reason"]
 
 
 def test_a_test_that_explodes_is_a_failed_test():
-    got = PassesTests([explodes])(head(1), "x")
+    got = PassesTestsBelief([explodes])(head(1), "x")
     assert ~got == 0.0 and "RuntimeError" in got.meta["reason"]
 
 
@@ -219,65 +219,65 @@ def test_passes_tests_identity_follows_the_test_source():
     def threshold(v):
         return v > 0
 
-    first = PassesTests([threshold]).id
+    first = PassesTestsBelief([threshold]).id
 
     def threshold(v):                                # noqa: F811 - deliberate
         return v > 1
 
-    assert PassesTests([threshold]).id != first
+    assert PassesTestsBelief([threshold]).id != first
 
 
 def test_passes_tests_needs_callables():
     with pytest.raises(TypeError):
-        PassesTests(["not callable"])
+        PassesTestsBelief(["not callable"])
     with pytest.raises(ValueError):
-        PassesTests([])
+        PassesTestsBelief([])
 
 
 # --------------------------------------------------------------------------
-# Executes — opt-in, and nothing else
+# ExecutesBelief — opt-in, and nothing else
 # --------------------------------------------------------------------------
 
 def test_executes_refuses_without_an_explicit_opt_in(monkeypatch):
     monkeypatch.delenv(ALLOW_EXEC_ENV, raising=False)
     with pytest.raises(ExecutionRefused, match=ALLOW_EXEC_ENV):
-        Executes()(head("print(1)"), "code")
+        ExecutesBelief()(head("print(1)"), "code")
 
 
 def test_executes_accepts_a_per_belief_opt_in(monkeypatch):
     monkeypatch.delenv(ALLOW_EXEC_ENV, raising=False)
-    assert p_of(Executes(allow_exec=True), "x = 1 + 1") == 1.0
+    assert p_of(ExecutesBelief(allow_exec=True), "x = 1 + 1") == 1.0
 
 
 def test_executes_accepts_a_process_wide_opt_in(monkeypatch):
     monkeypatch.setenv(ALLOW_EXEC_ENV, "1")
-    assert p_of(Executes(), "x = 1 + 1") == 1.0
+    assert p_of(ExecutesBelief(), "x = 1 + 1") == 1.0
     monkeypatch.setenv(ALLOW_EXEC_ENV, "0")
     with pytest.raises(ExecutionRefused):
-        Executes()(head("x = 1"), "code")
+        ExecutesBelief()(head("x = 1"), "code")
 
 
 def test_the_opt_in_is_not_part_of_the_belief_identity():
     """Same check, same id: willingness to run it is this process's business."""
-    assert Executes(allow_exec=True).id == Executes().id
+    assert ExecutesBelief(allow_exec=True).id == ExecutesBelief().id
 
 
 def test_executes_reports_the_exception_a_candidate_raised(monkeypatch):
     monkeypatch.setenv(ALLOW_EXEC_ENV, "1")
-    got = Executes()(head('raise ValueError("boom")'), "code")
+    got = ExecutesBelief()(head('raise ValueError("boom")'), "code")
     assert ~got == 0.0 and "boom" in got.meta["reason"]
 
 
 def test_executes_times_out_rather_than_hanging(monkeypatch):
     monkeypatch.setenv(ALLOW_EXEC_ENV, "1")
-    got = Executes(timeout=0.5)(head("while True:\n    pass\n"), "code")
+    got = ExecutesBelief(timeout=0.5)(head("while True:\n    pass\n"), "code")
     assert ~got == 0.0 and "0.5s" in got.meta["reason"]
 
 
 def test_executes_blocks_the_network(monkeypatch):
     monkeypatch.setenv(ALLOW_EXEC_ENV, "1")
     code = "import urllib.request\nurllib.request.urlopen('http://example.com')\n"
-    got = Executes()(head(code), "code")
+    got = ExecutesBelief()(head(code), "code")
     assert ~got == 0.0 and "network disabled" in got.meta["reason"]
 
 
@@ -285,34 +285,34 @@ def test_executes_runs_in_a_scratch_directory(monkeypatch, tmp_path):
     """A candidate that writes a file must not write it into the project."""
     monkeypatch.setenv(ALLOW_EXEC_ENV, "1")
     monkeypatch.chdir(tmp_path)
-    assert p_of(Executes(), "open('artifact.txt', 'w').write('hi')") == 1.0
+    assert p_of(ExecutesBelief(), "open('artifact.txt', 'w').write('hi')") == 1.0
     assert not (tmp_path / "artifact.txt").exists()
 
 
 def test_executes_needs_a_positive_timeout():
     with pytest.raises(ValueError):
-        Executes(timeout=0)
+        ExecutesBelief(timeout=0)
 
 
 def test_executes_says_nothing_about_a_non_string(monkeypatch):
     monkeypatch.setenv(ALLOW_EXEC_ENV, "1")
-    assert p_of(Executes(), 42) is None
-    assert p_of(Executes(), "   ") is None
+    assert p_of(ExecutesBelief(), 42) is None
+    assert p_of(ExecutesBelief(), "   ") is None
 
 
 def test_executes_is_never_in_a_default_list():
     """Never auto-registered; the registry says so out loud."""
     from thinair.validators import NEVER_DEFAULT
 
-    assert Executes in NEVER_DEFAULT
+    assert ExecutesBelief in NEVER_DEFAULT
 
 
 # --------------------------------------------------------------------------
 # family behavior
 # --------------------------------------------------------------------------
 
-FAMILY_E = [Executes(), PassesTests([positive]), RoundTrip("json"),
-            Calculator(), RegexBehavior(positives=["a"])]
+FAMILY_E = [ExecutesBelief(), PassesTestsBelief([positive]), RoundTripBelief("json"),
+            CalculatorBelief(), RegexBehaviorBelief(positives=["a"])]
 
 
 @pytest.mark.parametrize("belief", FAMILY_E, ids=lambda b: b.id)

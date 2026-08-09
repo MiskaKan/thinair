@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from thinair.validators import CalendarFact, IsoCountry, IsoCurrency, Timezone
+from thinair.validators import CalendarFactBelief, IsoCountryBelief, IsoCurrencyBelief, TimezoneBelief
 from thinair.validators.reference import (
     COUNTRIES,
     COUNTRIES_REVISION,
@@ -51,14 +51,14 @@ def test_a_lookup_never_reaches_the_network(monkeypatch):
     monkeypatch.setattr(socket, "create_connection", forbidden)
     monkeypatch.setattr(socket, "getaddrinfo", forbidden)
 
-    assert p_of(IsoCountry(), "FI") == 1.0
-    assert p_of(IsoCurrency(), "EUR") == 1.0
-    assert p_of(Timezone(), "Europe/Helsinki") == 1.0
-    assert p_of(CalendarFact(), "2024-02-29") == 1.0
+    assert p_of(IsoCountryBelief(), "FI") == 1.0
+    assert p_of(IsoCurrencyBelief(), "EUR") == 1.0
+    assert p_of(TimezoneBelief(), "Europe/Helsinki") == 1.0
+    assert p_of(CalendarFactBelief(), "2024-02-29") == 1.0
 
 
 # --------------------------------------------------------------------------
-# IsoCountry / IsoCurrency
+# IsoCountryBelief / IsoCurrencyBelief
 # --------------------------------------------------------------------------
 
 @pytest.mark.parametrize("value,expected", [
@@ -68,7 +68,7 @@ def test_a_lookup_never_reaches_the_network(monkeypatch):
     (42, None),                                    # nothing string-shaped
 ])
 def test_iso_country(value, expected):
-    assert p_of(IsoCountry(), value) == expected
+    assert p_of(IsoCountryBelief(), value) == expected
 
 
 @pytest.mark.parametrize("value,expected", [
@@ -76,27 +76,27 @@ def test_iso_country(value, expected):
     ("XQZ", 0.0), ("Galleons", 0.0),
 ])
 def test_iso_currency(value, expected):
-    assert p_of(IsoCurrency(), value) == expected
+    assert p_of(IsoCurrencyBelief(), value) == expected
 
 
 def test_a_list_of_codes_is_graded_not_all_or_nothing():
-    assert p_of(IsoCurrency(), ["EUR", "USD"]) == 1.0
-    assert p_of(IsoCurrency(), ["EUR", "XQZ"]) == 0.5
-    assert p_of(IsoCurrency(), ["XQZ", "XYZ"]) == 0.0
+    assert p_of(IsoCurrencyBelief(), ["EUR", "USD"]) == 1.0
+    assert p_of(IsoCurrencyBelief(), ["EUR", "XQZ"]) == 0.5
+    assert p_of(IsoCurrencyBelief(), ["XQZ", "XYZ"]) == 0.0
 
 
 def test_the_reason_names_the_revision_and_the_offender():
-    got = IsoCountry()(head("Atlantis"), "country")
+    got = IsoCountryBelief()(head("Atlantis"), "country")
     assert COUNTRIES_REVISION in got.meta["reason"]
     assert "Atlantis" in got.meta["reason"]
 
 
 def test_a_dict_candidate_is_searched_for_strings():
-    assert p_of(IsoCountry(), {"code": "FI", "amount": 12}) == 1.0
+    assert p_of(IsoCountryBelief(), {"code": "FI", "amount": 12}) == 1.0
 
 
 # --------------------------------------------------------------------------
-# Timezone
+# TimezoneBelief
 # --------------------------------------------------------------------------
 
 @pytest.mark.parametrize("value,expected", [
@@ -106,11 +106,11 @@ def test_a_dict_candidate_is_searched_for_strings():
     ("EEST", 0.0),                                 # an abbreviation is not a zone
 ])
 def test_timezone(value, expected):
-    assert p_of(Timezone(), value) == expected
+    assert p_of(TimezoneBelief(), value) == expected
 
 
 # --------------------------------------------------------------------------
-# CalendarFact — pure computation, so it may veto
+# CalendarFactBelief — pure computation, so it may veto
 # --------------------------------------------------------------------------
 
 @pytest.mark.parametrize("value,expected", [
@@ -126,25 +126,25 @@ def test_timezone(value, expected):
     ("no date here", 0.0),
 ])
 def test_calendar_fact(value, expected):
-    assert p_of(CalendarFact(), value) == expected
+    assert p_of(CalendarFactBelief(), value) == expected
 
 
 def test_calendar_fact_explains_itself():
-    got = CalendarFact()(head({"date": "2024-02-29", "weekday": "Friday"}), "d")
+    got = CalendarFactBelief()(head({"date": "2024-02-29", "weekday": "Friday"}), "d")
     assert "Thursday" in got.meta["reason"] and "Friday" in got.meta["reason"]
 
 
 def test_calendar_fact_may_be_given_veto_rights():
     """Date-to-weekday is computation, not a table, so this is honest."""
-    assert CalendarFact().necessary is False
-    assert CalendarFact(necessary=True).necessary is True
+    assert CalendarFactBelief().necessary is False
+    assert CalendarFactBelief(necessary=True).necessary is True
 
 
 # --------------------------------------------------------------------------
 # family behavior
 # --------------------------------------------------------------------------
 
-FAMILY_D = [IsoCountry(), IsoCurrency(), Timezone(), CalendarFact()]
+FAMILY_D = [IsoCountryBelief(), IsoCurrencyBelief(), TimezoneBelief(), CalendarFactBelief()]
 
 
 @pytest.mark.parametrize("belief", FAMILY_D, ids=lambda b: b.id)

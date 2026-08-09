@@ -39,8 +39,8 @@ def test_proposed_returns_the_routed_proposers_own_p():
     """Corroboration is measurement, never a bonus (invariant 5)."""
     opinions = [
         opinion("model:a", 1249.5, 0.6),
-        opinion("schema[float]", 1249.5, 1.0),
-        opinion("range[0,100000]", 1249.5, 1.0),
+        opinion("schemaBelief[float]", 1249.5, 1.0),
+        opinion("rangeBelief[0,100000]", 1249.5, 1.0),
     ]
     assert Proposed().resolve(opinions, CELL, proposer="model:a") == (1249.5, 0.6)
 
@@ -180,7 +180,7 @@ def test_the_budget_is_runtime_owned():
 def test_a_route_keeps_every_attempt_for_the_diagnosis():
     route = Route([Generative(id="model:a")])
     route.spend(Attempt(1, "model:a", value=1.0, p=0.9,
-                        vetoes=[("range[0,10]", 0.0, "1.0 is above 10")]))
+                        vetoes=[("rangeBelief[0,10]", 0.0, "1.0 is above 10")]))
     assert len(route.attempts) == 1
     assert route.attempts[0].vetoed
 
@@ -191,9 +191,9 @@ def test_a_route_keeps_every_attempt_for_the_diagnosis():
 
 def test_an_attempt_renders_objections_the_way_prompts_quote_them():
     attempt = Attempt(1, "model:a", value=1.0, p=0.9,
-                      vetoes=[("range[0,10]", 0.0, "1.0 is above 10")])
+                      vetoes=[("rangeBelief[0,10]", 0.0, "1.0 is above 10")])
     (objection,) = attempt.objections()
-    assert objection == {"value": 1.0, "belief": "range[0,10]", "p": 0.0,
+    assert objection == {"value": 1.0, "belief": "rangeBelief[0,10]", "p": 0.0,
                          "reason": "1.0 is above 10"}
 
 
@@ -209,9 +209,9 @@ def test_an_unvetoed_attempt_says_so():
 def test_unresolvable_carries_the_full_attempt_history():
     attempts = [
         Attempt(1, "model:a", value=99.0, p=0.9,
-                vetoes=[("range[0,10]", 0.0, "99.0 is above 10")]),
+                vetoes=[("rangeBelief[0,10]", 0.0, "99.0 is above 10")]),
         Attempt(2, "model:a", value=50.0, p=0.8,
-                vetoes=[("range[0,10]", 0.0, "50.0 is above 10")]),
+                vetoes=[("rangeBelief[0,10]", 0.0, "50.0 is above 10")]),
     ]
     error = Unresolvable(CELL, attempts, "the veto budget was exhausted")
     text = str(error)

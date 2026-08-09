@@ -19,12 +19,12 @@ which ends consultation for that cell -- and freezing is a property of the
 declared ``frozen=True`` (code, notably) pins what it settles.
 
     from thinair import Thing, model, human
-    from thinair.validators import TokenSubset
+    from thinair.validators import TokenSubsetBelief
 
     class Invoice(Thing):
         '''An invoice document to be understood.'''
         __beliefs__ = [model("small-fast"), human("jane"),
-                       TokenSubset("source_text")]
+                       TokenSubsetBelief("source_text")]
         source_text: str
         total = Thing(float, extracted_from="source_text", range=(0, 1e6))
 
@@ -113,40 +113,40 @@ from .policy import (
 )
 from .thing import Cell, Snapshot, Thing, contract, corroborate, freeze, snapshot
 from .validators import (
-    CalendarFact,
-    Calculator,
-    Checksum,
-    Conservation,
-    Enum,
-    Executes,
-    Format,
-    FrozenConsistent,
-    FunctionalDependency,
-    Fuzzy,
-    IsoCountry,
-    IsoCurrency,
-    ItemsSumTo,
-    Length,
-    MutuallyExclusive,
-    NonEcho,
-    Normalized,
-    Parses,
-    PassesTests,
-    QuoteIntegrity,
-    Range,
-    Recompute,
-    RegexBehavior,
-    Relation,
-    RoundTrip,
-    Schema,
-    Sorted,
-    SpanValid,
-    SumsTo,
-    TemporalOrder,
-    Timezone,
-    TokenSubset,
-    Unique,
-    Verbatim,
+    CalculatorBelief,
+    CalendarFactBelief,
+    ChecksumBelief,
+    ConservationBelief,
+    EnumBelief,
+    ExecutesBelief,
+    FormatBelief,
+    FrozenConsistentBelief,
+    FunctionalDependencyBelief,
+    FuzzyBelief,
+    IsoCountryBelief,
+    IsoCurrencyBelief,
+    ItemsSumToBelief,
+    LengthBelief,
+    MutuallyExclusiveBelief,
+    NonEchoBelief,
+    NormalizedBelief,
+    ParsesBelief,
+    PassesTestsBelief,
+    QuoteIntegrityBelief,
+    RangeBelief,
+    RecomputeBelief,
+    RegexBehaviorBelief,
+    RelationBelief,
+    RoundTripBelief,
+    SchemaBelief,
+    SortedBelief,
+    SpanValidBelief,
+    SumsToBelief,
+    TemporalOrderBelief,
+    TimezoneBelief,
+    TokenSubsetBelief,
+    UniqueBelief,
+    VerbatimBelief,
 )
 
 __version__ = "2.2.0"
@@ -168,14 +168,14 @@ __all__ = [
     "ResolutionPolicy", "Proposed", "Consulted", "Unanimous", "Threshold",
     "LowConfidence", "Unresolvable", "Disagreement",
     # the validator library, re-exported for convenience
-    "Schema", "Format", "Checksum", "Range", "Enum", "Length", "Unique",
-    "Sorted", "Parses",
-    "Verbatim", "Normalized", "Fuzzy", "TokenSubset", "QuoteIntegrity",
-    "SpanValid", "FrozenConsistent", "NonEcho",
-    "Relation", "SumsTo", "ItemsSumTo", "Recompute", "TemporalOrder",
-    "Conservation", "FunctionalDependency", "MutuallyExclusive",
-    "IsoCountry", "IsoCurrency", "Timezone", "CalendarFact",
-    "Executes", "PassesTests", "RoundTrip", "Calculator", "RegexBehavior",
+    "SchemaBelief", "FormatBelief", "ChecksumBelief", "RangeBelief", "EnumBelief", "LengthBelief", "UniqueBelief",
+    "SortedBelief", "ParsesBelief",
+    "VerbatimBelief", "NormalizedBelief", "FuzzyBelief", "TokenSubsetBelief", "QuoteIntegrityBelief",
+    "SpanValidBelief", "FrozenConsistentBelief", "NonEchoBelief",
+    "RelationBelief", "SumsToBelief", "ItemsSumToBelief", "RecomputeBelief", "TemporalOrderBelief",
+    "ConservationBelief", "FunctionalDependencyBelief", "MutuallyExclusiveBelief",
+    "IsoCountryBelief", "IsoCurrencyBelief", "TimezoneBelief", "CalendarFactBelief",
+    "ExecutesBelief", "PassesTestsBelief", "RoundTripBelief", "CalculatorBelief", "RegexBehaviorBelief",
     "__version__",
 ]
 
