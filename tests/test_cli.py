@@ -1305,6 +1305,21 @@ def test_ground_teaches_the_client_to_agents(tmp_path, monkeypatch, capsys):
     assert not (tmp_path / ".thinair").exists()          # still store-free
 
 
+def test_ground_demands_a_running_program(tmp_path, monkeypatch, capsys):
+    """The manual must not let an agent stop at prose: it shows a
+    complete runnable skeleton and says the strategy document is the
+    plan, not the deliverable."""
+    monkeypatch.chdir(tmp_path)
+    main(["ground"])
+    out = capsys.readouterr().out
+    assert "class Ticket(Thing):" in out                 # runnable skeleton
+    assert "__entity__=" in out                          # named branches
+    assert "the plan, not\nthe deliverable" in out.replace("\r", "")
+    # and the theory document itself no longer ends at "no code at all"
+    assert "needs no code at all" not in out
+    assert "the strategy is a waypoint" in out
+
+
 def test_the_held_row_is_never_gray(store, monkeypatch, capsys):
     """Every (held) cell is colored -- a frozen fact nobody has measured
     is green like any unopposed value; coverage is the parens' story."""

@@ -1170,6 +1170,35 @@ record.  The `thinair` command is git for that record.  **Always pass
 `expect-violated` (a declared expectation was missed).  Without it you
 are blind to the most load-bearing part of the output.
 
+### Build -- the deliverable is a running program
+
+Part 2 above produces a strategy *document*.  That is the plan, not
+the deliverable: where thinair is installed, a strategy that never
+executes measures nothing.  Graduate it to code (SPEC.md §13).  The
+whole skeleton:
+
+    from thinair import Thing, contract, model
+    from thinair.validators import TokenSubset
+
+    class Ticket(Thing):
+        """A support ticket to be understood."""   # prompt material
+        __beliefs__ = [model(), TokenSubset("source_text")]
+        source_text: str                           # you supply this
+        customer = contract(str, extracted_from="source_text")
+        priority = contract(str, enum=["low", "normal", "high"])
+
+    t = Ticket(source_text=raw, __entity__="ticket-4417")
+    print(+t.priority, ~t.priority)                # value, probability
+
+Every read is measured once and lands in `.thinair/opinions.db`;
+reruns replay from the record at zero cost.  `__entity__` names the
+branch you will see in `thinair log` (omit it and one is generated).
+One Thing per document; Pillar II in code means pre-passes,
+aggregation, and every derivable quantity stay exact Python --
+beliefs are consulted only where epistemic uncertainty genuinely
+enters.  The record the run leaves *is* the strategy's evidence; the
+commands below are how you read it back.
+
 ### Inspect
 
     thinair --ai-readable status                    the store, summarized

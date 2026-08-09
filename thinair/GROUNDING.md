@@ -239,7 +239,10 @@ consequences:
 # Part 2 — The experiment protocol
 
 When handed sample data and asked to create value from it, produce a **measurement
-strategy** — a document, not code — with exactly these sections:
+strategy** — a document *first*, so the plan can be judged before a single call is
+spent — with exactly these sections. The document is the plan, not the deliverable:
+wherever thinair is installed, the strategy graduates to a program (Part 3; build
+rules in SPEC.md §13) and runs, and the record it leaves is its evidence.
 
 1. **Inventory.** What things, collections, sequences exist. What observable state is
    there. What frozen ground exists or could exist (outcomes, code-checkable facts,
@@ -381,6 +384,8 @@ document.
 
 ---
 
-The immediate use of this file needs no code at all: link it to an LLM, provide sample
-data, and ask for a measurement strategy per Part 2. The strategies are the experiment;
-their quality is the test of this document.
+Without the framework, this file still works alone: link it to an LLM, provide sample
+data, and ask for a measurement strategy per Part 2. But wherever thinair is
+installed — and if `thinair ground` printed this, it is — the strategy is a waypoint,
+not the destination: write the program, run it, and let the record it leaves judge
+the strategy.
