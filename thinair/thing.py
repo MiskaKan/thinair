@@ -4,8 +4,19 @@ One public class with **zero instance methods**.  On a Thing every plain
 attribute name belongs to the user's domain -- that is the premise of
 interception -- so the framework lives entirely in dunders and in four
 classmethod context managers (``require``, ``policy``, ``debug``,
-``defaults``).  The verbs are module-level: ``freeze``, ``contract``,
-``snapshot``.
+``defaults``).
+
+**The Thing has all of it.**  A Thing with a positional template is a
+*declaration* -- ``priority = Thing(str, enum=[...])`` in a class body
+declares the attribute the way ``contract(...)`` used to; a Thing assigned
+to an attribute is a *reference* (the record keeps its entity id); the
+panel changes through the operators (``t += belief``, ``t -= belief``
+in place; ``t + belief``, ``t - belief`` for a fresh handle on the same
+entity); and pinning is a property of the *belief* (``frozen=True`` --
+code's results freeze, assignment freezes) rather than a verb on the
+Thing.  ``Thing.__default__`` names the generative belief a panel falls
+back to when it declares none.  The old module-level verbs (``freeze``,
+``contract``, ``snapshot``) remain as compatibility spellings.
 
 This module imports ``beliefs``, ``ledger`` and ``policy``.  It must never
 import ``engine`` or ``models`` (invariant 7) -- the model reaches the
@@ -244,6 +255,11 @@ class ThingMeta(type):
 
         declared = {}
         for key, value in list(namespace.items()):
+            # ``Thing(str, ...)`` in a class body is a declaration; it and a
+            # bare ``contract(...)`` are consumed identically.
+            declaration = getattr(value, "__declaration__", None)
+            if declaration is not None:
+                value = declaration
             if isinstance(value, Contract):
                 declared[key] = value.bind(key)
                 del namespace[key]                   # let __getattr__ see the name
@@ -298,6 +314,51 @@ def resident_human(thing) -> HumanBelief:
         if isinstance(belief, HumanBelief):
             return belief
     return human("you")
+
+
+def _declare_panel(thing) -> None:
+    """Record the declared panel, idempotently.
+
+    The declared panel is part of the record: adding or removing a belief
+    changes what the strategy *is*, and the history should say so.  The
+    first declaration is the baseline, a changed one derives as a
+    ``[belief]`` commit.  Members without durable ids are structural
+    guests and stay out of the fingerprint.
+    """
+    ledger = thing.__ledger__
+    panel = [belief_id for b in getattr(thing, "__beliefs__", ())
+             if (belief_id := getattr(b, "id", None))]
+    if not panel:
+        return
+    declared = ledger.latest(thing.__entity__, "__panel__")
+    if declared is None or not values_equal(declared.value, panel):
+        ledger.add(Opinion(
+            belief="panel:declared", entity=thing.__entity__,
+            attr="__panel__", value=list(panel), p=1.0, frozen=True,
+            meta={"panel": True}))
+
+
+def _is_belief(candidate) -> bool:
+    """What the panel operators accept: a Belief, or any callable carrying a
+    durable ``id`` -- the same structural bar membership itself has."""
+    if isinstance(candidate, Belief):
+        return True
+    return callable(candidate) and isinstance(
+        getattr(candidate, "id", None), str)
+
+
+def _forget(thing) -> None:
+    """Standing resolutions predate a panel change; drop them."""
+    resolved = thing.__root__.__resolved__
+    for key in [k for k in resolved if k[0] == thing.__entity__]:
+        resolved.pop(key, None)
+    thing.__root__.__coerced__.clear()
+
+
+def _with_panel(thing, panel):
+    """A fresh Thing on the same entity and ledger, carrying ``panel``."""
+    return type(thing)(__entity__=thing.__entity__,
+                       __ledger__=thing.__ledger__, __beliefs__=panel)
 
 
 # --------------------------------------------------------------------------
@@ -413,9 +474,27 @@ class Thing(metaclass=ThingMeta):
     """A probabilistic object: attributes are beliefs, reads are consultations."""
 
     __beliefs__: list = []
+    #: the generative belief a read falls back to when the panel declares
+    #: none -- set once (``Thing.__default__ = model("...")`` process-wide,
+    #: or on a subclass) instead of repeating the model in every panel.
+    __default__ = None
 
-    def __init__(self, **kwargs):
+    def __init__(self, *template, **kwargs):
         set = object.__setattr__
+        if template:
+            # A Thing with a positional shape is a *declaration*: it exists
+            # to sit in a class body and declare an attribute --
+            # ``priority = Thing(str, enum=[...])``.  No entity, no ledger,
+            # no record: the metaclass consumes it at class creation.
+            if len(template) > 1:
+                raise TypeError("a declaration takes one shape: "
+                                "Thing(str, ...), Thing([{...}], ...)")
+            set(self, "__declaration__", Contract(template[0], **kwargs))
+            set(self, "__entity__", "(declaration)")
+            set(self, "__root__", self)
+            set(self, "__resolved__", {})
+            set(self, "__coerced__", {})
+            return
         entity = kwargs.pop("__entity__", None)
         set(self, "__entity__", entity or
             f"{type(self).__name__.lower()}-{uuid.uuid4().hex[:12]}")
@@ -431,21 +510,7 @@ class Thing(metaclass=ThingMeta):
         beliefs = kwargs.pop("__beliefs__", None)
         if beliefs is not None:
             set(self, "__beliefs__", list(beliefs))
-        # The declared panel is part of the record: adding or removing a
-        # belief changes what the strategy *is*, and the history should
-        # say so.  Recorded idempotently, like assignment -- the first
-        # declaration is the baseline, a changed one derives as a
-        # [belief] commit.  Members without durable ids are structural
-        # guests and stay out of the fingerprint.
-        panel = [belief_id for b in getattr(self, "__beliefs__", ())
-                 if (belief_id := getattr(b, "id", None))]
-        if panel:
-            declared = ledger.latest(self.__entity__, "__panel__")
-            if declared is None or not values_equal(declared.value, panel):
-                ledger.add(Opinion(
-                    belief="panel:declared", entity=self.__entity__,
-                    attr="__panel__", value=list(panel), p=1.0, frozen=True,
-                    meta={"panel": True}))
+        _declare_panel(self)
         # constructor kwargs are assignments, and assignment is the human
         # speaking
         for name, value in kwargs.items():
@@ -585,6 +650,58 @@ class Thing(metaclass=ThingMeta):
     # -- operators ---------------------------------------------------
     def __matmul__(self, other):
         return _exit_ramp(self, other)
+
+    # -- the panel, through operators ---------------------------------
+    # ``t += belief`` / ``t -= belief`` change this Thing's panel in place;
+    # ``t + belief`` / ``t - belief`` hand back a fresh Thing on the same
+    # entity and ledger with the changed panel.  Either way the change is a
+    # panel declaration: the strategy moved, and the record says so.
+    def __iadd__(self, belief):
+        if not _is_belief(belief):
+            return NotImplemented
+        object.__setattr__(self, "__beliefs__",
+                           list(self.__beliefs__) + [belief])
+        _declare_panel(self)
+        _forget(self)
+        return self
+
+    def __isub__(self, belief):
+        if not _is_belief(belief):
+            return NotImplemented
+        panel = list(self.__beliefs__)
+        for i, member in enumerate(panel):
+            if member is belief or getattr(member, "id", None) == belief.id:
+                del panel[i]
+                break
+        else:
+            raise ValueError(f"{belief.id!r} is not on this panel")
+        object.__setattr__(self, "__beliefs__", panel)
+        _declare_panel(self)
+        _forget(self)
+        return self
+
+    def __add__(self, belief):
+        if not _is_belief(belief):
+            return NotImplemented
+        return _with_panel(self, list(self.__beliefs__) + [belief])
+
+    def __sub__(self, belief):
+        if not _is_belief(belief):
+            return NotImplemented
+        panel = list(self.__beliefs__)
+        for i, member in enumerate(panel):
+            if member is belief or getattr(member, "id", None) == belief.id:
+                del panel[i]
+                break
+        else:
+            raise ValueError(f"{belief.id!r} is not on this panel")
+        return _with_panel(self, panel)
+
+    #: a Thing crossing the record's boundary reduces to its entity id --
+    #: ``self.part = Thing(...)`` writes a *reference*, and ``meta["refs"]``
+    #: carries the same address (see :func:`references`).
+    def __thinair_unwrap__(self):
+        return self.__entity__
 
     def __repr__(self) -> str:                       # pragma: no cover - cosmetic
         return f"<{type(self).__name__} {self.__entity__}>"
@@ -932,10 +1049,18 @@ def _read(thing, attr, contract=None, *, force=False):
         panel = panel + contract.bind(attr).beliefs(attr)
     route = Route(panel)
     if route.empty:
+        # the declared fallback: a panel that names no generative member
+        # consults ``__default__`` -- one place to change the model for a
+        # class, or (on Thing itself) for the whole process.
+        fallback = getattr(type(thing), "__default__", None)
+        if fallback is not None:
+            panel = panel + [fallback]
+            route = Route(panel)
+    if route.empty:
         raise Unresolvable(
-            cell, reason="no generative belief in __beliefs__; a "
-                         "deterministic-only Thing serves frozen cells and "
-                         "nothing else")
+            cell, reason="no generative belief in __beliefs__ and no "
+                         "__default__; a deterministic-only Thing serves "
+                         "frozen cells and nothing else")
 
     floor = active_floor()
     policy = active_policy()
@@ -1121,6 +1246,15 @@ def _settle(thing, attr, contract, value, p, route, opinions, ledger, entity):
             belief=f"policy:{policy.name}", entity=entity, attr=attr,
             value=value, p=p, frozen=False,
             meta={"selected_from": [o.belief for o in opinions]}))
+    elif getattr(route.head, "frozen", False):
+        # Freezing is a property of the belief, not of the Thing: a member
+        # declared ``frozen=True`` (code, notably) pins what it settles --
+        # at settlement, never at statement, so a vetoed candidate cannot
+        # pin anything.
+        resolving = ledger.add(Opinion(
+            belief=resolving.belief, entity=entity, attr=attr,
+            value=value, p=p, frozen=True,
+            meta=dict(resolving.meta or {}, pinned=True)))
     thing.__root__.__resolved__[(entity, attr)] = resolving
     from .debug import trace
 
@@ -1240,14 +1374,37 @@ def freeze(target, attr=None, *, value=_MISSING, belief=None, p=None):
 
     Same author, same p -- pinning a model's 0.93 keeps it an honest 0.93.
     ``freeze(inv.total)`` and ``freeze(inv, "total")`` are the same verb.
+
+    With ``value=`` this is a **pure write**: nothing resolves and no panel
+    is consulted -- the pin is recorded directly, exactly like assignment,
+    with an author of your choosing.  (Plain assignment, ``inv.total = x``,
+    is the ordinary spelling of the same move and is usually what you
+    want.)
     """
+    if attr is not None and value is not _MISSING:
+        # writing a known value needs no consultation, so the cell is never
+        # resolved on the way to the pin
+        if not isinstance(target, Thing):
+            raise TypeError("freeze() wants a Thing, e.g. freeze(inv, 'total', value=...)")
+        entity = target.__entity__
+        pinned = target.__ledger__.add(Opinion(
+            belief=belief or resident_human(target).id, entity=entity,
+            attr=attr, value=_plain(value),
+            p=float(p) if p is not None else 1.0,
+            frozen=True, meta={"pinned": True}))
+        target.__root__.__resolved__.pop((entity, attr), None)
+        from .debug import trace
+
+        trace("frozen", (entity, attr), pinned)
+        return Cell(target, attr, opinion=pinned,
+                    contract=type(target).__contracts__.get(attr))
     if attr is not None:
         cell = getattr(target, attr)
     else:
         cell = target
     if not isinstance(cell, Cell):
         raise TypeError("freeze() wants a Thing's attribute, e.g. freeze(inv.total)")
-    opinion = cell.__resolve__()
+    opinion = cell.__opinion__ if value is not _MISSING else cell.__resolve__()
     if opinion is None and value is _MISSING:
         raise Unresolvable(cell.__cell__, reason="nothing to freeze")
     entity, name = cell.__cell__

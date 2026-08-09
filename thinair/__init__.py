@@ -14,10 +14,11 @@ it does not referee.
 Three nouns and no more.  A **Belief** is a function ``b(e, a) -> (v, p)``:
 the model is one, every validator is one, the human is one.  An **Opinion**
 is a Belief's recorded evaluation at a cell.  An opinion may be **frozen**,
-which ends consultation for that cell -- and freezing is a code-only
-capability: assignment, code execution, and the explicit ``freeze`` verb.
+which ends consultation for that cell -- and freezing is a property of the
+*belief*, never of a model's eloquence: assignment freezes, and a belief
+declared ``frozen=True`` (code, notably) pins what it settles.
 
-    from thinair import Thing, contract, model, human, freeze
+    from thinair import Thing, model, human
     from thinair.validators import TokenSubset
 
     class Invoice(Thing):
@@ -25,10 +26,16 @@ capability: assignment, code execution, and the explicit ``freeze`` verb.
         __beliefs__ = [model("small-fast"), human("jane"),
                        TokenSubset("source_text")]
         source_text: str
-        total = contract(float, extracted_from="source_text", range=(0, 1e6))
+        total = Thing(float, extracted_from="source_text", range=(0, 1e6))
 
     inv = Invoice(source_text=open("invoice.txt").read())
     print(+inv.total, ~inv.total)
+    inv += model("qwen3-35b")        # a dissimilar second voice, on record
+
+A ``Thing(shape, ...)`` in a class body *declares* an attribute and attaches
+the validators the shape implies; ``Thing.__default__ = model("...")`` names
+the generative belief any panel without one falls back to; ``contract`` and
+``freeze`` remain as compatibility spellings.
 
 **What this package is for.**  A large language model is not an oracle; it
 is a **measurement instrument**: it projects things onto axes you name.
@@ -142,7 +149,7 @@ from .validators import (
     Verbatim,
 )
 
-__version__ = "2.0.0"
+__version__ = "2.2.0"
 
 __all__ = [
     # the object surface

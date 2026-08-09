@@ -38,6 +38,7 @@ class Belief:
     necessary: bool = False     # veto right
     veto_line: float = 0.5      # the line below which a necessary belief vetoes
     proposes: bool = False      # declared: routing must know before spending a call
+    frozen: bool = False        # what this belief settles is pinned (CodeBelief: True)
     id: str                     # durable; names a fixed configuration
     def __call__(self, e, attr) -> tuple | None: ...
 ```
@@ -84,7 +85,9 @@ Two guarantees, both invisible at the interface: panel entries are memoized
    how the same program against the same record replays to the first cell
    whose world moved, and runs live from exactly there.
 1. **Open.**  Build `e₀` from frozen state and standing resolutions, *minus
-   the cell being derived*.  No generative member → `Unresolvable`.
+   the cell being derived*.  No generative member → consult
+   `Thing.__default__` (a class attribute naming the fallback proposer, MRO
+   inheritance); still none → `Unresolvable`.
 2. **Round.**  Every belief is called once with the round's snapshot.  Every
    non-`None` answer is recorded, never frozen.  Generative members below the
    routed head are the ladder, not the panel, and are not consulted.
@@ -94,18 +97,26 @@ Two guarantees, both invisible at the interface: panel entries are memoized
    escalate the route; 2 more per escalated route; then `Unresolvable`.
 4. **Resolve.**  The active `ResolutionPolicy` selects.  It never blends.
    `Consulted` makes every generative member answer and records the spread;
-   the resolution is still the head's vetted candidate, its own p.
+   the resolution is still the head's vetted candidate, its own p.  A head
+   declared `frozen=True` pins what it settles — at settlement, never at
+   statement, so a vetoed candidate can pin nothing (§6).
 5. Return a child `Cell` bound to the resolving opinion.
 
 ## 6. Freezing
 
-Exactly three paths:
+Freezing is a property of the belief, never of a model's eloquence.  The
+paths:
 
 | path | author | p |
 | --- | --- | --- |
 | `thing.attr = x` (and constructor kwargs) | the resident `HumanBelief` | 1.0 |
 | `@fn` bodies, real method writes | `code:<qualname>@<source-hash>` | 1.0 |
-| `freeze(thing.attr)` | unchanged | unchanged |
+| a panel member with `frozen=True` settling (§5 step 4) | that belief | its own |
+| `freeze(thing.attr)` — compatibility spelling | unchanged | unchanged |
+
+`freeze(thing, "attr", value=x)` is a **pure write**: nothing resolves, no
+panel is consulted — it is assignment with a chosen author.  The ordinary
+spelling for a value code already knows is plain assignment.
 
 Latest frozen wins; every predecessor stays in the ledger.  Freezing bypasses
 the veto gate deliberately: validators gate proposals, not authority.
@@ -123,16 +134,27 @@ re-statements.
 | `t @ 0.8` | confidence gate; pure |
 | `t @ ThingSubclass` | recast: entity and frozen state carry over, caches invalidate |
 | `blob @ ThingSubclass` | revive (`ThingMeta.__rmatmul__`) |
+| `t += belief` / `t -= belief` | change the panel in place; recorded as a panel declaration (a `[belief]` commit when it moves) |
+| `t + belief` / `t - belief` | a fresh Thing on the same entity and ledger with the changed panel |
 
 `@` never raises on epistemic failure.  Comparisons and numeric/container
-protocols delegate to the carried value; none of them trigger inference.
+protocols delegate to the carried value; on a *deferred* cell (an
+undeclared attribute never read before) delegation resolves it first —
+`THINAIR_OFFLINE=1` (§11) turns any such surprise consultation into an
+immediate error instead of a spend.  A Thing assigned to an attribute
+reduces to its **entity id** (a reference), with `meta.refs` carrying the
+same address.
 
-## 8. Contracts
+## 8. Declarations
 
-`contract(template, extracted_from=, range=, enum=, length=, format=,
-checksum=, sums_to=, unique=, elaborates=, necessary=, beliefs=, doc=)`
-appends scoped beliefs to `__beliefs__` and nothing else.  A bare annotation
-(`source_text: str`) is a contract too.  The `Schema` a contract builds is the
+`Thing(template, extracted_from=, range=, enum=, length=, format=,
+checksum=, sums_to=, unique=, elaborates=, necessary=, beliefs=, doc=)` in
+a class body declares an attribute: it appends scoped beliefs to
+`__beliefs__` and nothing else.  A bare annotation (`source_text: str`) is
+a declaration too, and `contract(...)` is the compatibility spelling of the
+same object.  (A Thing constructed with a positional shape is a
+*declaration*: no entity, no ledger, no record — the metaclass consumes it
+at class creation.)  The `Schema` a contract builds is the
 same object that constrains the engine's structured output and performs the
 post-hoc check.  Docstrings are prompt material: the class docstring is the
 snapshot's `purpose`, `doc=` joins the contract's description, and a real
@@ -208,6 +230,19 @@ record at zero calls.  The store is operational truth; the committed
 evidence of an experiment remains a JSON extract (§13 rule 7), from which
 the database is rebuildable — storage slices, `evaluate` judges.
 
+**Environment.**  One table, because every knob is discoverable nowhere
+else: `THINAIR_MODEL` / `THINAIR_BASE_URL` / `THINAIR_API_KEY` /
+`THINAIR_MAX_TOKENS` name the endpoint; `THINAIR_TIMEOUT` shortens the
+900 s transport leash (reasoning models think for minutes — cutting them
+off mid-thought retries the same long thought, slower);
+`THINAIR_OFFLINE=1` makes any would-be network call raise *before* the
+socket, so an accidental consultation is a stack trace, not a spend; a
+belief resolving to model `default` against the fallback base URL raises
+the same way — misconfiguration fails loudly, never by posting to
+localhost; `THINAIR_PROGRESS=1` narrates each model call on stderr as it
+starts and lands; `THINAIR_STORE` as above and `THINAIR_PAGER` below;
+`THINAIR_MODELS_PATH` adds model folders; `NO_COLOR` wins over color.
+
 The store also keeps a `belief` table: id, kind, `necessary`, `veto_line`,
 `proposes`, description — written once per speaking belief, read back via
 `belief_row(id)`.  Descriptions, never bodies: the database stores what the
@@ -226,16 +261,31 @@ argument resolves the way git resolves names: a hash prefix, a branch
 (entity) name meaning that ref's tip, or `HEAD` (the newest commit
 overall; the default).  The log carries no per-commit branch column —
 membership is ancestry, so refs appear only as tip decorations, on by
-default as in git (`--no-decorate` for plain hashes).  A believed cell
+default as in git (`--no-decorate` for plain hashes).  `--graph` draws
+one colored swim lane per live chain, following parent hashes — chains
+that fork from one commit genuinely converge, the extra lanes bending
+home with `/` on a connector row above their shared parent (`|/`); no
+merges exist in the record, so `\` never appears.  On a terminal, `log`,
+`show`, `diff`, `blame` and `branch` page through `less -FRX` exactly as
+git does (`THINAIR_PAGER`, then `PAGER`, override; empty or `cat`
+disables), and color survives the pager.  A believed cell
 renders everywhere as its **trust signature** — `(p 0.93 ±0.04)`, the
 resolving belief's honest p with the agreeing voices' deviation, always
 numeric (`±0.00` when unmeasured).  The text is painted
-on the overlap gradient: the score folds every recorded reading's
-`evaluate.similarity` to the held value (trigram Jaccard for strings,
-relative closeness for numbers, token Jaccard for containers — classical,
-model-free) — green while nothing on record disagrees, mid-ramp for
-dissent, distance as color rather than text; a violated declared
-expectation (§8) is always the theme's red.  The *parens* carry the
+on the overlap gradient, and the gradient counts **independent readers
+only** — the resolving reading or fiat plus generative corroborations;
+judges verdict the candidate they are handed, so their concord is
+purchased by construction and never colors anything.  With two or more
+readers the score folds each reading's `evaluate.similarity` to the held
+value (trigram Jaccard for strings, relative closeness for numbers, token
+Jaccard for containers — classical, model-free) — green for earned
+agreement, mid-ramp for dissent, distance as color rather than text.  An
+**unopposed** cell — one reading, which nothing could have contradicted —
+renders dim: no color is earned either way.  The `±` wears its own color,
+from the *min-max range* of the recorded ps rather than their deviation
+(one voice far from the rest barely moves a deviation; the range refuses
+to average it away) — the printed number stays the deviation.  A violated
+declared expectation (§8) is always the theme's red.  The *parens* carry the
 other channel: coverage — of the mechanisms this client could consult
 *on this cell*, the fraction that have spoken; the pool is per
 attribute (every model, the mechanisms whose scoped wrappers name the
@@ -243,8 +293,8 @@ attribute, and rebuildable mechanisms no wrapper claims — priority's
 enum never counts against customer; durable criteria only, so warm and
 cold processes agree).  Green parens mean the cell's panel is complete;
 red parens mean almost nobody was asked.  `--ai-readable` states both
-channels in text (`agree=`, `asked=`, `expect-violated`) for readers
-without a palette.  The signature is the standard rendering wherever a
+channels in text (`agree=` — or `agree=unopposed` for a single-reader
+cell — `asked=`, `expect-violated`) for readers without a palette.  The signature is the standard rendering wherever a
 believed cell appears: the log, `show`'s context lines, `blame`, the
 matrix footer.  The readings panel shades each reading by its own
 overlap with the held value — the record's disagreements are visible
@@ -288,10 +338,10 @@ exactly where they diverge; a commit's Date is the first time its state
 was reached.  The tree itself stays the bare state hash episodes point at.
 Output colors only a terminal; `NO_COLOR` wins.  `thinair ground`
 dumps the shipped GROUNDING.md as-is — no meta explaining the file to
-its reader — minus the strategy-design-only stretch (the mathematical
-anchors and Part 2, the experiment protocol), so the pillars, the
-moves, and the framework land whole in an agent harness's inline tool
-output; `--full` restores the cut.  Both close with two generated
+its reader — minus the strategy-design-only stretches (the mathematical
+anchors, Part 2 — the experiment protocol — and the Layer 2 outlook), so
+the pillars, the moves, and the framework land whole in an agent
+harness's inline tool output; `--full` restores the cuts.  Both close with two generated
 appendices — the built-in
 belief roster, and a client manual for agents (a runnable program
 skeleton — the strategy document is the plan, never the deliverable —
@@ -340,13 +390,13 @@ zero model calls — the import-graph assertion of invariant 7 covers
 | group | names |
 | --- | --- |
 | driver | `evaluate(thing, order=)` — resolve every declared cell; `order` is context (the twin reshuffle); unresolvable cells profile as `gap`, never raise |
-| record | `reading` (veto-aware; an unregistered judge raises rather than reading as a low score), `verdicts`, `coverage` (resolved / vetoed / absent) |
+| record | `reading` (veto-aware; an unregistered judge raises rather than reading as a low score; frozen fiat deliberately returns `None` — a fiat never inflates an instrument's record), `settled` (the standing value a program would be served: latest frozen, else the last reading), `verdicts`, `coverage` (resolved / vetoed / absent) |
 | agreement | `agree` / `adjacent` (scale-typed), `kappa` (chance-corrected: agreement is evidence in proportion to how likely disagreement was), `similarity` (graded 0..1 overlap, licensed by type — how far apart two readings landed where `values_equal` only answers whether they landed together) |
 | statistics | `ranks`, `median`, `spearman` (paired), `mannwhitney` (unpaired), `wilson`, `n_eff` |
 | orders | `bradley_terry` — strengths with SEs, graph connectivity, consistency (the principled transitivity reading) |
 | instrument | `reliability` (+ bespoke `compare`), `drift`, `discrimination`, `grounded` → `concordance`, `calibration`, `separation`, `tiers` |
 | record structure | `graph` (typed edges: authored / ref / host / child; exposure groups), `lineage` (upstream: what a value rests on), `invalidated` (downstream: what a change calls into question) |
-| commits | `history` — the record as authored, atomic transitions: the tree is the state hash; assignments, episode changesets (parent tree re-derived and checked against the recorded pointer), settlements and *panel changes* commit (kind `belief`: `Thing.__init__` records the declared panel fingerprint idempotently as `__panel__`; the first declaration per entity is a silent baseline, a changed one commits `+ added - removed` with the tree untouched — the instrument is part of what the history is a history of); deliberation lives inside its commit; corroborations are notes; replay commits nothing.  Each commit carries per-cell `consensus` (agreeing voices, their p-deviation, dissent count) and any declared `expect` (§8) — a belief is never wrong alone; the spread is the signal |
+| commits | `history` — the record as authored, atomic transitions: the tree is the state hash; assignments, episode changesets (parent tree re-derived and checked against the recorded pointer), settlements and *panel changes* commit (kind `belief`: `Thing.__init__` records the declared panel fingerprint idempotently as `__panel__`; the first declaration per entity is a silent baseline, a changed one commits `+ added - removed` with the tree untouched — the instrument is part of what the history is a history of); deliberation lives inside its commit; corroborations are notes; replay commits nothing.  Each commit carries per-cell `consensus` — agreeing voices, their p-deviation *and* min-max `range`, dissent count, plus `readers` / `readers_dissent` / `readers_similarity` tallying independent readings apart from judges' purchased concord (notes carry a fifth slot saying which they are) — and any declared `expect` (§8) — a belief is never wrong alone; the spread is the signal |
 | data | `LICENSED` (scale type → licensed statistics), `GRADES` (vibes → claim → finding → calibrated) |
 
 Ground has two homes, one gatherer: `grounded(ledger)` reads outcomes frozen

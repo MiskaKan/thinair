@@ -32,8 +32,10 @@ pure derivation (``thinair.evaluate.history``) and spends nothing.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
+import subprocess
 import sys
 
 from .evaluate import history, similarity
@@ -56,8 +58,48 @@ def _value(v, limit=60):
 
 # -- color, git's way: only to a terminal, and NO_COLOR wins ---------------
 
+#: True while stdout is a pager we spawned ourselves -- the reader is still
+#: a terminal, so color survives the pipe (git's behavior).
+_PAGING = False
+
+
 def _tty() -> bool:
-    return sys.stdout.isatty() and not os.environ.get("NO_COLOR")
+    return (_PAGING or sys.stdout.isatty()) and not os.environ.get("NO_COLOR")
+
+
+@contextlib.contextmanager
+def _pager(enabled: bool):
+    """Long output lands in a pager, git's way: only when stdout is a
+    terminal, quitting immediately if everything fits on one screen
+    (``less -FRX``).  ``THINAIR_PAGER`` (then ``PAGER``) overrides the
+    command; ``THINAIR_PAGER=`` or ``cat`` disables paging outright."""
+    global _PAGING
+    command = os.environ.get("THINAIR_PAGER", os.environ.get("PAGER") or "less")
+    if not enabled or not sys.stdout.isatty() or command in ("", "cat"):
+        yield
+        return
+    env = dict(os.environ)
+    env.setdefault("LESS", "FRX")
+    try:
+        process = subprocess.Popen(command, shell=True, stdin=subprocess.PIPE,
+                                   text=True, env=env)
+    except OSError:                                    # pragma: no cover
+        yield
+        return
+    previous, sys.stdout = sys.stdout, process.stdin
+    _PAGING = True
+    try:
+        yield
+    except BrokenPipeError:
+        pass                                           # the reader quit: done
+    finally:
+        _PAGING = False
+        sys.stdout = previous
+        try:
+            process.stdin.close()
+        except (BrokenPipeError, OSError, ValueError):
+            pass
+        process.wait()
 
 
 def _paint(code: str, text: str) -> str:
@@ -121,9 +163,15 @@ def _signature_text(commit, attr, p) -> str:
 
 
 def _verdict(commit, attr, p):
-    """``(score, violated)``: the agreement score of the cell's recorded
-    readings (1.0 when nothing disagrees), and whether a declared
-    expectation is missed."""
+    """``(score, violated)``: agreement among the cell's independent
+    *readers*, and whether a declared expectation is missed.
+
+    ``score=None`` means the cell is **unopposed**: one reading, which
+    nothing on record could have contradicted.  Judges never count --
+    they verdict the candidate they were handed, so their concord is
+    purchased by construction and earns nothing (Pillar III).  ``agree=``
+    used to flatter exactly this way; now it refuses to.
+    """
     view = (commit.get("consensus") or {}).get(attr) or {}
     expect = (commit.get("expect") or {}).get(attr) or {}
     dev = view.get("dev")
@@ -131,10 +179,20 @@ def _verdict(commit, attr, p):
     violated = (bool(bounds) and not (bounds[0] <= p <= bounds[1])) \
         or (expect.get("deviation") is not None and dev is not None
             and dev > expect["deviation"])
-    voices = view.get("n", 1) + view.get("dissent", 0)
-    score = 1.0 if voices <= 1 else \
-        (view.get("n", 1)
-         + view.get("dissent", 0) * view.get("similarity", 0.0)) / voices
+    readers = view.get("readers")
+    if readers is None:
+        # an archive from before readers were tallied: all voices, the
+        # old flattering math -- better than pretending to know
+        voices = view.get("n", 1) + view.get("dissent", 0)
+        score = 1.0 if voices <= 1 else \
+            (view.get("n", 1)
+             + view.get("dissent", 0) * view.get("similarity", 0.0)) / voices
+        return score, violated
+    if readers <= 1:
+        return None, violated
+    dissenting = view.get("readers_dissent", 0)
+    score = ((readers - dissenting)
+             + dissenting * view.get("readers_similarity", 0.0)) / readers
     return score, violated
 
 
@@ -144,17 +202,28 @@ def _signature(commit, attr, p, pad=0) -> str:
 
     The number is the resolving belief's honest p with the agreeing
     voices' spread beside it; the color is the record's verdict on the
-    *value* -- green while nothing on record disagrees, sliding toward
-    red as dissenting readings land farther away (their mean
-    ``similarity`` to the held value folds into the score).  Whether
-    anyone has actually looked is the parens' story, not this one.  A
-    violated declared expectation is always the theme's red.
+    *value* -- green when independent readers agree, sliding toward red
+    as dissenting readings land farther away, and plain (dim) while the
+    cell is unopposed: a single reading earns no color either way.
+
+    The ``±`` wears its own color, from the **min-max range** of the
+    recorded ps rather than their deviation -- one voice far from the
+    rest barely moves a deviation, and the range refuses to average it
+    away.  The printed number stays the deviation.  A violated declared
+    expectation is always the theme's red.
     """
-    text = _signature_text(commit, attr, p)
-    if pad:
-        text = text.rjust(pad)
+    view = (commit.get("consensus") or {}).get(attr) or {}
+    dev = view.get("dev")
+    spread = view.get("range")
+    head = f"p {p:g} "
+    tail = f"±{dev if dev is not None else 0.0:.2f}"
+    lead = " " * max(0, pad - len(head) - len(tail)) if pad else ""
     score, violated = _verdict(commit, attr, p)
-    return red(text) if violated else shade(score, text)
+    if violated:
+        return lead + red(head + tail)
+    head = dim(head) if score is None else shade(score, head)
+    tail = dim(tail) if spread is None else shade(1.0 - spread, tail)
+    return lead + head + tail
 
 
 def _attachments(ledger, custom):
@@ -224,7 +293,9 @@ def _signed(commit, attr, p, reach=None) -> str:
     cov = reach(commit, attr) if reach is not None else None
     if _AI_READABLE:
         score, violated = _verdict(commit, attr, p)
-        parts = [f"agree={score:.2f}"]
+        # ``agree=unopposed``: one reader, nothing could have disagreed --
+        # not evidence, and never printed as a flattering 1.00
+        parts = ["agree=unopposed" if score is None else f"agree={score:.2f}"]
         if cov is not None:
             parts.append(f"asked={cov[0]}/{cov[1]}")
         if violated:
@@ -270,29 +341,72 @@ def _decorations(commits):
     return out
 
 
+#: the graph's swim-lane palette, git's cycle: each chain keeps one color
+#: for its whole life on screen.
+_LANE_COLORS = ("1;32", "1;33", "1;34", "1;35", "1;36", "1;31")
+
+
 def _lanes(commits_newest_first):
-    """One lane per chain while it is on screen: '*' on the commit's own
-    lane, '|' through the others -- git's graph, for parallel branches.
-    A collapsed multi-ref chain is one lane; forks get their own."""
-    oldest_row: dict[str, int] = {}
-    for row, commit in enumerate(commits_newest_first):
-        oldest_row[commit["entities"][0]] = row
-    lanes: list[str | None] = []
-    for row, commit in enumerate(commits_newest_first):
-        entity = commit["entities"][0]
-        if entity not in lanes:
+    """Git's graph, made literal: one colored column per live chain, ``*``
+    on the commit's own column, ``|`` through the rest.  Columns follow
+    the *parent hashes* -- a slot holds the hash it is waiting to print --
+    so chains that fork from one commit really converge: the extra lanes
+    bend home with ``/`` on a connector row just above their shared
+    parent (``|/``, ``|/ /`` for a wider collapse).  No merges exist in
+    the record, so ``\\`` never appears -- there is nothing it would say.
+
+    Yields ``(pre, star, bar, commit)``: an optional connector row to
+    print *before* the commit, the commit row prefix, and the
+    continuation prefix for its body lines.
+    """
+    lanes: list[str | None] = []       # each slot: the hash it waits for
+    colors: dict[int, str] = {}
+    minted = 0
+
+    def paint(slot, mark):
+        return _paint(colors.get(slot, "0"), mark)
+
+    for commit in commits_newest_first:
+        matches = [i for i, waiting in enumerate(lanes)
+                   if waiting == commit["hash"]]
+        if matches:
+            column = matches[0]
+        else:
+            # a branch tip: open a lane in the first free slot
             try:
-                lanes[lanes.index(None)] = entity
+                column = lanes.index(None)
             except ValueError:
-                lanes.append(entity)
-        star = " ".join("*" if slot == entity else ("|" if slot else " ")
-                        for slot in lanes).rstrip()
-        bar = " ".join("|" if slot else " " for slot in lanes).rstrip()
-        if oldest_row[entity] == row:
-            lanes[lanes.index(entity)] = None
-            while lanes and lanes[-1] is None:
-                lanes.pop()
-        yield star, bar, commit
+                lanes.append(None)
+                column = len(lanes) - 1
+            lanes[column] = commit["hash"]
+            colors[column] = _LANE_COLORS[minted % len(_LANE_COLORS)]
+            minted += 1
+        pre = None
+        extras = matches[1:]
+        if extras:
+            # the fork, seen from above: every other lane waiting for this
+            # commit bends home -- the slash sits in the separator column,
+            # git's way (`|/`, `|/ /`)
+            row = [" "] * (2 * len(lanes))
+            for i in range(len(lanes)):
+                if lanes[i] is not None and i not in extras:
+                    row[2 * i] = paint(i, "|")
+            for i in extras:
+                row[2 * i - 1] = paint(i, "/")
+            pre = "".join(row).rstrip()
+            for i in extras:
+                lanes[i] = None
+        star = " ".join(
+            "*" if i == column else
+            (paint(i, "|") if lanes[i] is not None else " ")
+            for i in range(len(lanes))).rstrip()
+        lanes[column] = commit["parent"]           # may be None: the root
+        bar = " ".join(paint(i, "|") if lanes[i] is not None else " "
+                       for i in range(len(lanes))).rstrip()
+        while lanes and lanes[-1] is None:
+            colors.pop(len(lanes) - 1, None)
+            lanes.pop()
+        yield pre, star, bar, commit
 
 
 def cmd_log(ledger, args):
@@ -305,7 +419,9 @@ def cmd_log(ledger, args):
     # default, as in git; --no-decorate turns them off.
     decorations = {} if args.no_decorate else _decorations(commits)
     reach = _reach(ledger)
-    for star, bar, commit in _lanes(commits):
+    for pre, star, bar, commit in _lanes(commits):
+        if args.graph and pre:
+            print(pre)
         head = f"{star} " if args.graph else ""
         body = f"{bar} " if args.graph else ""
         decor = decorations.get(commit["hash"], "")
@@ -368,7 +484,7 @@ def _visible_at(o, commit) -> bool:
         return True
     return any(o.belief == belief and o.attr == attr
                and values_equal(o.value, value) and o.p == p
-               for belief, attr, value, p in commit.get("notes", ()))
+               for belief, attr, value, p, _reads in commit.get("notes", ()))
 
 
 def _readings(ledger, commit):
@@ -603,12 +719,13 @@ def cmd_show(ledger, args):
         print(f"return {_value(value)}   (p={p:g})")
     for value, p in commit["vetoes"]:
         print(red(f"- {_value(value)}   (vetoed at p={p:g})"))
-    for belief, attr, value, p in commit.get("notes", ()):
+    for belief, attr, value, p, reads in commit.get("notes", ()):
         held = commit["changes"].get(attr)
         overlap = ""
         if held is not None and not values_equal(value, held[0]):
             overlap = f", ~{similarity(value, held[0]):.2f}"
-        print(dim(f"note: {belief} read {attr} as {_value(value)} "
+        verb = "read" if reads else "judged"
+        print(dim(f"note: {belief} {verb} {attr} as {_value(value)} "
                   f"(p={p:g}{overlap})"))
     for judge in commit.get("unknown_judges", ()):
         print(f"?     {judge} judged this; necessity unknown here")
@@ -1165,7 +1282,9 @@ def _client_manual() -> str:
 You are likely a coding agent in a repository whose `.thinair/` holds a
 record.  The `thinair` command is git for that record.  **Always pass
 `--ai-readable`**: it states the display's color channels as text --
-`agree=` (value agreement among recorded readings, 1.00 = unanimous),
+`agree=` (value agreement among *independent readings*; judges never
+count, their concord is built in; `agree=unopposed` means one reading,
+which nothing could have contradicted -- no evidence either way),
 `asked=N/M` (how much of the cell's panel has spoken), and
 `expect-violated` (a declared expectation was missed).  Without it you
 are blind to the most load-bearing part of the output.
@@ -1177,18 +1296,21 @@ A measurement strategy (Part 2 of the theory, `ground --full`) is a
 installed, a strategy that never executes measures nothing.  Graduate
 it to code (SPEC.md §13).  The whole skeleton:
 
-    from thinair import Thing, contract, model
+    from thinair import Thing, model
     from thinair.validators import TokenSubset
+
+    Thing.__default__ = model("deepseek-v4-flash")   # panels fall back here
 
     class Ticket(Thing):
         """A support ticket to be understood."""   # prompt material
-        __beliefs__ = [model(), TokenSubset("source_text")]
+        __beliefs__ = [TokenSubset("source_text")]
         source_text: str                           # you supply this
-        customer = contract(str, extracted_from="source_text")
-        priority = contract(str, enum=["low", "normal", "high"])
+        customer = Thing(str, extracted_from="source_text")
+        priority = Thing(str, enum=["low", "normal", "high"])
 
     t = Ticket(source_text=raw, __entity__="ticket-4417")
     print(+t.priority, ~t.priority)                # value, probability
+    t += model("deepseek-v4-pro")                  # a dissimilar second voice
 
 Every read is measured once and lands in `.thinair/opinions.db`;
 reruns replay from the record at zero cost.  `__entity__` names the
@@ -1196,8 +1318,17 @@ branch you will see in `thinair log` (omit it and one is generated).
 One Thing per document.  Uncertainty enters only at the readings
 (Pillar II): pre-passes, aggregation, and every derivable quantity
 stay exact Python -- beliefs are consulted only where epistemic
-uncertainty genuinely enters.  The record the run leaves *is* the strategy's evidence; the
+uncertainty genuinely enters.  **A value code already knows is
+assigned, never asked**: `t.axis = value` records it frozen, free,
+and consults no panel (designed-in ground for `evaluate` lives on a
+parallel entity carrying the same axis names, e.g. `gold-ticket-4417`).
+The record the run leaves *is* the strategy's evidence; the
 commands below are how you read it back.
+
+Env: `THINAIR_MODEL`, `THINAIR_BASE_URL`, `THINAIR_API_KEY`;
+`THINAIR_OFFLINE=1` makes any would-be model call raise (wire your
+pre-passes under it); `THINAIR_PROGRESS=1` narrates calls on stderr --
+reasoning models think for minutes, and that is working, not hanging.
 
 ### Inspect
 
@@ -1223,10 +1354,13 @@ Rebuilds the commit's tree, consults every reconstructible belief
 (models by id; validators from their stored configurations), and
 records the answers as corroborations -- idempotent per (commit,
 belief, cell), so re-running is free.  This is the command that turns
-`?` into numbers and `asked=1/3` into `asked=3/3`.  Frozen cells are
-skipped by default -- a fact is not a question -- and
-`--include-frozen` prices the facts too.  Models need an endpoint:
-`THINAIR_MODEL`, `THINAIR_BASE_URL`, `THINAIR_API_KEY`.
+`?` into numbers, `asked=1/3` into `asked=3/3`, and `agree=unopposed`
+into an earned `agree=`: model corroborations are the independent
+readers agreement is counted over (validator verdicts fill the matrix
+but can never earn it).  Frozen cells are skipped by default -- a fact
+is not a question -- and `--include-frozen` prices the facts too.
+Models need an endpoint: `THINAIR_MODEL`, `THINAIR_BASE_URL`,
+`THINAIR_API_KEY`.
 
 ### Verify -- the implementation is not done until the record agrees
 
@@ -1242,12 +1376,15 @@ store already holds what every belief saw and said.  After each run:
   no commit at all was assigned, not believed.  An unexpected
   `[belief]` commit means the panel changed under you.
 - Fill the matrix before trusting it: run `evaluate` until `asked=` is
-  full.  A cell at `±0.00 asked=1/3` is unmeasured, not settled.
+  full.  A cell at `±0.00 asked=1/3` is unmeasured, not settled, and
+  `agree=unopposed` is exactly one reading -- nothing could have
+  disagreed, so nothing was earned.
 - Then read the signatures.  Done means `agree=` near 1.00 across the
-  cells that matter and no `expect-violated` anywhere.  Low `agree=`
+  cells that matter -- computed over real independent readers, never
+  over judges -- and no `expect-violated` anywhere.  Low `agree=`
   is a *located* disagreement, never a reason to blindly rerun: `show`
   the readings, `blame` the cell, then either improve the prompt
-  material (docstrings, `contract(doc=...)`), tighten the contract, or
+  material (docstrings, `Thing(..., doc=...)`), tighten the contract, or
   report the divergence as a finding -- disagreement between dissimilar
   instruments is information, not failure.
 
@@ -1280,13 +1417,13 @@ registered-only beliefs corroborate -- they never gate.
 ### Declare (in the application's Python, not the CLI)
 
 Docstrings are prompt material: the class docstring is the entity's
-purpose, `contract(doc=...)` joins the attribute's description, and a
+purpose, `Thing(..., doc=...)` joins the attribute's description, and a
 method's first docstring line rides along with its signature.
-`contract(p=0.9, deviation=0.1)` declares expectations -- stamped into
-the record and judged there, never shown to the answering belief,
-never a gate.  `eager=True` resolves at construction.  Changing
-`__beliefs__` is a `[belief]` commit: the strategy is part of the
-history.  The theory is above; the contract of every guarantee is
+`Thing(str, p=0.9, deviation=0.1)` declares expectations -- stamped
+into the record and judged there, never shown to the answering belief,
+never a gate.  `eager=True` resolves at construction.  The panel is
+part of the history: `t += belief` / `t -= belief` land as `[belief]`
+commits.  The theory is above; the contract of every guarantee is
 SPEC.md.
 '''
 
@@ -1294,12 +1431,13 @@ SPEC.md.
 def cmd_ground(_ledger, args):
     """The grounding, dumped as-is -- no meta, no explaining the file to
     its reader.  Default: GROUNDING.md minus the strategy-design-only
-    stretch (the mathematical anchors and Part 2, the experiment
-    protocol), plus two generated appendices -- the built-in belief
-    roster and the client manual for agents -- sized so a harness shows
-    it inline instead of truncating to a file.  `--full` restores the
-    cut.  Nothing else on stdout, so the output pipes straight into an
-    agent's context; the first command of an agentic session."""
+    stretches (the mathematical anchors, Part 2 -- the experiment
+    protocol -- and the Layer 2 outlook), plus two generated appendices
+    -- the built-in belief roster and the client manual for agents --
+    sized so a harness shows it inline instead of truncating to a file.
+    `--full` restores the cuts.  Nothing else on stdout, so the output
+    pipes straight into an agent's context; the first command of an
+    agentic session."""
     from importlib.resources import files
     text = files("thinair").joinpath("GROUNDING.md").read_text(
         encoding="utf-8")
@@ -1308,6 +1446,10 @@ def cmd_ground(_ledger, args):
         _skip, mark, tail = rest.partition("# Part 3 ")
         if cut and mark:
             text = head + mark + tail
+        head, cut, rest = text.partition("Layer 2 — scoring beliefs")
+        _skip, mark, tail = rest.partition("\n---\n")
+        if cut and mark:
+            text = head + tail.lstrip("\n")
     sys.stdout.write(text)
     sys.stdout.write(_builtin_roster())
     sys.stdout.write(_client_manual())
@@ -1336,13 +1478,13 @@ def main(argv=None) -> int:
     log.add_argument("--graph", action="store_true",
                      help="draw the entity lanes")
     log.add_argument("-n", type=int, default=None)
-    log.set_defaults(run=cmd_log)
+    log.set_defaults(run=cmd_log, paged=True)
 
     show = sub.add_parser("show", help="one commit in full")
     show.add_argument("commit", nargs="?", default=None,
                       help="a hash prefix, a branch (entity) name, or HEAD "
                            "(the default)")
-    show.set_defaults(run=cmd_show)
+    show.set_defaults(run=cmd_show, paged=True)
 
     sub.add_parser("status", help="the store, summarized").set_defaults(
         run=cmd_status)
@@ -1350,11 +1492,11 @@ def main(argv=None) -> int:
     branch.add_argument("-d", "--delete", metavar="name", default=None,
                         help="delete a branch: drop the ref's opinions from "
                              "the store (archives are untouched)")
-    branch.set_defaults(run=cmd_branch)
+    branch.set_defaults(run=cmd_branch, paged=True)
 
     blame = sub.add_parser("blame", help="every cell: who set it, when")
     blame.add_argument("entity")
-    blame.set_defaults(run=cmd_blame)
+    blame.set_defaults(run=cmd_blame, paged=True)
 
     belief = sub.add_parser(
         "belief", aliases=["beliefs"],
@@ -1381,14 +1523,14 @@ def main(argv=None) -> int:
     diff = sub.add_parser("diff", help="two trees, cell by cell")
     diff.add_argument("commits", nargs="+",
                       help="A...B, or A B, or A against its branch tip")
-    diff.set_defaults(run=cmd_diff)
+    diff.set_defaults(run=cmd_diff, paged=True)
 
     ground = sub.add_parser(
         "ground", help="print the measurement grounding; pipe it to an agent")
     ground.add_argument("--full", action="store_true",
-                        help="include the experiment protocol (Part 2) and "
-                             "the mathematical anchors: for designing a "
-                             "strategy from raw data")
+                        help="include the experiment protocol (Part 2), the "
+                             "mathematical anchors and the Layer 2 outlook: "
+                             "for designing a strategy from raw data")
     ground.set_defaults(run=cmd_ground, needs_store=False)
 
     help_ = sub.add_parser("help", help="show help for thinair or a command")
@@ -1411,7 +1553,8 @@ def main(argv=None) -> int:
     ledger = open_store(args.store) if getattr(args, "needs_store", True) \
         else None
     try:
-        args.run(ledger, args)
+        with _pager(getattr(args, "paged", False)):
+            args.run(ledger, args)
     except KeyboardInterrupt:
         # Ctrl-C means *now*: flush what was already printed and recorded
         # (every ledger append is its own transaction), then leave without

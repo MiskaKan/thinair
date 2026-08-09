@@ -1347,13 +1347,61 @@ def test_ground_is_tiered(tmp_path, monkeypatch, capsys):
     assert "the thinair client, for agents" in full      # manual still there
 
 
-def test_the_held_row_is_never_gray(store, monkeypatch, capsys):
-    """Every (held) cell is colored -- a frozen fact nobody has measured
-    is green like any unopposed value; coverage is the parens' story."""
+def test_the_held_row_colors_earned_agreement_and_dims_unopposed(
+        store, monkeypatch, capsys):
+    """A cell with independent readers on record wears the gradient; an
+    unopposed believed cell renders dim -- one reading that nothing could
+    have contradicted earns no color either way.  Frozen facts stay green
+    (a fiat nothing disagrees with)."""
     monkeypatch.setattr("thinair.cli._tty", lambda: True)
     main(["--store", store, "show", "HEAD"])
     footer = [l for l in capsys.readouterr().out.splitlines()
               if "(held)" in l][0]
     cells = footer.split("(held)")[1]
-    assert "\x1b[2m" not in cells                        # only the label dims
-    assert "\x1b[32m" in cells
+    assert "\x1b[32m" in cells                 # corroborated: earned green
+    assert "\x1b[2m" in cells                  # unopposed: dim, unearned
+
+
+def test_ai_readable_refuses_to_flatter_the_unopposed(tmp_path, capsys):
+    """One reading, judges nodding along: nothing could have disagreed, so
+    the signature says `agree=unopposed`, never a purchased 1.00."""
+    ledger = SqliteLedger(tmp_path / "o.db")
+    engine = FakeEngine([{"value": "Anna", "p": 0.9}])
+
+    class Ticket(Thing):
+        __beliefs__ = [model("small-fast", engine=engine), human("jane")]
+        source_text: str
+        customer = contract(str, extracted_from="source_text")
+
+    t = Ticket(__entity__="tick-9", __ledger__=ledger,
+               source_text="From Anna")
+    +t.customer
+    main(["--store", str(tmp_path / "o.db"), "--ai-readable", "log",
+          "--oneline", "tick-9"])
+    line = [l for l in capsys.readouterr().out.splitlines()
+            if "[settle]" in l][0]
+    assert "agree=unopposed" in line
+    assert "agree=1.00" not in line
+
+
+def test_forked_chains_collapse_with_a_slash(tmp_path, capsys):
+    """Two refs sharing their first commit then diverging are a real fork:
+    the graph bends the extra lane home with `/` just above the shared
+    parent, git's `|/`."""
+    ledger = SqliteLedger(tmp_path / "o.db")
+
+    class Card(Thing):
+        __beliefs__ = [human("jane")]
+        text: str
+
+    a = Card(__entity__="branch-a", __ledger__=ledger, text="same start")
+    b = Card(__entity__="branch-b", __ledger__=ledger, text="same start")
+    a.status = "open"
+    b.status = "closed"
+
+    main(["--store", str(tmp_path / "o.db"), "log", "--all", "--oneline",
+          "--graph"])
+    lines = capsys.readouterr().out.splitlines()
+    assert any(line.startswith("|/") for line in lines)     # the collapse
+    assert any(line.startswith("| *") for line in lines)    # parallel lanes
+    assert lines[-1].startswith("* ")                       # the shared root

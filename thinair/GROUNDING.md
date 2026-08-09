@@ -307,8 +307,8 @@ of it:
   **Opinion** is a belief's recorded evaluation at a **cell** (an
   `(entity, attribute)` address): `(belief, entity, attr, value, p, t, frozen, meta)`.
   **frozen** is a flag on an opinion that ends consultation for its cell — set only by
-  code or the human (assignment, executed code, an explicit `freeze`), never by a
-  model.
+  code or the human: assignment freezes, and a belief declared `frozen=True` (code,
+  notably) pins what it settles. Never a model.
 - **A Thing owns no values.** Its attributes are cells; values live only in opinions;
   reading an attribute is selection among them. The framework surface is dunders —
   `__beliefs__` (the ordered panel of beliefs consulted on every cell) and
@@ -332,12 +332,21 @@ of it:
   episode: the model proposes actions against a sealed snapshot, the resulting
   changeset commits atomically as ordinary opinions, and the return value faces the
   panel like any other candidate. Chained calls operate on fresh child things.
-- **Verbs live in the module, not on objects**: `contract` (declares an attribute's
-  shape and attaches its validators), `model`, `human`, `snapshot`, `source`,
-  `freeze`, `freeze_call`, `corroborate` (consult the beliefs the read never
-  asked, recording second opinions into the same cells for settlement), and
-  `fn` — functions as cells: a call is a read of a `(call_id, "result")` cell;
-  pure code freezes it (memoization), model-served calls stay opinions.
+- **The Thing carries the whole surface.** An attribute is declared in the class body
+  with a shape — `total = Thing(float, extracted_from="source_text", range=(0, 1e6))`
+  — which attaches the validators the shape implies (a bare annotation
+  `source_text: str` declares too). The panel changes through operators — `t += belief`
+  / `t -= belief` in place, `t + belief` / `t - belief` for a fresh handle — and every
+  change is recorded: the strategy is part of the history.
+  `Thing.__default__ = model("...")` names the generative belief any panel without one
+  falls back to. Pinning is a property of the *belief* (`frozen=True`), never a verb on
+  the Thing: **a value code already knows is assigned, never asked** — `t.axis = value`
+  records it frozen, free, and consults no panel. The remaining module verbs are
+  `model`, `human`, `corroborate` (consult the beliefs the read never asked, recording
+  second opinions into the same cells for settlement) and `fn` — functions as cells: a
+  call is a read of a `(call_id, "result")` cell; pure code freezes it (memoization),
+  model-served calls stay opinions. `contract`, `freeze`, `snapshot` survive as
+  compatibility spellings of moves the surface above already makes.
 - **Settlement ships with the framework**: `thinair.evaluate` (SPEC.md §12) reads the
   ledger back — veto-aware readings, scale-licensed agreement, chance-corrected
   kappa, Bradley–Terry, reliability, drift, discrimination, concordance with the
@@ -352,7 +361,7 @@ Every element of a strategy is a thinair construct:
 |---|---|
 | Measurement of thing `e` on axis `a` | Belief call `b(e, a) → (v, p)` |
 | Reading | Opinion in the ledger |
-| Axis with scale type | Contracted attribute cell (`contract(float, ...)`, `@`-coercion) |
+| Axis with scale type | Declared attribute cell (`Thing(float, ...)`, `@`-coercion) |
 | Law / validator | Deterministic Belief subclass (form, grounding, consistency, reference, executable families) |
 | Dissimilar paths on one question | Panel of beliefs on one cell — each records its *own* opinion; resolution selects one, never blends; `evaluate` compares them afterwards |
 | Instrument reliability / calibration | Meta-measurement over the ledger, keyed by durable belief ids (`thinair.evaluate`) |
@@ -361,6 +370,25 @@ Every element of a strategy is a thinair construct:
 | Budget tiers | Rounds / escalation, runtime-owned policy; recounted by `evaluate.tiers` |
 | Exposed weights | Human belief / frozen assignments — never a model output |
 | Declared expectations | `contract(p=, deviation=)` — stamped into the record and judged there, **never shown to the answering belief** (a belief told what to be sure of inflates) and never a gate: a reading is not wrong alone; the spread between readings is the signal |
+
+Four structural facts the machinery expects, stated so nobody rediscovers them the
+expensive way:
+
+- **Write the ground by assignment.** A pre-pass with an exact value records it as
+  `t.axis = value` — frozen, free, no panel consulted. Never route a code-known value
+  through a model read (Pillar II), and never `freeze` what you can assign.
+- **Designed-in ground lives on a parallel entity.** `evaluate.grounded(ground=fn)`
+  wants the truth frozen on a *separate entity carrying the same axis names* — `fn`
+  maps measured entity id → ground entity id (`lambda e: f"gold-{e}"`) — never on a
+  sibling cell the instrument could see.
+- **Match the grounding law to the axis.** Span checks (`Fuzzy`, `Verbatim`) test text
+  against its source; on an axis of *abstractions* they read low everywhere and, being
+  non-necessary, fail silently — the axis looks validated and is not. Abstraction axes
+  earn grounding from dissimilar-path agreement, not spans.
+- **An abstention is a coverage reading.** A belief with nothing to say answers `None`
+  — the photo-desk instrument on the article with no photos. Read it as a coverage gap
+  (`evaluate.coverage`), never as agreement; what an instrument cannot see is itself a
+  finding.
 
 Layer 2 — scoring beliefs by dissimilarity-weighted agreement — remains deferred
 (SPEC.md §14). Its design evidence comes from these experiments: the ledger of every

@@ -168,7 +168,7 @@ def _derive_id(belief: "Belief", args: tuple, kwargs: dict) -> str:
 # the base class
 # --------------------------------------------------------------------------
 
-_OPTIONS = ("necessary", "veto_line", "id")
+_OPTIONS = ("necessary", "veto_line", "id", "frozen")
 
 
 class Belief:
@@ -182,6 +182,10 @@ class Belief:
     #: before it spends a call, so it is declared; a test holds the flag
     #: to what an empty-cell probe observes.
     proposes: bool = False
+    #: freezing is a property of the belief, not of the Thing: what a
+    #: ``frozen=True`` member settles is pinned (at settlement, never at
+    #: statement).  Code freezes by default; assignment always freezes.
+    frozen: bool = False
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         options = {k: kwargs.pop(k) for k in list(kwargs) if k in _OPTIONS}
@@ -189,6 +193,8 @@ class Belief:
         self._kwargs = dict(kwargs)
         if "necessary" in options:
             self.necessary = bool(options["necessary"])
+        if "frozen" in options:
+            self.frozen = bool(options["frozen"])
         if "veto_line" in options:
             line = float(options["veto_line"])
             if not 0.0 <= line <= 1.0:
@@ -251,7 +257,7 @@ class MemoBelief:
     """
 
     __slots__ = ("belief", "id", "necessary", "veto_line", "proposes",
-                 "_memo", "_active")
+                 "frozen", "_memo", "_active")
 
     def __init__(self, belief: Any, memo: dict, active: set) -> None:
         self.belief = belief
@@ -261,6 +267,7 @@ class MemoBelief:
         self.necessary = bool(getattr(belief, "necessary", False))
         self.veto_line = float(getattr(belief, "veto_line", 0.5))
         self.proposes = bool(getattr(belief, "proposes", False))
+        self.frozen = bool(getattr(belief, "frozen", False))
         self._memo = memo
         self._active = active
 
@@ -448,6 +455,7 @@ class CodeBelief(Belief):
     """A body of code as a generative belief.  Its results freeze."""
 
     proposes = True
+    frozen = True
 
     def __init__(self, func: Callable, **options: Any) -> None:
         self.func = func
@@ -522,6 +530,19 @@ class config_scope:
 
     def __exit__(self, *exc: Any) -> None:
         restore_config(self.owner, self._previous)
+
+
+def _progress(text: str) -> None:
+    """One stderr line per model call in flight, gated by THINAIR_PROGRESS.
+
+    A consultation against a reasoning endpoint can sit for minutes with
+    nothing on screen; ``THINAIR_PROGRESS=1`` narrates each call as it
+    starts and lands, so a hang is a visible call and not a mystery.
+    """
+    if os.environ.get("THINAIR_PROGRESS", "") in ("", "0"):
+        return
+    sys.stderr.write(f"[thinair] {text}\n")
+    sys.stderr.flush()
 
 
 def _exposure(messages: Any) -> str:
@@ -631,15 +652,20 @@ class ModelBelief(Belief):
         messages = self.context(e, attr)
         schema = prompts.response_schema(getattr(contract, "schema", None))
         exposure = _exposure(messages)
+        cell = f"{getattr(e, '__entity__', '?')}#{attr}"
+        _progress(f"{self.id} ← {cell} ...")
         try:
             payload, meta = complete_json(
                 self.engine(getattr(e, "__owner__", None)), messages, schema=schema,
                 temperature=self.temperature, max_tokens=self.max_tokens,
                 think=self.think)
         except ParseFailure as exc:
+            _progress(f"{self.id} ← {cell} unparseable")
             return Judgment(None, 0.0, {"reason": f"unparseable completion: {exc}",
                                         "model": self.model_name,
                                         "exposure": exposure})
+        _progress(f"{self.id} ← {cell} answered"
+                  + (f" in {meta['latency']:g}s" if meta.get("latency") else ""))
         if not isinstance(payload, dict) or "value" not in payload:
             return Judgment(None, 0.0, {"reason": "completion carried no 'value'",
                                         "model": self.model_name,
@@ -675,6 +701,8 @@ class ModelBelief(Belief):
                 return Judgment(None, 0.0, {
                     "reason": "action budget exhausted before returning",
                     "no_return": True, "actions": transcript})
+            _progress(f"{self.id} episode {episode.attr!r}: acting "
+                      f"({actions_left} actions left) ...")
             try:
                 step, meta = complete_json(
                     engine, convo, schema=schema, temperature=self.temperature,

@@ -369,3 +369,48 @@ def test_constructing_a_model_belief_opens_no_socket(monkeypatch):
     monkeypatch.setattr(socket, "socket", lambda *a, **k: pytest.fail("socket!"))
     belief = model("qwen3-35b", think=True, temperature=0.9)
     assert belief.definition is resolve("qwen3-35b")
+
+
+# --------------------------------------------------------------------------
+# the guards before the socket
+# --------------------------------------------------------------------------
+
+def test_offline_guard_raises_before_any_socket(monkeypatch):
+    """THINAIR_OFFLINE=1: an accidental consultation is a one-line stack
+    trace, never a spend and never a hang."""
+    monkeypatch.setenv("THINAIR_OFFLINE", "1")
+    engine = OpenAICompatEngine(base_url="http://example.invalid/v1",
+                                model="some-model")
+    with pytest.raises(EngineError, match="THINAIR_OFFLINE"):
+        engine._post("http://example.invalid/v1/chat/completions", {})
+
+
+def test_an_unconfigured_default_model_fails_loudly(monkeypatch):
+    """model 'default' against the fallback base URL is a misconfiguration,
+    not a request: it raises with instructions instead of retrying three
+    times against localhost."""
+    monkeypatch.delenv("THINAIR_BASE_URL", raising=False)
+    monkeypatch.delenv("THINAIR_OFFLINE", raising=False)
+    engine = OpenAICompatEngine(model="default")
+    assert not engine.configured
+    with pytest.raises(EngineError, match="THINAIR_MODEL"):
+        engine._post(engine.base_url + "/chat/completions", {})
+
+
+def test_an_explicit_base_url_counts_as_configured(monkeypatch):
+    monkeypatch.delenv("THINAIR_BASE_URL", raising=False)
+    engine = OpenAICompatEngine(base_url="http://myserver:1234/v1",
+                                model="default")
+    assert engine.configured        # a single-model server may ignore the name
+
+
+def test_the_generic_fallback_never_sends_response_format():
+    """An unknown server given response_format may mangle or ignore it --
+    the fallback def stays prompted; folders that know their server opt in."""
+    from thinair.models import GENERIC
+
+    assert resolve("some-model-nobody-has-heard-of") is GENERIC
+    assert GENERIC.structured_output == "prompted"
+    engine = OpenAICompatEngine(base_url="http://x/v1", model="mystery",
+                                definition=GENERIC)
+    assert engine._response_format({"type": "object"}) is None

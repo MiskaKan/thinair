@@ -20,19 +20,32 @@ __all__ = ["OpenAICompatEngine", "engine_for"]
 
 DEFAULT_BASE_URL = "http://localhost:8000/v1"
 
+#: A reasoning model on a modest endpoint routinely thinks for longer than two
+#: minutes before its answer comes back.  Cutting it off there is not a safety
+#: margin: the read dies mid-thought, spends a transport retry, and the retry
+#: starts the same long thought from scratch -- so a slow endpoint fails three
+#: times as slowly as it would have succeeded once, and the ledger records a
+#: transport error where a reading belonged.  Wait by default; ``THINAIR_TIMEOUT``
+#: shortens the leash where a caller wants one.
+DEFAULT_TIMEOUT = 900.0
+
 
 class OpenAICompatEngine:
     """``complete(messages, schema, temperature, max_tokens) -> (text, meta)``."""
 
     def __init__(self, base_url: str | None = None, api_key: str | None = None,
-                 model: str = "", definition: Any = None, timeout: float = 120.0,
+                 model: str = "", definition: Any = None, timeout: float | None = None,
                  max_tokens: int | None = None) -> None:
+        self.configured = bool(base_url or os.environ.get("THINAIR_BASE_URL"))
         self.base_url = (base_url or os.environ.get("THINAIR_BASE_URL")
                          or DEFAULT_BASE_URL).rstrip("/")
         self.api_key = api_key or os.environ.get("THINAIR_API_KEY") or ""
         self.model = model
         self.definition = definition
-        self.timeout = timeout
+        env_timeout = os.environ.get("THINAIR_TIMEOUT")
+        self.timeout = float(
+            timeout if timeout is not None
+            else (env_timeout if env_timeout else DEFAULT_TIMEOUT))
         env_max = os.environ.get("THINAIR_MAX_TOKENS")
         self.max_tokens = max_tokens or (int(env_max) if env_max else None)
         self.transport_retries = 3
@@ -116,6 +129,21 @@ class OpenAICompatEngine:
     # that a test can substitute a recorder and still exercise payload
     # shaping, quirk handling and response parsing with zero network.
     def _post(self, url: str, payload: dict) -> dict:
+        # Two guards, both *before* the socket, so a misfire is a one-line
+        # stack trace instead of a silent hang and three slow retries:
+        if os.environ.get("THINAIR_OFFLINE", "") not in ("", "0"):
+            raise EngineError(
+                f"THINAIR_OFFLINE is set: a model consultation was about to "
+                f"spend a call ({url}, model {self.model!r}).  Serve the "
+                f"cell from the record or by assignment, or unset "
+                f"THINAIR_OFFLINE to allow the call.")
+        if self.model in ("", "default") and not self.configured:
+            raise EngineError(
+                "no endpoint is configured: the belief resolved to model "
+                "'default' against the fallback base URL, which is almost "
+                "never a served model.  Set THINAIR_MODEL and "
+                "THINAIR_BASE_URL (and THINAIR_API_KEY if the endpoint "
+                "wants one), or name the model: model(\"deepseek-v4-flash\").")
         body = json.dumps(payload).encode("utf-8")
         headers = {"Content-Type": "application/json"}
         if self.api_key:

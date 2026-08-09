@@ -60,7 +60,7 @@ from .policy import Disagreement, LowConfidence, Unresolvable
 
 __all__ = [
     "evaluate",
-    "reading", "verdicts", "coverage",
+    "reading", "settled", "verdicts", "coverage",
     "agree", "adjacent", "kappa", "similarity",
     "ranks", "median", "spearman", "mannwhitney", "wilson", "n_eff",
     "bradley_terry",
@@ -166,8 +166,11 @@ def reading(ledger: Ledger, entity: str, attr: str, belief: str | None = None,
     which is a bug this module exists to make unrepeatable.
 
     ``belief=None`` takes the cell's most recent instrument (a model or code
-    opinion); frozen authority is not a reading -- ask
-    ``ledger.latest_frozen`` for that.
+    opinion); **frozen authority is not a reading** -- a cell that was only
+    ever assigned or frozen returns ``None`` here, deliberately, so a fiat
+    never inflates an instrument's record.  When you want the *standing
+    value* of a cell -- what a program would be served, fiat included --
+    ask :func:`settled`.
     """
     everything = ledger.opinions(entity=entity, attr=attr)
     if belief is None:
@@ -208,6 +211,27 @@ def reading(ledger: Ledger, entity: str, attr: str, belief: str | None = None,
             vetoes.append((other.belief, (other.meta or {}).get("reason")))
     return dict(value=last.value, p=last.p, rounds=len(opinions),
                 vetoed=bool(vetoes), vetoes=vetoes, meta=last.meta or {})
+
+
+def settled(ledger: Ledger, entity: str, attr: str,
+            strict: bool = True) -> dict | None:
+    """The standing value at a cell: what a program's read would be served.
+
+    Frozen authority outranks belief, exactly as in the read pipeline: the
+    latest frozen opinion wins, else the last instrument reading
+    (:func:`reading`).  ``None`` only when nothing ever landed on the cell.
+    This is the complement :func:`reading` deliberately is not -- use
+    ``reading`` to grade an instrument, ``settled`` to read the record back.
+    """
+    pinned = ledger.latest_frozen(entity, attr)
+    if pinned is not None:
+        return dict(value=pinned.value, p=pinned.p, frozen=True,
+                    belief=pinned.belief, vetoed=False, vetoes=[],
+                    meta=pinned.meta or {})
+    got = reading(ledger, entity, attr, strict=strict)
+    if got is None:
+        return None
+    return dict(got, frozen=False)
 
 
 def verdicts(ledger: Ledger, entity: str, attr: str,
@@ -694,9 +718,11 @@ def grounded(ledger: Ledger, axes: Iterable[str] | None = None,
     * ``ground=None`` -- the natural flow: the cell was measured, and the
       outcome was later frozen *on the same cell* (assignment, code, an
       explicit ``freeze``).  Calibration accrues from the ledger alone.
-    * ``ground=fn`` -- designed-in ground on parallel entities (an experiment
-      whose truth must stay invisible to the instrument); ``fn`` maps a
-      measured entity to its ground entity.
+    * ``ground=fn`` -- designed-in ground on **parallel entities**: the
+      truth lives on a separate entity carrying the *same axis names* as
+      the measured one (so the instrument can never see it), and ``fn``
+      maps a measured entity *id* to its ground entity *id* --
+      ``lambda e: f"gold-{e}"``, never axis-to-axis.
     """
     if axes is not None and entities is not None:
         # both given: iterate in the given orders, axis-major, so reports
@@ -1135,14 +1161,17 @@ def history(ledger: Ledger, entity: str | None = None) -> list[dict]:
         head["heads"].append(owner)
 
     # corroborations become notes on the commit that owns their cell,
-    # located along the noting entity's own chain
+    # located along the noting entity's own chain.  The fifth slot says
+    # whether the note is an independent *reading* (a model or code opinion)
+    # or a judge's verdict -- consensus must not confuse the two.
     for note in notes:
         target = None
         for commit, t_here in passes.get(note.entity, ()):
             if note.attr in commit["changes"] and t_here < note.t:
                 target = commit
         if target is not None:
-            entry = (note.belief, note.attr, note.value, note.p)
+            entry = (note.belief, note.attr, note.value, note.p,
+                     _generative(note.meta or {}))
             if entry not in target.setdefault("notes", []):
                 target["notes"].append(entry)
 
@@ -1150,34 +1179,58 @@ def history(ledger: Ledger, entity: str | None = None) -> list[dict]:
     # itself is never wrong -- what carries information is the spread.  Per
     # cell: the resolving p, every agreeing judge's p from the same
     # negotiation, and every agreeing corroboration note; ``dev`` is their
-    # population standard deviation (needs two voices), ``dissent`` counts
-    # notes holding a different value.  A frozen cell participates as the
-    # fiat it is -- base p 1.0 -- so its deviation measures how close the
-    # declared fact sits to what other beliefs read.  Declared expectations
-    # (``expect``) are judged against exactly this, in the CLI and nowhere
-    # earlier.
+    # population standard deviation (needs two voices) and ``range`` their
+    # min-max spread -- one voice far from the rest barely moves a
+    # deviation, and the range is what refuses to average it away.
+    # ``dissent`` counts notes holding a different value.
+    #
+    # Judges and readers are tallied apart, because judges cannot disagree
+    # with the candidate they were handed: ``readers`` counts independent
+    # readings of the cell (the resolving reading or fiat, plus generative
+    # notes), ``readers_dissent`` the readings that landed elsewhere,
+    # ``readers_similarity`` how close those landed.  Agreement among
+    # readers is earned; agreement among judges is purchased by
+    # construction and must never be sold as evidence (Pillar III).
+    #
+    # A frozen cell participates as the fiat it is -- base p 1.0 -- so its
+    # deviation measures how close the declared fact sits to what other
+    # beliefs read.  Declared expectations (``expect``) are judged against
+    # exactly this, in the CLI and nowhere earlier.
     for commit in commits:
         consensus: dict[str, dict] = {}
         for attr, (value, p, frozen) in commit["changes"].items():
             ps = [1.0 if frozen else p] \
                 + [vp for _b, vp in (commit.get("panel") or {}).get(attr, ())]
             dissent, overlaps = 0, []
-            for _belief, noted_attr, noted_value, noted_p in commit.get("notes", ()):
+            readers, readers_dissent, reader_overlaps = 1, 0, []
+            for _belief, noted_attr, noted_value, noted_p, generative \
+                    in commit.get("notes", ()):
                 if noted_attr != attr:
                     continue
+                if generative:
+                    readers += 1
                 if values_equal(noted_value, value):
                     ps.append(noted_p)
                 else:
                     dissent += 1
-                    overlaps.append(similarity(noted_value, value))
-            cell_view = dict(n=len(ps), dissent=dissent)
+                    overlap = similarity(noted_value, value)
+                    overlaps.append(overlap)
+                    if generative:
+                        readers_dissent += 1
+                        reader_overlaps.append(overlap)
+            cell_view = dict(n=len(ps), dissent=dissent, readers=readers,
+                             readers_dissent=readers_dissent)
             if overlaps:
                 # the second metric: not "did someone disagree" but "how far
                 # away did the dissenting readings land"
                 cell_view["similarity"] = sum(overlaps) / len(overlaps)
+            if reader_overlaps:
+                cell_view["readers_similarity"] = \
+                    sum(reader_overlaps) / len(reader_overlaps)
             if len(ps) >= 2:
                 mean = sum(ps) / len(ps)
                 cell_view["dev"] = (sum((x - mean) ** 2 for x in ps) / len(ps)) ** 0.5
+                cell_view["range"] = max(ps) - min(ps)
             consensus[attr] = cell_view
         commit["consensus"] = consensus
 

@@ -3,14 +3,15 @@
 Python objects whose attributes are beliefs, not values.
 
 ```python
-from thinair import Thing, contract, model, human
+from thinair import Thing, model, human
 from thinair.validators import TokenSubset
 
 class Invoice(Thing):
     """An invoice document to be understood."""
-    __beliefs__ = [model(), human("jane"), TokenSubset("source_text")]
+    __beliefs__ = [model("deepseek-v4-flash"), human("jane"),
+                   TokenSubset("source_text")]
     source_text: str
-    total = contract(float, extracted_from="source_text", range=(0, 1e6))
+    total = Thing(float, extracted_from="source_text", range=(0, 1e6))
 
 inv = Invoice(source_text=open("invoice.txt").read())
 
@@ -62,14 +63,14 @@ if guess:                  # only runs when the answer clears the bar
 
 ## Validators keep answers honest
 
-A contract attaches checks that can veto a bad answer — a number that
+A declaration attaches checks that can veto a bad answer — a number that
 isn't in the source text, a value out of range, a string outside an
 enum. Checks reject; they never inflate. The probability you get is
 always the answering belief's own.
 
 ```python
-priority = contract(str, enum=["low", "normal", "high", "urgent"])
-amount   = contract(float, extracted_from="source_text", range=(0, 10_000))
+priority = Thing(str, enum=["low", "normal", "high", "urgent"])
+amount   = Thing(float, extracted_from="source_text", range=(0, 10_000))
 ```
 
 You can also declare *expectations* — a probability bar, a maximum
@@ -77,7 +78,7 @@ disagreement — which never block a read but mark the record wherever
 they are missed:
 
 ```python
-total = contract(float, p=0.9, deviation=0.1)
+total = Thing(float, p=0.9, deviation=0.1)
 ```
 
 ## Methods nobody wrote

@@ -113,11 +113,15 @@ class ModelDef:
         return f"{self.name or self.match[0]}/v{self.version}"
 
 
+# ``structured_output="prompted"``: the prompt already demands JSON, and an
+# unknown server given ``response_format`` may mangle or ignore it (the ds4
+# server does) -- worse than never sending it.  A folder that *knows* its
+# server honors json_schema/json_mode opts in; the fallback stays quiet.
 GENERIC = ModelDef(
     match=("*",),
     defaults=dict(temperature=0.2, max_tokens=2048),
-    structured_output="json_mode",
-    version="1",
+    structured_output="prompted",
+    version="2",            # v1 sent json_mode; behavior moved, so the id moves
     name="generic-openai-compat",
 )
 

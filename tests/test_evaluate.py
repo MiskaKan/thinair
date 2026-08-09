@@ -436,3 +436,61 @@ def test_evaluate_contains_zero_model_calls():
     for network in ("urllib", "http", "socket", "requests", "ssl"):
         assert not any(i.split(".")[0] == network for i in imports)
     assert "complete_json" not in path.read_text()
+
+
+# --------------------------------------------------------------------------
+# settled: the standing value, fiat included
+# --------------------------------------------------------------------------
+
+def test_settled_serves_the_fiat_that_reading_refuses():
+    """reading() grades instruments, so a fiat returns None there --
+    settled() is the record read back the way a program would be served."""
+    from thinair.evaluate import settled
+
+    ledger = Ledger()
+    ledger.add(opinion("e1", "size", 4, p=0.9, meta={"model": "m", "round": 1}))
+    ledger.add(Opinion(belief="human:you", entity="e1", attr="size", value=5,
+                       p=1.0, frozen=True, meta={"assigned": True}))
+    got = settled(ledger, "e1", "size")
+    assert got["value"] == 5 and got["frozen"] and got["belief"] == "human:you"
+    assert reading(ledger, "e1", "size")["value"] == 4   # the instrument, apart
+
+    # a cell only ever assigned: reading None, settled serves -- the silent
+    # zero from the field report cannot recur through settled
+    ledger.add(Opinion(belief="human:you", entity="e1", attr="name",
+                       value="x", p=1.0, frozen=True, meta={"assigned": True}))
+    assert reading(ledger, "e1", "name") is None
+    assert settled(ledger, "e1", "name")["value"] == "x"
+    assert settled(ledger, "e1", "ghost") is None
+
+
+# --------------------------------------------------------------------------
+# consensus: readers apart from judges, and the min-max range
+# --------------------------------------------------------------------------
+
+def test_consensus_counts_readers_apart_from_judges():
+    """A judge verdicts the candidate it is handed -- its concord is
+    purchased.  Only independent readings move `readers`, and the p spread
+    keeps its min-max `range` beside the deviation."""
+    from thinair.evaluate import history
+
+    ledger = Ledger()
+    ledger.add(Opinion(belief="model:a", entity="e9", attr="size", value=4,
+                       p=0.9, meta={"model": "a", "round": 1}))
+    ledger.add(Opinion(belief="schema[int]", entity="e9", attr="size",
+                       value=4, p=1.0, meta={"judged": "schema[int]"}))
+    view = history(ledger, entity="e9")[-1]["consensus"]["size"]
+    assert view["readers"] == 1                    # the judge never counts
+
+    ledger.add(Opinion(belief="model:b", entity="e9", attr="size", value=4,
+                       p=0.5, meta={"model": "b", "corroboration": True}))
+    view = history(ledger, entity="e9")[-1]["consensus"]["size"]
+    assert view["readers"] == 2
+    assert view["readers_dissent"] == 0
+    assert view["range"] == pytest.approx(0.5)     # 1.0 (judge) down to 0.5
+    assert view["dev"] < view["range"]             # the range refuses to average
+
+    ledger.add(Opinion(belief="model:c", entity="e9", attr="size", value=7,
+                       p=0.8, meta={"model": "c", "corroboration": True}))
+    view = history(ledger, entity="e9")[-1]["consensus"]["size"]
+    assert view["readers"] == 3 and view["readers_dissent"] == 1
