@@ -1191,6 +1191,12 @@ def freeze(target, attr=None, *, value=_MISSING, belief=None, p=None):
     if opinion is None and value is _MISSING:
         raise Unresolvable(cell.__cell__, reason="nothing to freeze")
     entity, name = cell.__cell__
+    if opinion is not None and opinion.frozen \
+            and value is _MISSING and p is None and belief is None:
+        # Already pinned, nothing overridden: re-freezing is the replayed
+        # program re-stating itself, and records nothing (like assignment).
+        return Cell(cell.__parent__, name, opinion=opinion,
+                    contract=cell.__contract__)
     pinned = cell.__ledger__.add(Opinion(
         belief=belief or (opinion.belief if opinion else resident_human(cell).id),
         entity=entity, attr=name,

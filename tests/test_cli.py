@@ -96,6 +96,46 @@ def test_corroborations_are_notes_and_replays_commit_nothing():
     assert len(history(ledger, entity="inv-1")) == len(commits)
 
 
+def test_an_identical_re_settlement_is_not_a_commit():
+    """Context changed, the belief re-read, the value held: the tree stood
+    still, so no commit -- the reading is on record, the log stays quiet."""
+    from thinair.ledger import Opinion
+
+    ledger = Ledger()
+    for exposure in ("aaaa11112222", "bbbb33334444"):    # two negotiations
+        ledger.add(Opinion(belief="model:m", entity="e1", attr="size",
+                           value=4, p=0.9,
+                           meta={"model": "m", "round": 1,
+                                 "exposure": exposure}))
+    commits = history(ledger, entity="e1")
+    assert len(commits) == 1                             # one transition
+
+
+def test_a_pinned_cell_shows_as_freeze_not_code():
+    """Engine metas carry a 'call' counter; only fn results are code."""
+    from thinair.ledger import Opinion
+
+    ledger = Ledger()
+    ledger.add(Opinion(belief="model:m", entity="e1", attr="size", value=4,
+                       p=0.9, frozen=True,
+                       meta={"model": "m", "call": 7, "pinned": True}))
+    assert history(ledger, entity="e1")[0]["kind"] == "freeze"
+
+
+def test_freeze_is_idempotent_like_assignment():
+    from test_second_opinions import corroborable
+    from thinair import freeze
+
+    inv, ledger, engine, _other = corroborable()
+    +inv.total
+    freeze(inv.total)
+    pinned = len(ledger)
+    frozen_again = freeze(inv.total)                     # the replayed program
+    assert len(ledger) == pinned
+    assert +frozen_again == 1249.5
+    assert engine.call_count == 1
+
+
 def test_a_vetoed_negotiation_is_not_a_commit():
     from thinair.beliefs import Discriminative
 

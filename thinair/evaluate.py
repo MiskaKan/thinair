@@ -953,9 +953,13 @@ def history(ledger: Ledger, entity: str | None = None) -> list[dict]:
             continue
         if o.frozen:
             close(key)
+            # engine metas carry a "call" *counter*; only the belief id and
+            # fn's own meta name code results, so "call" alone proves nothing
             kind = ("assign" if meta.get("assigned") else
                     "fixture" if meta.get("fixture") else
-                    "code" if "code" in meta or "call" in meta else "freeze")
+                    "freeze" if meta.get("pinned") else
+                    "code" if "code" in meta or o.belief.startswith("code:")
+                    else "freeze")
             events.append(dict(
                 t=o.t, entity=o.entity, kind=kind, author=o.belief,
                 message=None, changes={o.attr: (o.value, o.p, True)},
@@ -1001,6 +1005,7 @@ def history(ledger: Ledger, entity: str | None = None) -> list[dict]:
     events.sort(key=lambda ev: ev["t"])
     cells: dict[str, dict] = {}
     last_commit: dict[str, str] = {}
+    kept: list[dict] = []
     for ev in events:
         entity_cells = cells.setdefault(ev["entity"], {})
         ev["parent_tree"] = _state_hash(entity_cells)
@@ -1011,10 +1016,16 @@ def history(ledger: Ledger, entity: str | None = None) -> list[dict]:
             if frozen or already is None or not already[2]:
                 entity_cells[attr] = (value, p, frozen)   # frozen wins
         ev["tree"] = _state_hash(entity_cells)
+        if ev["tree"] == ev["parent_tree"] and ev["kind"] != "episode":
+            continue        # a commit is whatever moved the state hash;
+                            # an identical re-settlement moved nothing --
+                            # the reading is on record, the tree stood still
         ev["parent"] = last_commit.get(ev["entity"])
         chain = f"{ev['entity']}|{ev['parent'] or ''}|{ev['tree']}"
         ev["hash"] = hashlib.sha1(chain.encode("utf-8")).hexdigest()[:12]
         last_commit[ev["entity"]] = ev["hash"]
+        kept.append(ev)
+    events = kept
 
     # corroborations become notes on the commit that owns their cell
     for note in notes:
