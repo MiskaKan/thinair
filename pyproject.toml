@@ -19,6 +19,9 @@ dev = ["pytest>=7"]
 [tool.setuptools.packages.find]
 include = ["thinair*"]
 
+[tool.setuptools.package-data]
+thinair = ["GROUNDING.md"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"

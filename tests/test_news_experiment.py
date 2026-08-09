@@ -1,4 +1,5 @@
-"""The PLAN_2 news experiment: corpus, pre-pass, custom beliefs, analysis.
+"""The news experiment (GROUNDING.md protocol): corpus, pre-pass, custom
+beliefs, analysis.
 
 Offline and deterministic.  The experiment's *findings* need a live endpoint;
 its machinery must not.
@@ -227,7 +228,7 @@ def test_a_whole_item_measures_offline_and_lands_in_the_ledger():
 
 
 def test_the_ledger_alone_answers_who_said_what():
-    """PLAN_2 Part 4 rule 2, as an assertion."""
+    """SPEC.md §13 rule 2, as an assertion."""
     engine = _scripted_engine()
     belief = model("deepseek-v4-flash", engine=engine)
     ledger = Ledger()

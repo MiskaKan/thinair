@@ -27,7 +27,8 @@ regex can read the field, a regex is the belief.
 
 The loop this module makes cheap:
 
-  1. propose a small measurement strategy (PLAN_2.md Part 2 is the format);
+  1. propose a small measurement strategy (GROUNDING.md, next to this file,
+     carries the full theory; its Part 2 is the strategy format);
   2. run it as a thinair program -- Things, contracts, panels -- leaving a
      complete ledger;
   3. settle the ledger here: what was reliable, what discriminated, what
@@ -41,7 +42,7 @@ calls, and only through beliefs the strategist already declared.
 
 Deferred, and visibly so: ``earned`` / ``dissimilarity`` -- scoring agreement
 by mechanism-and-exposure dissimilarity -- wait until the accumulated ledgers
-span the moves (SPEC.md §13; PLAN_2.md Part 3).  Model opinions carry an
+span the moves (SPEC.md §14; GROUNDING.md Part 3).  Model opinions carry an
 ``exposure`` fingerprint in meta precisely so that math is computable, later,
 from ledgers recorded now.
 """

@@ -191,7 +191,49 @@ stay invisible to the instrument.  Model opinions carry an `exposure`
 fingerprint in `meta` (a hash of the rendered context), so dissimilarity in
 mechanism AND exposure is computable from the ledger after the fact.
 
-## 13. Deferred, and permanently excluded
+## 13. Building a strategy
+
+The measurement theory and the strategy protocol live in
+`thinair/GROUNDING.md` — a self-contained file made to be linked to an LLM
+together with raw data.  When a strategy graduates from document to code,
+these are the rules of the build — not what the code guarantees, but what
+the strategist owes the record:
+
+1. **No new framework surface.**  A strategy is beliefs, validators, panels,
+   policies, and module verbs — if implementing one seems to need a new
+   Thing method, the strategy is misread; re-map it via the table in
+   GROUNDING.md Part 3.  Instruments the package does not ship — an
+   embedding model, a classical clusterer — enter as ordinary code beliefs.
+2. **Every experiment leaves a complete ledger.**  Durable belief ids on
+   every opinion, so calibration and dissimilarity are computable after the
+   fact.  An experiment whose ledger cannot answer "which paths agreed and
+   how independent were they?" was wasted.
+3. **Pre-registration is write-once.**  Hash the strategy and its inputs
+   before the first call; a resumed or repaired run never re-stamps.  Drift
+   between the stamp and the code that ran is disclosed, not overwritten.
+4. **Freezing discipline.**  Frozen = code results and human acts only.  In
+   experiments, freeze outcomes (ground) eagerly and conclusions never.
+5. **Validation is budgeted, not bolted on.**  The two-tier budget
+   (GROUNDING.md Part 2 §7) is a runtime concern: findings calls and
+   validation calls are separately countable in the ledger
+   (`evaluate.tiers`).
+6. **Reliability before findings.**  The instrument sub-pass (GROUNDING.md
+   Part 2 §4) runs first; its reading caps reported confidence downstream.
+   An axis the instrument cannot read reliably is redesigned or dropped
+   before money is spent on it.
+7. **Fold, then archive.**  An experiment is finished only when its
+   *general* lessons are folded into GROUNDING.md (or this contract, when
+   the contract moved) and its record — pre-registered strategy, code,
+   ledger — is committed whole.  The record is evidence, not documentation:
+   a finding severed from its ledger degrades to a claim, and no one should
+   ever need an experiment's report to use the framework.
+
+The settlement half of every strategy ships as §12 and is classical math
+over the ledger: never re-implement it inside an experiment, and never ask
+the model to compute what code computes.  The model is a column factory;
+`evaluate` is the grader that makes trying many columns cheap.
+
+## 14. Deferred, and permanently excluded
 
 **Deferred (Layer 2, second slice):** credibility, similarity between
 beliefs, dissimilarity-weighted pooling, credibility-driven routing,

@@ -1,10 +1,12 @@
-# thinair — Phase 2: The Measurement Space
+# thinair — The Measurement Space
 
 *This file is self-contained grounding. Link it, as-is, to an LLM and it carries
 everything needed to (a) look at raw data the right way, (b) produce a concrete
 measurement strategy for creating value from that data, and (c) turn such strategies
 into thinair programs. Part 1 is the theory, Part 2 is what you do when handed data,
-Part 3 is the framework the strategies run on, Part 4 is for the implementer.*
+Part 3 is the framework the strategies run on. When a strategy graduates from
+document to code, the rules of the build live in SPEC.md §13, next to the contract
+they belong to.*
 
 ---
 
@@ -338,6 +340,11 @@ of it:
   `freeze`, `freeze_call`, and `fn` — functions as cells: a call is a read of a
   `(call_id, "result")` cell; pure code freezes it (memoization), model-served calls
   stay opinions.
+- **Settlement ships with the framework**: `thinair.evaluate` (SPEC.md §12) reads the
+  ledger back — veto-aware readings, scale-licensed agreement, chance-corrected
+  kappa, Bradley–Terry, reliability, drift, discrimination, concordance with the
+  frozen ground, calibration, budget tiers. Never re-implement it in a strategy, and
+  never ask the model to compute what it computes.
 
 ## The mapping
 
@@ -350,62 +357,23 @@ Every element of a strategy is a thinair construct:
 | Axis with scale type | Contracted attribute cell (`contract(float, ...)`, `@`-coercion) |
 | Law / validator | Deterministic Belief subclass (form, grounding, consistency, reference, executable families) |
 | Dissimilar paths on one question | Panel of beliefs in `__beliefs__` on one cell |
-| Instrument reliability / calibration | Meta-measurement over the ledger, keyed by durable belief ids |
+| Instrument reliability / calibration | Meta-measurement over the ledger, keyed by durable belief ids (`thinair.evaluate`) |
 | The Ground | **Frozen opinions** (code results, human assignments) |
 | Persistent structure / index | Ledger + frozen opinions on derived cells |
-| Budget tiers | Rounds / escalation, runtime-owned policy |
+| Budget tiers | Rounds / escalation, runtime-owned policy; recounted by `evaluate.tiers` |
 | Exposed weights | Human belief / frozen assignments — never a model output |
 
-Layer 2 — scoring beliefs by dissimilarity-weighted agreement — remains deferred. Its
-design evidence comes from these experiments: the ledger of every run records which
-beliefs agreed, on what, with what mechanism/exposure overlap, and how their readings
-fared against frozen outcomes. Method-factor and design-effect machinery over that
-record *is* Layer 2. The path to building it is part of this plan: experiments
+Layer 2 — scoring beliefs by dissimilarity-weighted agreement — remains deferred
+(SPEC.md §14). Its design evidence comes from these experiments: the ledger of every
+run records which beliefs agreed, on what, with what mechanism/exposure overlap, and
+how their readings fared against frozen outcomes. Method-factor and design-effect
+machinery over that record *is* Layer 2. The path to building it: experiments
 accumulate ledgers; once the record spans the moves — ordering, shared axes, persistent
 structure — it is distilled into an implementation brief for Layer 2, derived from what
 the ledgers show rather than from theory. That brief, not this file, is the build
 document.
 
-# Part 4 — For the implementer
-
-When a strategy graduates from document to code, build it on the thinair package
-(SPEC.md in the repository is the as-built contract). Rules of the build:
-
-1. **No new framework surface.** A strategy is beliefs, validators, panels, policies,
-   and module verbs — if implementing one seems to need a new Thing method, the
-   strategy is misread. Re-map it via the table above. Instruments the package does
-   not ship — an embedding model, a classical clusterer — enter as code beliefs; they
-   need no framework change.
-2. **Every experiment leaves a complete ledger.** Durable belief ids (model + prompt +
-   version) on every opinion, so calibration and dissimilarity are computable after the
-   fact. An experiment whose ledger cannot answer "which paths agreed and how
-   independent were they?" was wasted.
-3. **Pre-registration is write-once.** Hash the strategy and its inputs before the
-   first call; a resumed or repaired run never re-stamps. Drift between the stamp and
-   the code that actually ran is disclosed, not overwritten.
-4. **Freezing discipline.** Frozen = code results and human acts only. In experiments,
-   freeze outcomes (ground) eagerly and conclusions never.
-5. **Validation is budgeted, not bolted on.** The two-tier budget from Part 2 §7 is a
-   runtime concern: findings calls and validation calls are separately countable in the
-   ledger.
-6. **Reliability before findings.** The instrument sub-pass (Part 2 §4) runs first;
-   its reading is recorded and caps reported confidence downstream. If the instrument
-   can't read an axis reliably, the axis is redesigned or dropped before money is
-   spent on it.
-7. **Fold, then archive.** An experiment is finished only when its *general* lessons
-   are folded into the grounding documents (this file; SPEC.md when the contract
-   moved) and its record — pre-registered strategy, code, ledger — is committed
-   whole. The record is evidence, not documentation: a finding severed from its
-   ledger degrades to a claim, and no one should ever need an experiment's report
-   to use the framework.
-
-The settlement half of every strategy — veto-aware reading of the record,
-scale-licensed agreement, reliability/drift/discrimination, concordance with the
-frozen ground, calibration, Bradley–Terry, the two-tier budget — ships as
-`thinair/evaluate.py` (SPEC.md §12) and is pure classical math over the ledger:
-never re-implement it inside an experiment, and never ask the model to compute
-what it already computes. The model is a column factory; `evaluate` is the
-grader that makes trying many columns cheap.
+---
 
 The immediate use of this file needs no code at all: link it to an LLM, provide sample
 data, and ask for a measurement strategy per Part 2. The strategies are the experiment;

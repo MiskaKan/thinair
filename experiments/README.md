@@ -1,9 +1,10 @@
 # experiments
 
-Measurement strategies from `PLAN_2.md`, executed on the `thinair` package.
+Measurement strategies from `thinair/GROUNDING.md`, executed on the
+`thinair` package under the build rules of SPEC.md §13.
 
-Each experiment is a directory with the same five parts, in the order PLAN_2
-puts them:
+Each experiment is a directory with the same five parts, in the order the
+grounding puts them:
 
 | file | what it is |
 |---|---|
@@ -13,7 +14,7 @@ puts them:
 | `prepass.py` / `run.py` | the classical zero-call pass, then the phases, leaving `ledger.json` |
 | `analyze.py` / `report.py` | the ledger read back, and `REPORT.md` rendered from it |
 
-Two rules make the shape work, both from PLAN_2 Part 4:
+Two rules make the shape work, both from SPEC.md §13:
 
 * **No new framework surface.** An experiment is beliefs, validators, panels,
   policies and module verbs. An instrument thinair does not ship — a

@@ -1,6 +1,6 @@
 """Everything the run earns, computed from the ledger and nothing else.
 
-PLAN_2 Part 4 rule 2: an experiment whose ledger cannot answer "which paths
+SPEC.md §13 rule 2: an experiment whose ledger cannot answer "which paths
 agreed and how independent were they?" was wasted.  So this module reads
 ``ledger.json`` and ``corpus.py`` and never the runner's own log --- if a number
 here cannot be recovered from the record, it does not get reported.
