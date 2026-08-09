@@ -72,7 +72,8 @@ CREATE TABLE IF NOT EXISTS belief (
     necessary   INTEGER,
     veto_line   REAL,
     proposes    INTEGER,
-    description TEXT
+    description TEXT,
+    config      TEXT
 );
 """
 
@@ -105,6 +106,10 @@ class SqliteLedger(Ledger):
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("PRAGMA busy_timeout=5000")
             conn.executescript(_SCHEMA)
+            try:                       # stores from before the config column
+                conn.execute("ALTER TABLE belief ADD COLUMN config TEXT")
+            except sqlite3.OperationalError:
+                pass
             conn.commit()
             self._conn = conn
         return self._conn
@@ -159,15 +164,43 @@ class SqliteLedger(Ledger):
         except Exception:                     # a describe() that throws never
             description = belief_id           # blocks the record
 
+        config = None
+        if hasattr(belief, "_args") or hasattr(belief, "_kwargs"):
+            try:
+                # The constructor configuration, stored so a later process
+                # can rebuild the instrument (values that do not survive
+                # JSON are marked, and mark the whole config unrebuildable).
+                config = json.dumps(
+                    {"args": list(getattr(belief, "_args", ()) or ()),
+                     "kwargs": dict(getattr(belief, "_kwargs", {}) or {})},
+                    default=lambda o: {"__unjson__": repr(o)})
+            except Exception:
+                config = None
         db.execute(
             "INSERT OR IGNORE INTO belief "
-            "(id, kind, necessary, veto_line, proposes, description) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
+            "(id, kind, necessary, veto_line, proposes, description, config) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
             (belief_id, type(belief).__name__,
              int(bool(getattr(belief, "necessary", False))),
              float(getattr(belief, "veto_line", 0.5)),
              int(bool(getattr(belief, "proposes", False))),
-             str(description)))
+             str(description), config))
+        if config is not None:                # backfill pre-config rows
+            db.execute("UPDATE belief SET config = ? "
+                       "WHERE id = ? AND config IS NULL",
+                       (config, belief_id))
+        # a scoped wrapper's mechanism is its inner belief; describe it too,
+        # even if it never speaks under its own id, so the instrument is
+        # rebuildable from the record
+        inner = getattr(belief, "inner", None)
+        if inner is not None and getattr(inner, "id", None):
+            self._describe(db, inner.id)
+
+    @staticmethod
+    def _belief_dict(row: tuple) -> dict:
+        return dict(id=row[0], kind=row[1], necessary=bool(row[2]),
+                    veto_line=row[3], proposes=bool(row[4]),
+                    description=row[5], config=row[6])
 
     def belief_row(self, belief_id: str) -> dict | None:
         """The stored description of a belief, or ``None``."""
@@ -175,13 +208,19 @@ class SqliteLedger(Ledger):
         if db is None:
             return None
         row = db.execute(
-            "SELECT id, kind, necessary, veto_line, proposes, description "
-            "FROM belief WHERE id = ?", (belief_id,)).fetchone()
-        if row is None:
-            return None
-        return dict(id=row[0], kind=row[1], necessary=bool(row[2]),
-                    veto_line=row[3], proposes=bool(row[4]),
-                    description=row[5])
+            "SELECT id, kind, necessary, veto_line, proposes, description, "
+            "config FROM belief WHERE id = ?", (belief_id,)).fetchone()
+        return self._belief_dict(row) if row is not None else None
+
+    def belief_rows(self) -> list[dict]:
+        """Every described belief -- speakers and the inner mechanisms of
+        scoped wrappers alike."""
+        db = self._db(create=False)
+        if db is None:
+            return []
+        return [self._belief_dict(r) for r in db.execute(
+            "SELECT id, kind, necessary, veto_line, proposes, description, "
+            "config FROM belief ORDER BY rowid")]
 
     # -- the kernel: reading ----------------------------------------------
     @staticmethod

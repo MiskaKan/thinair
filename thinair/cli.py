@@ -5,17 +5,16 @@ whatever moved it, every entity is a branch with its own chain.  The
 commands are deliberate copies:
 
     thinair log [entity] [--oneline] [-n N]     the commits, newest first
-    thinair show [commit]                       one commit: diff, matrix,
-                                                rounds, vetoes, notes
+    thinair show [commit]                       one commit: the whole tree,
+                                                the matrix, rounds, vetoes,
+                                                notes
     thinair status                              the store, summarized
     thinair branch [-d name]                    entities and their heads
     thinair blame <entity>                      every cell: who set it, when
-    thinair beliefs [commit]                    who spoke (or could) there
     thinair evaluate [commit] [belief]          consult beliefs against a
                                                 commit's state -- spends
                                                 calls, records corroborations
     thinair diff A...B | A B | A                two trees, cell by cell
-    thinair source [commit]                     the tree as annotated source
     thinair ground                              print the measurement
                                                 grounding (GROUNDING.md) --
                                                 pipe it to an agent
@@ -89,6 +88,20 @@ def branch_green(text):
 
 def dim(text):
     return _paint("2", text)
+
+
+#: red -> orange -> yellow -> chartreuse -> green: the 256-color ramp a
+#: matrix cell walks as its value-overlap with the held tree grows.
+_RAMP = ("196", "202", "208", "214", "220", "226", "190", "154", "118", "46")
+
+
+def shade(overlap: float, text: str) -> str:
+    """Paint by similarity: 1.0 is pure green, 0.0 pure red, and a partial
+    text or numeric overlap lands in between -- typed matching via
+    ``evaluate.similarity``, so "how green" means the same thing a
+    settlement's ``~`` metric means."""
+    index = min(len(_RAMP) - 1, max(0, int(overlap * len(_RAMP))))
+    return _paint(f"38;5;{_RAMP[index]}", text)
 
 
 def _p_verdict(commit, attr, p):
@@ -281,14 +294,15 @@ def _scope_of(ledger, belief_id, attrs):
 
 def _matrix_lines(ledger, commit, held, extra=(), active=None, always=False):
     """Belief × attribute over the commit's whole tree, as rendered lines:
-    each cell is that belief's latest stated p -- green where its value
-    matches what the tree holds, red where it differs.  An empty cell says
-    why it is empty: ``-`` where the belief is scoped elsewhere and cannot
-    speak, ``?`` where it could be asked and never was (``thinair
-    evaluate`` fills those in; ``active`` marks the cell being consulted
-    right now with ``…``).  ``extra`` guarantees a row for beliefs about
-    to speak.  Opinions pool across the commit's refs: one commit, one
-    panel."""
+    each cell is that belief's latest stated p, shaded by how much its
+    value overlaps what the tree holds (``evaluate.similarity``): pure
+    green is exact agreement, pure red is no overlap at all, and partial
+    text or numeric matches land between.  An empty cell says why it is
+    empty: ``-`` where the belief is scoped elsewhere and cannot speak,
+    ``?`` where it could be asked and never was (``thinair evaluate``
+    fills those in; ``active`` marks the cell being consulted right now
+    with ``…``).  ``extra`` guarantees a row for beliefs about to speak.
+    Opinions pool across the commit's refs: one commit, one panel."""
     attrs = sorted(held)
     rows: dict[str, dict] = {}
     for entity in commit["entities"]:
@@ -297,15 +311,15 @@ def _matrix_lines(ledger, commit, held, extra=(), active=None, always=False):
                 if o.belief.startswith(("policy:", "changeset:")):
                     continue
                 rows.setdefault(o.belief, {})[attr] = \
-                    (o.p, values_equal(o.value, held[attr]))
+                    (o.p, similarity(o.value, held[attr]))
     for belief_id in extra:
         rows.setdefault(belief_id, {})
     if not always and len(rows) < 2:
         return []                    # a matrix of one voice says nothing
     width = max(8, *(min(len(a), 14) for a in attrs)) + 2
-    lines = ["matrix:  " + dim("(rows beliefs, columns attributes; green "
-                               "agrees, red differs; - out of scope, "
-                               "? never asked)"),
+    lines = ["matrix:  " + dim("(rows beliefs, columns attributes; shade = "
+                               "value overlap, green exact ... red none; "
+                               "- out of scope, ? never asked)"),
              dim(" " * 46 + "".join(a[:14].rjust(width) for a in attrs))]
     for belief_id, cells_ in rows.items():
         scope = _scope_of(ledger, belief_id, set(attrs))
@@ -319,9 +333,8 @@ def _matrix_lines(ledger, commit, held, extra=(), active=None, always=False):
                 mark = "-" if scope is not None and scope != attr else "?"
                 line += dim(mark.rjust(width))
                 continue
-            p, agrees = got
-            cell = f"{p:.2f}".rjust(width)
-            line += green(cell) if agrees else red(cell)
+            p, overlap = got
+            line += shade(overlap, f"{p:.2f}".rjust(width))
         lines.append(line)
     return lines
 
@@ -447,13 +460,14 @@ class _RecordSnapshot:
     the stamp records exactly that; settlement weighs it accordingly.
     """
 
-    def __init__(self, entity, cells, deriving):
+    def __init__(self, entity, cells, deriving, panel=()):
         object.__setattr__(self, "_cells", {
             attr: Opinion(belief=author or "record", entity=entity, attr=attr,
                           value=value, p=p, t=1.0, frozen=frozen)
             for attr, (value, p, frozen, author) in cells.items()
             if attr != deriving})
         object.__setattr__(self, "__entity__", entity)
+        object.__setattr__(self, "__beliefs__", list(panel))
 
     __class_name__ = "Record"
     __purpose__ = ""
@@ -538,32 +552,59 @@ def _model_names(ledger):
     return names
 
 
-def cmd_beliefs(ledger, args):
-    commits = history(ledger)
-    scope = None
-    if args.commit:
-        commit = _commit_at(commits, args.commit)
-        spoke = {o.belief for scope in commit["entities"]
-                 for o in ledger.opinions(entity=scope)}
-        print(f"beliefs on {commit['hash']} "
-              f"({', '.join(commit['entities'])}):")
-    else:
-        spoke = set(ledger.beliefs())
-        print("beliefs on record:")
-    for belief_id in sorted(spoke):
-        row = getattr(ledger, "belief_row", lambda _id: None)(belief_id) or {}
-        marks = []
-        if row.get("proposes") or belief_id.startswith("model:"):
-            marks.append("proposes")
-        if row.get("necessary"):
-            marks.append(f"necessary@{row['veto_line']:g}")
-        if belief_id.startswith("model:"):
-            marks.append("reconstructible")
-        tail = f"  [{', '.join(marks)}]" if marks else ""
-        description = row.get("description")
-        note = f"  -- {description}" if description and description != belief_id \
-            else ""
-        print(f"  {belief_id}{tail}{note}")
+class _HeldValue:
+    """A stub proposer serving the record's held value, so a rebuilt judge
+    has a candidate to judge -- the tree speaks for itself."""
+
+    id = "record"
+    proposes = True
+    necessary = False
+
+    def __init__(self, cells):
+        self._cells = cells
+
+    def __call__(self, e, attr):
+        spec = self._cells.get(attr)
+        if spec is None:
+            return None
+        value, p, frozen, _author = spec
+        return (value, 1.0 if frozen else p)
+
+
+def _reconstructible_judges(ledger):
+    """Validators rebuilt from the record: the belief table stores each
+    instrument's constructor configuration (invariant 6 -- the id names a
+    fixed configuration; the config column makes it loadable), and the
+    classes ship in ``thinair.validators``.  Scoped wrappers are skipped --
+    their inner mechanism is described separately and judges every cell.
+    Anything whose config did not survive JSON is skipped, silently:
+    a judge that cannot be rebuilt exactly must not be rebuilt at all.
+    """
+    import json as _json
+    from . import validators as V
+
+    rows = getattr(ledger, "belief_rows", lambda: [])()
+    out = []
+    for row in rows:
+        if row["kind"] in (None, "Scoped", "ModelBelief", "HumanBelief",
+                           "CodeBelief"):
+            continue
+        config = row.get("config")
+        if not config or "__unjson__" in config:
+            continue
+        cls = getattr(V, row["kind"], None)
+        if cls is None or not isinstance(cls, type):
+            continue
+        try:
+            spec = _json.loads(config)
+            belief = cls(*spec.get("args", ()),
+                         **dict(spec.get("kwargs", {}), id=row["id"],
+                                necessary=row["necessary"],
+                                veto_line=row["veto_line"]))
+        except Exception:
+            continue
+        out.append(belief)
+    return out
 
 
 def cmd_evaluate(ledger, args):
@@ -590,18 +631,23 @@ def cmd_evaluate(ledger, args):
         names = [belief_arg[len("model:"):].split("@T")[0]
                  if belief_arg.startswith("model:") else belief_arg]
 
-    print(f"evaluate {', '.join(names)} @ {commit['hash']} "
-          f"({', '.join(commit['entities'])})")
     # One reading per (commit, belief, attribute): a shared commit IS the
     # same content, so its refs share the evaluation -- the note lands on
     # the one commit every ref points at.  On a terminal the commit's
     # matrix sits below the log and fills itself in, one cell at a time
     # (``…`` marks the consultation in flight); piped output stays plain
-    # lines with the finished table at the end.
+    # lines with the finished table at the end.  Models re-read; validators
+    # rebuilt from the record re-judge the held tree.
     entity = commit["entities"][0]
     held = {attr: spec[0] for attr, spec in cells.items()}
-    beliefs = [model(name) for name in names]
-    extra = [b.id for b in beliefs]
+    instruments = [model(name) for name in names]
+    if belief_arg == "*":
+        instruments += _reconstructible_judges(ledger)
+    extra = [b.id for b in instruments]
+    print(f"evaluate {', '.join(names)}"
+          + (f" + {len(instruments) - len(names)} rebuilt validators"
+             if len(instruments) > len(names) else "")
+          + f" @ {commit['hash']} ({', '.join(commit['entities'])})")
     live = _tty()
     block = 0
 
@@ -626,31 +672,43 @@ def cmd_evaluate(ledger, args):
         redraw()
 
     redraw()
-    for belief in beliefs:
-        for attr in sorted(cells):
-            e = _RecordSnapshot(entity, cells, deriving=attr)
-            stamp = belief.exposure(e, attr)
+    for instrument in instruments:
+        reads = hasattr(instrument, "exposure")     # a model re-reads;
+        for attr in sorted(cells):                  # a judge re-judges
+            scope = getattr(instrument, "scope", None)
+            if scope is not None and scope != attr:
+                continue
+            panel = [] if reads else [_HeldValue(cells)]
+            e = _RecordSnapshot(entity, cells, deriving=attr, panel=panel)
+            stamp = instrument.exposure(e, attr) if reads else None
             prior = [o for ref in commit["entities"]
                      for o in ledger.opinions(entity=ref, attr=attr,
-                                              belief=belief.id)]
+                                              belief=instrument.id)]
             if any((o.meta or {}).get("at") == commit["hash"]
-                   or (o.meta or {}).get("exposure") == stamp
+                   or (stamp is not None
+                       and (o.meta or {}).get("exposure") == stamp)
                    for o in prior):
-                emit(f"  {attr:<18} {belief.id}: asked and answered")
+                emit(f"  {attr:<18} {instrument.id}: asked and answered")
                 continue
-            redraw(active=(belief.id, attr))
-            got = belief(e, attr)
+            redraw(active=(instrument.id, attr))
+            try:
+                got = instrument(e, attr)
+            except Exception:                       # a judge choking on a
+                got = None                          # cell is "no opinion"
             if got is None:
                 redraw()
                 continue
             ledger.add(Opinion(
-                belief=belief.id, entity=entity, attr=attr,
+                belief=instrument.id, entity=entity, attr=attr,
                 value=+got, p=~got, frozen=False,
                 meta=dict(getattr(got, "meta", None) or {},
                           corroboration=True, at=commit["hash"])))
-            verdict = "agrees" if values_equal(+got, held[attr]) else \
-                f"DIFFERS from {_value(held[attr])}"
-            emit(f"  {attr:<18} ⇒ {_value(+got)} (p {~got:g})  {verdict}")
+            if reads:
+                verdict = "agrees" if values_equal(+got, held[attr]) else \
+                    f"DIFFERS from {_value(held[attr])}"
+                emit(f"  {attr:<18} ⇒ {_value(+got)} (p {~got:g})  {verdict}")
+            else:
+                emit(f"  {attr:<18} {instrument.id[:40]} judges p {~got:g}")
     if not live:
         for line in _matrix_lines(ledger, commit, held, extra=extra,
                                   always=True):
@@ -691,24 +749,6 @@ def cmd_diff(ledger, args):
         if vb is not None:
             mark = "frozen" if vb[2] else f"p={vb[1]:g}"
             print(green(f"+ {attr} = {_value(vb[0])}   ({mark})"))
-
-
-def _short_author(author: str) -> str:
-    return author.split("@")[0]
-
-
-def cmd_source(ledger, args):
-    """The commit's tree rendered as source: frozen attributes plain,
-    believed ones annotated -- ``source(thing)``, for any point in time."""
-    commits = history(ledger)
-    commit = _commit_at(commits, args.commit)
-    tree = _tree_at(commits, commit)
-    print(dim(f"# {_label(commit)} @ {commit['hash']} (t={commit['t']:g})"))
-    for attr, (value, p, frozen, author) in sorted(tree.items()):
-        line = f"{attr} = {_value(value, limit=70)}"
-        if not frozen:
-            line += dim(f"   # p={p:g} ← {_short_author(author)}")
-        print(line)
 
 
 def _builtin_roster() -> str:
@@ -789,10 +829,6 @@ def main(argv=None) -> int:
     blame.add_argument("entity")
     blame.set_defaults(run=cmd_blame)
 
-    beliefs = sub.add_parser("beliefs", help="who spoke (or could) at a commit")
-    beliefs.add_argument("commit", nargs="?", default=None)
-    beliefs.set_defaults(run=cmd_beliefs)
-
     evaluate = sub.add_parser(
         "evaluate", help="consult beliefs against a commit's state "
                          "(spends calls, records corroborations)")
@@ -807,11 +843,6 @@ def main(argv=None) -> int:
     diff.add_argument("commits", nargs="+",
                       help="A...B, or A B, or A against its branch tip")
     diff.set_defaults(run=cmd_diff)
-
-    source = sub.add_parser(
-        "source", help="the commit's tree as annotated source")
-    source.add_argument("commit", nargs="?", default=None)
-    source.set_defaults(run=cmd_source)
 
     ground = sub.add_parser(
         "ground", help="print the measurement grounding; pipe it to an agent")

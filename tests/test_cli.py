@@ -250,18 +250,6 @@ def test_graph_lanes_thread_the_full_format(store, capsys):
 # evaluate and beliefs: consultation from the terminal
 # --------------------------------------------------------------------------
 
-def test_beliefs_lists_who_spoke_at_a_commit(store, capsys):
-    main(["--store", store, "log", "--oneline"])
-    head = capsys.readouterr().out.split()[0]
-    main(["--store", store, "beliefs", head])
-    out = capsys.readouterr().out
-    assert "inv-1" in out and "model:small-fast" in out
-    assert "reconstructible" in out and "human:jane" in out
-
-    main(["--store", store, "beliefs"])
-    assert "beliefs on record:" in capsys.readouterr().out
-
-
 def test_evaluate_consults_against_head_and_records(store, capsys):
     from thinair.beliefs import restore_config, set_config
 
@@ -352,14 +340,6 @@ def test_diff_between_two_commits(store, capsys):
 
     main(["--store", store, "diff", oldest])             # A against branch tip
     assert "+ total" in capsys.readouterr().out
-
-
-def test_source_renders_the_tree_annotated(store, capsys):
-    main(["--store", store, "source"])                   # HEAD by default
-    out = capsys.readouterr().out
-    assert 'source_text = "Widget 999.00' in out
-    assert "total = 1249.5   # p=0.93 ← model:small-fast" in out
-    assert 'note = "overdue"' in out                     # the episode's write
 
 
 def test_show_lists_every_proposer_with_dash_for_the_silent(store, capsys):
@@ -808,3 +788,53 @@ def test_evaluate_redraws_the_matrix_live_on_a_tty(store, monkeypatch,
         restore_config(None, previous)
     assert "A\x1b[J" in out                               # erase-and-redraw
     assert out.count("matrix:") > 2                       # one per update
+
+
+def test_evaluate_rebuilds_validators_from_the_record(store, capsys):
+    """The belief table stores constructor configs, so evaluate '*' can
+    rebuild built-in validators and have them re-judge the held tree --
+    the ? cells in validator rows are fillable, not decorative."""
+    from thinair.beliefs import restore_config, set_config
+
+    engine = FakeEngine([{"value": 1249.5, "p": 0.66}])
+    previous = set_config(None, engine=engine)
+    try:
+        main(["--store", store, "evaluate"])
+        out = capsys.readouterr().out
+    finally:
+        restore_config(None, previous)
+    assert "rebuilt validators" in out.splitlines()[0]
+    assert "judges p" in out                             # a judge spoke
+    noted = [o for o in SqliteLedger(store).opinions(entity="inv-1",
+                                                     attr="total")
+             if (o.meta or {}).get("corroboration")
+             and o.belief.startswith("tokenSubset")]
+    assert noted                                         # and was recorded
+
+    main(["--store", store, "evaluate"])                 # idempotent by hash
+    again = capsys.readouterr().out
+    assert "judges p" not in again
+
+
+def test_matrix_shades_by_value_overlap(tmp_path, monkeypatch, capsys):
+    """Not binary red/green: a partial text overlap lands mid-ramp."""
+    ledger = SqliteLedger(tmp_path / "o.db")
+    engine = FakeEngine([{"value": "urgent delivery failed", "p": 0.9}])
+    other = FakeEngine([{"value": "urgent delivery arrived", "p": 0.8}])
+
+    class Report(Thing):
+        __beliefs__ = [model("small-fast", engine=engine),
+                       model("qwen3-35b", engine=other), human("jane")]
+        summary = contract(str)
+
+    r = Report(__entity__="rep-1", __ledger__=ledger)
+    +r.summary
+    corroborate(r, attrs=["summary"])                    # near-miss reading
+
+    monkeypatch.setattr("thinair.cli._tty", lambda: True)
+    main(["--store", str(tmp_path / "o.db"), "show", "HEAD"])
+    out = capsys.readouterr().out
+    assert "\x1b[38;5;46m" in out                        # exact: pure green
+    mids = [code for code in ("202", "208", "214", "220", "226", "190",
+                              "154", "118") if f"\x1b[38;5;{code}m" in out]
+    assert mids                                          # partial: mid-ramp

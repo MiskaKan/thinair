@@ -217,9 +217,10 @@ settle any record without reconstructing the strategy's classes.
 
 The `thinair` command inspects any store or `ledger.json` archive
 git-style — `log`, `show [commit]`, `status`, `branch [-d name]` (entities
-are branches), `blame`, `diff A...B` (two trees, cell by cell),
-`source [commit]` (the tree as annotated source), `beliefs [commit]` — a
-pure derivation over §12's `history`, spending nothing.  A *commit*
+are branches), `blame`, `diff A...B` (two trees, cell by cell) — a
+pure derivation over §12's `history`, spending nothing.  (`source` and
+`beliefs` were folded into `show`, which renders the annotated tree and
+the panel.)  A *commit*
 argument resolves the way git resolves names: a hash prefix, a branch
 (entity) name meaning that ref's tip, or `HEAD` (the newest commit
 overall; the default).  The log carries no per-commit branch column —
@@ -235,9 +236,11 @@ dissents on the value: `log --all --decorate --oneline --graph` shows at
 a glance where beliefs diverged, and how far.  `show` renders the *whole
 tree* as of the commit with what moved highlighted and the rest as dim
 context, then a belief × attribute matrix over the tree (each cell that
-belief's latest p, green agreeing / red differing; an empty cell says
-why it is empty — `-` scoped elsewhere and cannot speak, `?` could be
-asked and never was, which is exactly what `evaluate` fills in), then
+belief's latest p, shaded by its value's overlap with the held one via
+`evaluate.similarity` — pure green exact, pure red none, partial text
+or numeric matches between; an empty cell says why it is empty — `-`
+scoped elsewhere and cannot speak, `?` could be asked and never was,
+which is exactly what `evaluate` fills in), then
 the readings panel: every proposer, per changed cell — its latest
 reading, or `-` where it never spoke — so what `evaluate` records is
 visible there from then on.  Matrix and readings pool opinions across the commit's refs:
@@ -253,10 +256,17 @@ the shipped GROUNDING.md plus a generated roster of the built-in beliefs,
 store-free and pipe-pure, so an agentic session's first command can be its
 own grounding.  Two commands write.  `evaluate [commit] [belief|*]`
 rebuilds the commit's tree as a sealed snapshot, consults reconstructible
-beliefs (model ids parse back into configurations — invariant 6), and
-records the answers as corroborations, idempotent per (commit, belief,
-cell) — a collapsed commit's refs share one evaluation, since the content
-is the same; archives are refused, because evaluation writes.  On a
+beliefs, and records the answers as corroborations, idempotent per
+(commit, belief, cell) — a collapsed commit's refs share one evaluation,
+since the content is the same; archives are refused, because evaluation
+writes.  Reconstructible means models (their ids parse back into
+configurations — invariant 6) *and* built-in validators: the belief
+table stores every described belief's constructor configuration (a
+`config` column; scoped wrappers also describe their inner mechanism),
+so `evaluate '*'` rebuilds each validator whose config survived JSON and
+has it re-judge the held tree — the candidate it judges is the record's
+own value.  A config that did not survive JSON is skipped entirely: a
+judge that cannot be rebuilt exactly must not be rebuilt at all.  On a
 terminal it is the matrix answering itself: the table sits below the log
 and fills in one cell at a time (`…` marks the consultation in flight,
 `?` becomes a colored p as each reading lands); piped output stays plain
