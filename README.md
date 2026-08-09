@@ -2,10 +2,6 @@
 
 Python objects whose attributes are beliefs, not values.
 
-Reading `invoice.total` consults a panel — a model, your code, validators,
-you — and hands back a value together with an honest probability. Everything
-anyone ever said is kept, with a name attached.
-
 ```python
 from thinair import Thing, contract, model, human
 from thinair.validators import TokenSubset
@@ -19,155 +15,148 @@ class Invoice(Thing):
 inv = Invoice(source_text=open("invoice.txt").read())
 
 +inv.total     # 1249.5 — the value
-~inv.total     # 0.93   — how sure the answering belief is, its own honest p
+~inv.total     # 0.93   — how sure the answer is
 ```
+
+You declared `total` but never computed it. Reading it asks a model,
+checks the answer against the source text, and hands back a value with
+an honest probability.
 
 **Code the certain, believe the rest.**
 
-## The surface
+## Write what you know
 
-What you write yourself is certain, and the model can never touch it:
-
-```python
-inv.total = 1249.50      # your assignment: probability 1.0, final
-```
-
-What you left blank is believed. The first belief in the panel answers;
-the validators judge its candidate and can veto it (`TokenSubset` above
-refuses any number that isn't actually in the text) — but they only ever
-gate, never inflate: the probability you get is the answering belief's own.
-Corroboration doesn't turn a 0.6 into a 0.9; it turns it into a 0.6 that
-nothing objected to. Even attributes nobody declared work this way:
+Anything you set yourself is certain, and nothing can change it:
 
 ```python
-inv.due_date             # never declared — imagined on first read,
-                         # validated like everything else, priced like
-                         # everything else
+inv.total = 1249.50        # yours: probability 1.0, final
 ```
 
-Three operators cover the rest — `+`, `~`, and `@` in three costumes:
+Anything you leave blank is believed — even attributes you never
+declared:
+
+```python
+inv.due_date               # works anyway: proposed on first read,
+                           # validated like everything else
+```
+
+## Every answer carries its price
+
+Three operators cover the whole surface:
 
 | form | meaning |
 |---|---|
 | `+thing` | the value |
 | `~thing` | the probability |
+| `thing @ 0.9` | confidence gate — below the bar turns falsy |
 | `thing @ {"total": float}` | coerce to a schema |
-| `thing @ 0.9` | confidence gate — below the bar collapses to a falsy carrier |
 | `blob @ Invoice` | revive a saved one |
 
-Low confidence fails *visibly*: a gated value that didn't clear the bar is
-falsy and keeps its probability, so failures explain themselves instead of
-flowing onward.
+Low confidence fails *visibly* instead of flowing onward:
 
 ```python
 guess = inv.total @ 0.9
-if guess:                # gate whole branches on how sure the answer is
+if guess:                  # only runs when the answer clears the bar
     pay(+guess)
+```
+
+## Validators keep answers honest
+
+A contract attaches checks that can veto a bad answer — a number that
+isn't in the source text, a value out of range, a string outside an
+enum. Checks reject; they never inflate. The probability you get is
+always the answering belief's own.
+
+```python
+priority = contract(str, enum=["low", "normal", "high", "urgent"])
+amount   = contract(float, extracted_from="source_text", range=(0, 10_000))
+```
+
+You can also declare *expectations* — a probability bar, a maximum
+disagreement — which never block a read but mark the record wherever
+they are missed:
+
+```python
+total = contract(float, p=0.9, deviation=0.1)
 ```
 
 ## Methods nobody wrote
 
-Calling an undefined method runs an *episode*: the model works against a
-sealed snapshot of the object, proposes changes and a return value, and the
-same validators judge the result before anything lands. Writes commit
-atomically or not at all — and a model can never mark anything certain.
+Calling an undefined method runs the model against a sealed snapshot of
+the object. Proposed changes are validated and land atomically — or not
+at all. A model can never mark anything certain.
 
 ```python
 summary = inv.summarize()
-+summary, ~summary       # a value and a probability, like every read
++summary, ~summary         # a value and a probability, like every read
 ```
 
-## There is no truth here — only opinions
+## Everything is remembered
 
-The model is one belief among several. So is your code, so is every
-validator, so are you (`human("jane")`). The framework records who said
-what and never referees. It works in two strictly separated layers:
+Every opinion — who said it, what it saw, what the validators thought —
+lands in a durable store (`.thinair/opinions.db`, automatic; set
+`THINAIR_STORE=off` to opt out). Run the same program again and settled
+answers come back from the record at zero cost. Nothing you or your
+code established is ever asked twice.
 
-**Layer 1 — answering.** A read is a negotiation, not an aggregation. The
-first belief answers, validators judge the candidate and can veto it into
-another round, and what survives is *one belief's* answer carrying its own
-honest probability. Nothing is ever blended, so the number you get always
-means something: this belief said this, and nothing objected.
+## Inspect it like git
 
-**Layer 2 — settlement.** Every proposal, verdict and veto — who said it,
-what it saw — lands in a durable ledger (`.thinair/opinions.db`, on by
-default; `THINAIR_STORE=off` to opt out). The ledger is where beliefs
-finally meet: `thinair.evaluate` reads it back and grades what the readings
-*earned* — did the instrument read the same cell the same way twice, did
-independently built beliefs converge, how did stated probabilities fare
-against outcomes that later proved out. The principle doing the work:
-**agreement is evidence exactly in proportion to how likely disagreement
-was.** Two prompts on one model agreeing is cheap; a model, a code check
-and a human converging on the same value is your best evidence you're onto
-something. Disagreement is signal too — it tells you exactly where to look.
-
-The separation is deliberate: reads stay fast and honest with one priced
-opinion; the verdict about *trust* comes later, from the record, in exact
-classical math that spends no model calls. And the record pays a second
-dividend — relaunch your program and everything certain is served straight
-from it; nothing you or your code established is ever asked twice.
-
-## Inspect the record, git-style
-
-The ledger maps onto git so cleanly that the CLI is a deliberate copy: the
-tree is the object's state hash, a commit is whatever moved it — an
-assignment, an episode's atomic changeset, a belief settling a cell — and
-every entity is a branch: a ref, not part of commit identity, so unnamed
-objects with byte-identical histories collapse into one chain carrying
-every ref, exactly like branches on one commit.
+The record maps onto git so cleanly the CLI is a deliberate copy:
+commits are whatever changed the object, every entity is a branch, and
+changing the belief panel is itself a commit.
 
 ```console
-$ thinair log --all --decorate --oneline --graph
-* 9c41f2ab77d1 (HEAD -> inv-1) [episode] flag()
-| * fc28522f37 (memo-1) [assign] text = "pay this one first"
-* 5f0e88c1d24a [settle] total ⇒ 1249.5 (p 0.93 ±0.04)
-* 1e07b3a9c655 [assign] source_text = "Widget 999.00 …"
+$ thinair log --oneline
+40ea1fe90c0f (HEAD -> ticket-4417) [freeze] refund_amount = 89.9 (frozen)
+918571d773f7 [settle] sentiment ⇒ "frustrated" (p 0.66 ±0.00)
+b68dab468888 [assign] priority = "urgent" (frozen)
+01c676a6af53 [settle] customer ⇒ "Anna Virtanen" (p 0.91 ±0.04)
 
-$ thinair show HEAD               # or a hash prefix, or a branch name —
-$ thinair blame inv-1             # revisions resolve like git's
-$ thinair branch                  # (and branch -d removes one)
-$ thinair status
-$ thinair evaluate 5f0e88c1       # consult beliefs against that commit's
-                                  # state — the matrix fills itself in,
-                                  # one cell at a time, and it's recorded
-$ thinair belief add checks.py    # register your own beliefs with the
-                                  # client (list / rm to manage) — evaluate
-                                  # rebuilds and consults them too
-$ thinair diff 1e07b3a9...9c41f2ab   # two trees, cell by cell, ± colored
-$ thinair ground                  # the measurement grounding + a client
-                                  # manual for agents, pipe-pure — the
-                                  # first command of an agentic session
+$ thinair show HEAD        # the whole object + a belief × attribute matrix
+$ thinair blame ticket-4417
+$ thinair diff 01c676...40ea1fe
+$ thinair branch
 ```
 
-Wherever a believed cell appears — the log, `show`, `blame`, the matrix
-footer — it wears its *trust signature*: `(p 0.95 ±0.02)`, the resolving
-belief's honest probability with the agreeing voices' spread, painted on
-a red-to-green gradient by how well the record's other readings hold the
-same value (trigram overlap for text, relative closeness for numbers).
-Green means the record agrees; sliding toward red means dissenting
-readings landed farther away; no color means nobody has checked yet —
-green must mean agreement, never silence.  A missed declared expectation
-(`contract(float, p=0.9, deviation=0.1)`) is always hard red.
-Expectations mark, they never gate, and the answering belief never sees
-them — a belief by itself is never wrong; the spread between beliefs is
-the signal.  `show` renders
-the whole tree with the commit's change highlighted, plus a belief ×
-attribute matrix of every probability, shaded by value overlap — pure
-green is exact agreement, pure red no overlap, and a near-miss text
-reading lands in between — one panel per commit, because branches are
-pointers to content, not copies of it — and one row per mechanism, since
-the column already names the attribute.  `evaluate` doesn't stop at
-models: validators — the built-ins, and your own once registered with
-`thinair belief add` — are rebuilt from the record's stored
-configurations and re-judge the tree, so the matrix's `?` cells fill in
-for them too; `x` marks the rows nobody here can call.
+Every believed value wears its **trust signature**: `(p 0.91 ±0.04)` —
+the probability, and how far apart the beliefs that checked it landed.
+Color says the rest at a glance: the number is green when everything on
+record agrees and slides toward red when readings disagree; the parens
+are green when every belief that *could* be asked has been.
 
-Rounds and vetoes live *inside* their commit (`show` expands them, like
-`-p`); corroborating second opinions appear as notes; a replayed run
-commits nothing, exactly like a checkout. `--store` points at any
-`.thinair/opinions.db` or an archived `ledger.json` (archives are
-read-only: every command works on them except `evaluate`, which spends
-model calls and records what it hears).
+## Ask for second opinions
+
+`show` displays a matrix of every belief against every attribute, with
+`?` on each question nobody asked yet. One command asks them all:
+
+```console
+$ thinair evaluate HEAD    # consults models and validators against the
+                           # record, fills the matrix, remembers forever
+```
+
+Evaluation is idempotent — re-running costs nothing — and agreement
+between *independent* beliefs is the strongest evidence this system
+offers.
+
+## Bring your own beliefs
+
+A belief is just a class with a `judge` method. Register one and the
+CLI can rebuild and consult it like the built-ins:
+
+```console
+$ thinair belief add checks.py     # lives in .thinair/beliefs/
+$ thinair belief list
+```
+
+## Built for agents
+
+One command gives a coding agent everything: the measurement theory,
+the list of built-in checks, and a manual for this CLI.
+
+```console
+$ thinair ground                   # pipe it into the agent's context
+$ thinair --ai-readable log        # the colors, stated as text
+```
 
 ## Install
 
@@ -185,19 +174,10 @@ export THINAIR_API_KEY=...     # if the endpoint wants one
 
 Python ≥ 3.11, zero runtime dependencies.
 
-## Going deeper
-
-The quiet payoff: once model readings arrive as honest `(value, p)` pairs,
-data no parser can read — text, events, judgments — becomes *measurable*,
-and a new kind of data analysis opens up.
-[`thinair/GROUNDING.md`](thinair/GROUNDING.md) is that theory, written to be
-handed to an LLM together with your raw data ("propose a measurement
-strategy for this"); it ships inside the package. `thinair.evaluate` then
-grades what the readings earned — reliability, concordance, calibration —
-in pure classical math.
+## Learn more
 
 - [`SPEC.md`](SPEC.md) — the contract: every guarantee, stated so it can be checked.
-- [`thinair/GROUNDING.md`](thinair/GROUNDING.md) — the measurement theory, LLM-linkable.
+- [`thinair/GROUNDING.md`](thinair/GROUNDING.md) — the measurement theory, written to be handed to an LLM.
 - [`experiments/`](experiments/) — a real, disclosed run: strategy, ledger, findings.
 
 MIT licensed.
