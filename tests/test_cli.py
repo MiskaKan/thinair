@@ -36,8 +36,14 @@ def scripted_run(ledger):
         total = contract(float, extracted_from="source_text")
         note = contract(str)
 
+    class Memo(Thing):
+        __beliefs__ = [human("jane")]
+        text: str
+
     inv = Invoice(__entity__="inv-1", __ledger__=ledger, source_text=SOURCE)
     +inv.total
+    # a second chain interleaves the tape, so the graph has lanes to draw
+    Memo(__entity__="memo-1", __ledger__=ledger, text="pay this one first")
     inv.flag()                                              # episode commit
     inv.source_text = SOURCE                                # idempotent: no commit
     corroborate(inv, attrs=["total"])                       # a note, not a commit
@@ -168,6 +174,25 @@ def test_cli_reads_a_json_archive(tmp_path, capsys):
 def test_cli_refuses_a_missing_store(tmp_path):
     with pytest.raises(SystemExit):
         main(["--store", str(tmp_path / "nope.db"), "status"])
+
+
+def test_a_dog(store, capsys):
+    """log --all --decorate --oneline --graph: the go-to, made home."""
+    main(["--store", store, "log", "--all", "--decorate", "--oneline",
+          "--graph"])
+    lines = capsys.readouterr().out.strip().splitlines()
+    assert all("*" in line for line in lines)          # every commit a star
+    assert sum("HEAD -> " in line for line in lines) == 1
+    assert any("(memo-1)" in line for line in lines)   # every tip decorated
+    assert any(line.startswith("| *") or line.startswith("* |")
+               for line in lines)                      # parallel lanes drawn
+
+
+def test_graph_lanes_thread_the_full_format(store, capsys):
+    main(["--store", store, "log", "--graph"])
+    out = capsys.readouterr().out
+    assert "* commit" in out
+    assert "| Author:" in out or "Author:" in out
 
 
 # --------------------------------------------------------------------------

@@ -60,21 +60,63 @@ def _message(commit) -> str:
     return stated
 
 
+def _decorations(commits):
+    """Branch tips, git-style: every entity is a branch, its newest commit
+    the tip; the newest commit overall wears HEAD."""
+    tips: dict[str, dict] = {}
+    for commit in commits:                             # newest first: keep it
+        tips.setdefault(commit["entity"], commit)
+    out: dict[float, str] = {}
+    head_t = max((c["t"] for c in commits), default=None)
+    for entity, tip in tips.items():
+        label = f"HEAD -> {entity}" if tip["t"] == head_t else entity
+        out[tip["t"]] = f" ({label})"
+    return out
+
+
+def _lanes(commits_newest_first):
+    """One lane per entity while its chain is on screen: '*' on the commit's
+    own lane, '|' through the others -- git's graph, for parallel branches."""
+    oldest_row: dict[str, int] = {}
+    for row, commit in enumerate(commits_newest_first):
+        oldest_row[commit["entity"]] = row
+    lanes: list[str | None] = []
+    for row, commit in enumerate(commits_newest_first):
+        entity = commit["entity"]
+        if entity not in lanes:
+            try:
+                lanes[lanes.index(None)] = entity
+            except ValueError:
+                lanes.append(entity)
+        star = " ".join("*" if slot == entity else ("|" if slot else " ")
+                        for slot in lanes).rstrip()
+        bar = " ".join("|" if slot else " " for slot in lanes).rstrip()
+        if oldest_row[entity] == row:
+            lanes[lanes.index(entity)] = None
+            while lanes and lanes[-1] is None:
+                lanes.pop()
+        yield star, bar, commit
+
+
 def cmd_log(ledger, args):
-    commits = history(ledger, entity=args.entity)
+    commits = history(ledger, entity=None if args.all else args.entity)
     commits.reverse()                                  # newest first, like git
     if args.n:
         commits = commits[: args.n]
-    for commit in commits:
+    decorations = _decorations(commits) if args.decorate else {}
+    for star, bar, commit in _lanes(commits):
+        head = f"{star} " if args.graph else ""
+        body = f"{bar} " if args.graph else ""
+        decor = decorations.get(commit["t"], "")
         if args.oneline:
-            print(f"{commit['hash']} {commit['entity']:<12} "
+            print(f"{head}{commit['hash']}{decor} {commit['entity']:<12} "
                   f"[{commit['kind']}] {_message(commit)}")
             continue
-        print(f"commit {commit['hash']} ({commit['entity']})")
-        print(f"Author: {commit['author']}")
-        print(f"Date:   t={commit['t']:g}")
-        print()
-        print(f"    {_message(commit)}")
+        print(f"{head}commit {commit['hash']}{decor} ({commit['entity']})")
+        print(f"{body}Author: {commit['author']}")
+        print(f"{body}Date:   t={commit['t']:g}")
+        print(body.rstrip())
+        print(f"{body}    {_message(commit)}")
         detail = []
         if commit["rounds"] > 1 or commit["vetoes"]:
             detail.append(f"{commit['rounds']} rounds, "
@@ -84,8 +126,8 @@ def cmd_log(ledger, args):
         if commit.get("unknown_judges"):
             detail.append("? unverifiable vetoes (judges undescribed)")
         for line in detail:
-            print(f"    ({line})")
-        print()
+            print(f"{body}    ({line})")
+        print(body.rstrip())
 
 
 def cmd_show(ledger, args):
@@ -322,6 +364,13 @@ def main(argv=None) -> int:
     log = sub.add_parser("log", help="the commits, newest first")
     log.add_argument("entity", nargs="?", default=None)
     log.add_argument("--oneline", action="store_true")
+    log.add_argument("--all", action="store_true",
+                     help="every entity's chain (the default when no entity "
+                          "is named)")
+    log.add_argument("--decorate", action="store_true",
+                     help="mark branch tips; the newest commit wears HEAD")
+    log.add_argument("--graph", action="store_true",
+                     help="draw the entity lanes")
     log.add_argument("-n", type=int, default=None)
     log.set_defaults(run=cmd_log)
 

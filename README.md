@@ -115,10 +115,11 @@ assignment, an episode's atomic changeset, a belief settling a cell — and
 every entity is a branch with its own chain.
 
 ```console
-$ thinair log inv-1 --oneline
-9c41f2ab77d1 inv-1  [episode] flag()
-5f0e88c1d24a inv-1  [settle]  total ⇒ 1249.5 (p 0.93)
-1e07b3a9c655 inv-1  [assign]  source_text = "Widget 999.00 …"
+$ thinair log --all --decorate --oneline --graph
+* 9c41f2ab77d1 (HEAD -> inv-1) inv-1  [episode] flag()
+| * fc28522f37 (memo-1) memo-1 [assign]  text = "pay this one first"
+* 5f0e88c1d24a inv-1  [settle]  total ⇒ 1249.5 (p 0.93)
+* 1e07b3a9c655 inv-1  [assign]  source_text = "Widget 999.00 …"
 
 $ thinair show 5f0e88c1
 $ thinair blame inv-1
