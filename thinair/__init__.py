@@ -29,6 +29,43 @@ capability: assignment, code execution, and the explicit ``freeze`` verb.
 
     inv = Invoice(source_text=open("invoice.txt").read())
     print(+inv.total, ~inv.total)
+
+**What this package is for.**  A large language model is not an oracle; it
+is a **measurement instrument**: it projects things onto axes you name.
+thinair makes that operational.  Any nameable question becomes a contracted
+attribute; the model's reading arrives as an opinion ``(value, p)``, never a
+fact; validators are laws whose degree of violation is itself a reading;
+dissimilar beliefs on one panel are independent paths; and the ledger
+records everything, so confidence is *earned* -- by coherence that nothing
+enforced, and by concordance with the frozen ground -- never assumed.
+
+This buys a new kind of data analysis.  Text, events, judgments -- data no
+parser can read -- become measurable: sort things that have no numeric key
+("which should we staff first?"), compare pairwise and settle the
+comparisons into interval scores, project two unlike corpora onto shared
+axes and correlate the clouds, measure a collection as one thing, measure
+the instrument itself.  **The model is a column factory**: it is consulted
+only where no deterministic reader exists, and everything downstream of a
+reading -- sorting, statistics, aggregation -- stays classical, exact and
+free.  If a regex can read the field, a regex is the belief.
+
+The loop, when handed raw data and asked to create value from it:
+
+1. Read ``thinair/GROUNDING.md`` -- it ships inside this package and is
+   written to be linked, as-is, to an LLM together with sample data.  Part 1
+   is the measurement theory (the four pillars), Part 2 the strategy
+   protocol to answer with, Part 3 the mapping onto this framework.
+2. Run the strategy as an ordinary thinair program: Things, contracts,
+   panels -- it needs no framework surface beyond what you see above.
+3. Settle the record with ``thinair.evaluate``: reliability, discrimination,
+   concordance with frozen outcomes, calibration of the stated ``p`` -- what
+   did the readings *earn*.  Only licensed statistics; settlement is
+   classical math and spends no model calls.
+4. Let the grades pick the next strategy.  Every opinion lands in the
+   durable store (``.thinair/``) by default, so structure accumulates:
+   readings persist, and yesterday's record is today's instrument.
+
+``SPEC.md`` in the repository is the as-built contract.
 """
 
 from __future__ import annotations
