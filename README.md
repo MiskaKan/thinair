@@ -42,9 +42,9 @@ inv.due_date             # never declared — imagined on first read,
                          # everything else
 ```
 
-Three operators cover the rest:
+Three operators cover the rest — `+`, `~`, and `@` in three costumes:
 
-| | |
+| form | meaning |
 |---|---|
 | `+thing` | the value |
 | `~thing` | the probability |
