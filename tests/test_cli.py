@@ -291,6 +291,49 @@ def test_source_renders_the_tree_annotated(store, capsys):
     assert 'note = "overdue"' in out                     # the episode's write
 
 
+def test_show_lists_every_proposer_with_dash_for_the_silent(store, capsys):
+    """The readings panel: who read this cell, and who never did."""
+    main(["--store", store, "log", "--oneline", "inv-1"])
+    settle = [l for l in capsys.readouterr().out.splitlines()
+              if "[settle]" in l][0].split()[0]
+    main(["--store", store, "show", settle])
+    out = capsys.readouterr().out
+    assert "readings:" in out
+    assert "model:small-fast" in out and "resolving" in out
+    assert "model:qwen3-35b" in out and "corroboration" in out
+    assert "human:jane" in out
+    silent = [l for l in out.splitlines() if l.strip().endswith(" -")
+              or l.strip().endswith("-")]
+    assert any("human:jane" in l for l in silent)      # jane never read total
+
+
+def test_evaluate_is_cached_into_the_readings_panel(store, capsys):
+    """thinair evaluate at a commit -> the reading is on record from then
+    on: visible in show, and never asked again under the same exposure."""
+    from thinair.beliefs import restore_config, set_config
+
+    engine = FakeEngine([{"value": 89.9, "p": 0.6}])
+    previous = set_config(None, engine=engine)
+    try:
+        main(["--store", store, "evaluate", "deepseek-v4-flash"])
+        capsys.readouterr()
+        spent = engine.call_count
+
+        main(["--store", store, "log", "--oneline", "inv-1"])
+        settle = [l for l in capsys.readouterr().out.splitlines()
+                  if "[settle]" in l][0].split()[0]
+        main(["--store", store, "show", settle])
+        out = capsys.readouterr().out
+        assert "model:deepseek-v4-flash" in out        # the cache, visible
+        assert "89.9" in out and "corroboration" in out
+
+        main(["--store", store, "evaluate", "deepseek-v4-flash"])
+        assert "asked and answered" in capsys.readouterr().out
+        assert engine.call_count == spent              # cached from there on
+    finally:
+        restore_config(None, previous)
+
+
 def test_ground_prints_the_grounding_pipe_pure(tmp_path, monkeypatch, capsys):
     """No store needed, none created, nothing on stdout but the file."""
     monkeypatch.chdir(tmp_path)

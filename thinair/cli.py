@@ -163,6 +163,49 @@ def cmd_log(ledger, args):
         print(body.rstrip())
 
 
+def _proposer_roster(ledger):
+    """Every belief on record that answers cells (models, humans) -- the
+    rows of the readings panel; judges verdict, they do not read."""
+    roster = []
+    for belief_id in ledger.beliefs():
+        if belief_id.startswith(("policy:", "changeset:")):
+            continue                       # runtime authors, not readers
+        row = getattr(ledger, "belief_row", lambda _id: None)(belief_id)
+        if row is not None and row["proposes"]:
+            roster.append(belief_id)
+        elif belief_id.startswith(("model:", "human:")):
+            if belief_id not in roster:
+                roster.append(belief_id)
+    return roster
+
+
+def _readings(ledger, commit):
+    """Per changed cell: what every known proposer says -- ``-`` where one
+    is silent.  Corroborations recorded by ``thinair evaluate`` live here
+    from then on: the cache, made visible."""
+    roster = _proposer_roster(ledger)
+    if not roster:
+        return
+    print()
+    print("readings:")
+    for attr in sorted(commit["changes"]):
+        print(f"  {attr}:")
+        for belief_id in roster:
+            label = belief_id[:44]
+            latest = ledger.latest(commit["entity"], attr, belief=belief_id)
+            if latest is None:
+                print(dim(f"    {label:<46} -"))
+                continue
+            meta = latest.meta or {}
+            tag = ("corroboration" if meta.get("corroboration") else
+                   "frozen" if latest.frozen else
+                   "resolving" if belief_id == commit["author"] else "")
+            line = f"    {label:<46} {_value(latest.value, 40)}"
+            if not latest.frozen:
+                line += f" (p {latest.p:g})"
+            print(green(line) + (dim(f"   {tag}") if tag else ""))
+
+
 def cmd_show(ledger, args):
     commits = history(ledger)
     matches = [c for c in commits if c["hash"].startswith(args.commit)]
@@ -195,6 +238,7 @@ def cmd_show(ledger, args):
                       f"(p={p:g})"))
         for judge in commit.get("unknown_judges", ()):
             print(f"?     {judge} judged this; necessity unknown here")
+        _readings(ledger, commit)
         print()
 
 

@@ -207,7 +207,10 @@ The `thinair` command inspects any store or `ledger.json` archive
 git-style — `log`, `show`, `status`, `branch` (entities are branches),
 `blame`, `diff A...B` (two trees, cell by cell), `source [commit]` (the
 tree as annotated source), `beliefs [commit]` — a pure derivation over
-§12's `history`, spending nothing.  Commit ids chain
+§12's `history`, spending nothing.  `show` ends with the readings panel:
+every proposer on record, per changed cell — its latest reading, or `-`
+where it never spoke — so what `evaluate` records is visible there from
+then on.  Commit ids chain
 entity | parent | tree, so identical content on two entities never shares
 an id; the tree itself stays the bare state hash episodes point at.
 Output colors only a terminal; `NO_COLOR` wins.  `thinair ground` prints the shipped GROUNDING.md
