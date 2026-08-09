@@ -740,19 +740,21 @@ def test_log_has_no_branch_column_and_decorates_by_default(store, capsys):
     assert "HEAD -> " not in out and "(inv-1)" not in out
 
 
-def test_matrix_separates_out_of_scope_from_never_asked(store, capsys):
-    """An empty matrix cell says why: '-' the belief is scoped elsewhere
-    and cannot speak; '?' it could be asked and never was."""
+def test_matrix_merges_scoped_rows_and_marks_the_unreachable(store, capsys):
+    """One row per mechanism: scoped wrappers pool into their inner
+    belief's row (the column names the attribute).  An empty cell says
+    why: '?' the client could ask; 'x' it has no way to call this one."""
     main(["--store", store, "log", "--oneline", "inv-1"])
     settle = [l for l in capsys.readouterr().out.splitlines()
               if "[settle]" in l][0].split()[0]
     main(["--store", store, "show", settle])
     out = capsys.readouterr().out
-    scoped = [l for l in out.splitlines() if "@total" in l][0]
-    assert "-" in scoped and "?" not in scoped           # total-only belief
-    jane = [l for l in out.splitlines()
+    matrix = out[out.index("matrix:"):out.index("readings:")]
+    assert "@total" not in matrix                        # merged away
+    assert "tokenSubset[source_text" in matrix           # the mechanism row
+    jane = [l for l in matrix.splitlines()
             if l.strip().startswith("human:jane")][0]
-    assert "?" in jane                                   # askable, unasked
+    assert "x" in jane                                   # nobody to call
 
 
 def test_evaluate_ends_with_the_filled_matrix_when_piped(store, capsys):
@@ -834,7 +836,98 @@ def test_matrix_shades_by_value_overlap(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr("thinair.cli._tty", lambda: True)
     main(["--store", str(tmp_path / "o.db"), "show", "HEAD"])
     out = capsys.readouterr().out
-    assert "\x1b[38;5;46m" in out                        # exact: pure green
-    mids = [code for code in ("202", "208", "214", "220", "226", "190",
-                              "154", "118") if f"\x1b[38;5;{code}m" in out]
-    assert mids                                          # partial: mid-ramp
+    matrix = out[out.index("matrix:"):out.index("readings:")]
+    assert "\x1b[32m" in matrix                          # exact: theme green
+    assert "\x1b[2;32m" in matrix or "\x1b[33m" in matrix \
+        or "\x1b[2;31m" in matrix                        # partial: between
+
+
+# --------------------------------------------------------------------------
+# custom beliefs: registered with the client, callable by evaluate
+# --------------------------------------------------------------------------
+
+CUSTOM_BELIEF = '''\
+from thinair.beliefs import Discriminative
+
+
+class EndsWithPeriod(Discriminative):
+    """The candidate text finishes its sentence."""
+
+    def judge(self, value, e, attr):
+        if not isinstance(value, str):
+            return None
+        return 1.0 if value.endswith(".") else 0.25
+'''
+
+
+def test_belief_add_list_rm(store, tmp_path, capsys):
+    source = tmp_path / "sentences.py"
+    source.write_text(CUSTOM_BELIEF)
+
+    main(["--store", store, "belief", "add", str(source)])
+    assert "EndsWithPeriod" in capsys.readouterr().out
+
+    main(["--store", store, "belief", "list"])
+    listed = capsys.readouterr().out
+    assert "sentences.py" in listed and "EndsWithPeriod" in listed
+
+    main(["--store", store, "belief", "rm", "sentences"])
+    capsys.readouterr()
+    main(["--store", store, "belief", "list"])
+    assert "sentences" not in capsys.readouterr().out
+
+    with pytest.raises(SystemExit):
+        main(["--store", store, "belief", "rm", "sentences"])
+    with pytest.raises(SystemExit):
+        main(["--store", store, "belief", "add", str(tmp_path / "nope.py")])
+
+
+def test_belief_add_refuses_files_without_beliefs(store, tmp_path):
+    source = tmp_path / "empty.py"
+    source.write_text("x = 1\n")
+    with pytest.raises(SystemExit):
+        main(["--store", store, "belief", "add", str(source)])
+
+
+def test_evaluate_consults_registered_custom_beliefs(store, tmp_path,
+                                                     capsys):
+    """A custom belief the app used is rebuildable once its file is
+    registered: kind resolves to the class, config rebuilds it, and it
+    re-judges the tree beside the built-ins."""
+    from thinair.cli import _load_custom
+
+    source = tmp_path / "sentences.py"
+    source.write_text(CUSTOM_BELIEF)
+    main(["--store", store, "belief", "add", str(source)])
+    capsys.readouterr()
+
+    cls = _load_custom(SqliteLedger(store))["EndsWithPeriod"]
+    engine = FakeEngine([{"value": "All good here.", "p": 0.9}])
+
+    class Report(Thing):
+        __beliefs__ = [model("small-fast", engine=engine), human("jane"),
+                       cls(necessary=False)]
+        text = contract(str)
+
+    +Report(__entity__="rep-7", __ledger__=SqliteLedger(store)).text
+
+    from thinair.beliefs import restore_config, set_config
+    previous = set_config(None, engine=FakeEngine([{"value": "All good here.",
+                                                    "p": 0.7}]))
+    try:
+        main(["--store", store, "evaluate", "rep-7"])
+        out = capsys.readouterr().out
+    finally:
+        restore_config(None, previous)
+    assert "endsWithPeriod judges p 1" in out
+
+
+def test_judges_rebuild_cold_from_config(store, monkeypatch):
+    """Without a warm registry, the config column alone rebuilds the
+    instrument -- the truly-cold CLI path."""
+    import thinair.beliefs as B
+    from thinair.cli import _reconstructible_judges
+
+    monkeypatch.setattr(B, "_REGISTRY", {})
+    judges = _reconstructible_judges(SqliteLedger(store), custom={})
+    assert any(j.id.startswith("tokenSubset") for j in judges)

@@ -11,6 +11,8 @@ commands are deliberate copies:
     thinair status                              the store, summarized
     thinair branch [-d name]                    entities and their heads
     thinair blame <entity>                      every cell: who set it, when
+    thinair belief add|rm|list [file]           custom beliefs the client can
+                                                call (.thinair/beliefs/)
     thinair evaluate [commit] [belief]          consult beliefs against a
                                                 commit's state -- spends
                                                 calls, records corroborations
@@ -90,18 +92,21 @@ def dim(text):
     return _paint("2", text)
 
 
-#: red -> orange -> yellow -> chartreuse -> green: the 256-color ramp a
-#: matrix cell walks as its value-overlap with the held tree grows.
-_RAMP = ("196", "202", "208", "214", "220", "226", "190", "154", "118", "46")
-
-
 def shade(overlap: float, text: str) -> str:
-    """Paint by similarity: 1.0 is pure green, 0.0 pure red, and a partial
-    text or numeric overlap lands in between -- typed matching via
-    ``evaluate.similarity``, so "how green" means the same thing a
-    settlement's ``~`` metric means."""
-    index = min(len(_RAMP) - 1, max(0, int(overlap * len(_RAMP))))
-    return _paint(f"38;5;{_RAMP[index]}", text)
+    """Paint by similarity, in the terminal's own palette: exact agreement
+    is the theme's green, no overlap its red, and partial text or numeric
+    overlap lands between as faded green, yellow, faded red -- typed
+    matching via ``evaluate.similarity``, so "how green" means the same
+    thing a settlement's ``~`` metric means."""
+    if overlap >= 1.0:
+        return green(text)
+    if overlap >= 0.66:
+        return _paint("2;32", text)
+    if overlap >= 0.33:
+        return yellow(text)
+    if overlap > 0.0:
+        return _paint("2;31", text)
+    return red(text)
 
 
 def _p_verdict(commit, attr, p):
@@ -278,51 +283,79 @@ def _readings(ledger, commit):
             print(green(line) + (dim(f"   {tag}") if tag else ""))
 
 
-def _scope_of(ledger, belief_id, attrs):
-    """The one attribute a scoped belief speaks at, or ``None`` (unscoped).
+def _base_id(ledger, belief_id, attrs):
+    """A scoped wrapper's row is its inner mechanism's row: the ``@attr``
+    suffix says nothing the matrix column doesn't already say.  The belief
+    table knows (``kind == "Scoped"``); cold archives fall back to the id
+    convention -- a model id's ``@T0.2/...`` tail never names an attribute
+    of the tree."""
+    if "@" not in belief_id:
+        return belief_id
+    head, tail = belief_id.rsplit("@", 1)
+    row = getattr(ledger, "belief_row", lambda _id: None)(belief_id) or {}
+    if row.get("kind") == "Scoped" or tail in attrs:
+        return head
+    return belief_id
 
-    The belief table knows (``kind == "Scoped"``); cold archives fall back
-    to the id itself, whose ``@<attr>`` suffix is the scoping convention --
-    a model id's ``@T0.2/...`` tail never names an attribute of the tree.
-    """
-    row = getattr(ledger, "belief_row", lambda _id: None)(belief_id)
-    tail = belief_id.rsplit("@", 1)[-1] if "@" in belief_id else None
-    if row is not None and row.get("kind") == "Scoped":
-        return tail
-    return tail if tail in attrs else None
+
+def _can_fill(ledger, belief_id, custom):
+    """Could ``thinair evaluate`` fill this row's empty cells from here?
+    Models always (the id is the configuration); humans and code never (no
+    one to call); anything else when its instance is registered live or
+    its class + stored config rebuild it."""
+    row = getattr(ledger, "belief_row", lambda _id: None)(belief_id) or {}
+    if belief_id.startswith("model:") or row.get("kind") == "ModelBelief":
+        return True
+    if belief_id.startswith(("human:", "code:")) \
+            or row.get("kind") in ("HumanBelief", "CodeBelief", "Scoped"):
+        return False
+    from .beliefs import lookup
+    if lookup(belief_id) is not None:
+        return True
+    config = row.get("config")
+    if not config or "__unjson__" in config:
+        return False
+    from . import validators as V
+    cls = getattr(V, row.get("kind") or "", None) \
+        or (custom or {}).get(row.get("kind"))
+    return isinstance(cls, type)
 
 
-def _matrix_lines(ledger, commit, held, extra=(), active=None, always=False):
+def _matrix_lines(ledger, commit, held, extra=(), active=None, always=False,
+                  custom=None):
     """Belief × attribute over the commit's whole tree, as rendered lines:
     each cell is that belief's latest stated p, shaded by how much its
     value overlaps what the tree holds (``evaluate.similarity``): pure
     green is exact agreement, pure red is no overlap at all, and partial
-    text or numeric matches land between.  An empty cell says why it is
-    empty: ``-`` where the belief is scoped elsewhere and cannot speak,
-    ``?`` where it could be asked and never was (``thinair evaluate``
-    fills those in; ``active`` marks the cell being consulted right now
-    with ``…``).  ``extra`` guarantees a row for beliefs about to speak.
-    Opinions pool across the commit's refs: one commit, one panel."""
+    text or numeric matches land between.  A scoped wrapper pools into
+    its inner mechanism's row -- the column already names the attribute.
+    An empty cell says why it is empty: ``?`` where the belief could be
+    asked and never was (``thinair evaluate`` fills those in; ``active``
+    marks the cell being consulted right now with ``…``), ``x`` where
+    this client has no way to call it.  ``extra`` guarantees a row for
+    beliefs about to speak.  Opinions pool across the commit's refs: one
+    commit, one panel."""
     attrs = sorted(held)
+    bases = set(attrs)
     rows: dict[str, dict] = {}
     for entity in commit["entities"]:
         for attr in attrs:
             for o in ledger.opinions(entity=entity, attr=attr):
                 if o.belief.startswith(("policy:", "changeset:")):
                     continue
-                rows.setdefault(o.belief, {})[attr] = \
-                    (o.p, similarity(o.value, held[attr]))
+                rows.setdefault(_base_id(ledger, o.belief, bases), {})[attr] \
+                    = (o.p, similarity(o.value, held[attr]))
     for belief_id in extra:
-        rows.setdefault(belief_id, {})
+        rows.setdefault(_base_id(ledger, belief_id, bases), {})
     if not always and len(rows) < 2:
         return []                    # a matrix of one voice says nothing
     width = max(8, *(min(len(a), 14) for a in attrs)) + 2
     lines = ["matrix:  " + dim("(rows beliefs, columns attributes; shade = "
                                "value overlap, green exact ... red none; "
-                               "- out of scope, ? never asked)"),
+                               "? never asked, x unreachable from here)"),
              dim(" " * 46 + "".join(a[:14].rjust(width) for a in attrs))]
     for belief_id, cells_ in rows.items():
-        scope = _scope_of(ledger, belief_id, set(attrs))
+        fillable = _can_fill(ledger, belief_id, custom)
         line = f"  {belief_id[:44]:<44}"
         for attr in attrs:
             got = cells_.get(attr)
@@ -330,8 +363,7 @@ def _matrix_lines(ledger, commit, held, extra=(), active=None, always=False):
                 if active == (belief_id, attr):
                     line += yellow("…".rjust(width))
                     continue
-                mark = "-" if scope is not None and scope != attr else "?"
-                line += dim(mark.rjust(width))
+                line += dim(("?" if fillable else "x").rjust(width))
                 continue
             p, overlap = got
             line += shade(overlap, f"{p:.2f}".rjust(width))
@@ -340,7 +372,7 @@ def _matrix_lines(ledger, commit, held, extra=(), active=None, always=False):
 
 
 def _matrix(ledger, commit, held):
-    lines = _matrix_lines(ledger, commit, held)
+    lines = _matrix_lines(ledger, commit, held, custom=_load_custom(ledger))
     if lines:
         print()
         for line in lines:
@@ -552,6 +584,113 @@ def _model_names(ledger):
     return names
 
 
+# -- custom beliefs: user instruments the client can rebuild ---------------
+
+#: modules already imported this process, by real path -- re-importing a
+#: belief file would mint duplicate classes and trip invariant 6's
+#: same-id-same-type check.
+_CUSTOM_MODULES: dict = {}
+
+
+def _beliefs_dir(ledger):
+    """``<store dir>/beliefs`` -- next to opinions.db; archives have none."""
+    path = getattr(ledger, "path", None)
+    if not path:
+        return None
+    return os.path.join(os.path.dirname(os.path.abspath(path)), "beliefs")
+
+
+def _import_module(path):
+    real = os.path.realpath(path)
+    if real in _CUSTOM_MODULES:
+        return _CUSTOM_MODULES[real]
+    import importlib.util
+    name = "thinair_beliefs_" + os.path.splitext(os.path.basename(path))[0]
+    try:
+        spec = importlib.util.spec_from_file_location(name, real)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+    except Exception:
+        module = None
+    _CUSTOM_MODULES[real] = module
+    return module
+
+
+def _load_custom(ledger):
+    """Import every registered belief file; return {class name: class}.
+
+    Importing also registers any module-level belief *instances* under
+    their durable ids, which is the other door ``evaluate`` walks through
+    (``lookup``).  A file that fails to import is skipped -- ``thinair
+    belief list`` shows the damage."""
+    import glob
+
+    classes: dict[str, type] = {}
+    directory = _beliefs_dir(ledger)
+    if not directory or not os.path.isdir(directory):
+        return classes
+    from .beliefs import Belief
+
+    for path in sorted(glob.glob(os.path.join(directory, "*.py"))):
+        module = _import_module(path)
+        if module is None:
+            continue
+        for obj in vars(module).values():
+            if isinstance(obj, type) and issubclass(obj, Belief):
+                classes[obj.__name__] = obj
+    return classes
+
+
+def cmd_belief(ledger, args):
+    """``thinair belief add <file.py> | rm <name> | list`` -- the custom
+    instruments this store's client can rebuild, kept in
+    ``.thinair/beliefs/``."""
+    import glob
+    import shutil
+
+    directory = _beliefs_dir(ledger)
+    if directory is None:
+        sys.exit("fatal: custom beliefs live beside a store; archives "
+                 "have none")
+    if args.action == "list":
+        from .beliefs import Belief
+        for path in sorted(glob.glob(os.path.join(directory, "*.py"))):
+            module = _import_module(path)
+            if module is None:
+                print(f"  {os.path.basename(path):<24} (does not import)")
+                continue
+            names = [obj.__name__ for obj in vars(module).values()
+                     if isinstance(obj, type) and issubclass(obj, Belief)]
+            print(f"  {os.path.basename(path):<24} {', '.join(names) or '-'}")
+        return
+    if not args.name:
+        sys.exit(f"fatal: thinair belief {args.action} needs a name")
+    if args.action == "add":
+        if not os.path.exists(args.name):
+            sys.exit(f"fatal: no such file: {args.name}")
+        os.makedirs(directory, exist_ok=True)
+        target = os.path.join(directory, os.path.basename(args.name))
+        shutil.copyfile(args.name, target)
+        module = _import_module(target)
+        if module is None:
+            os.remove(target)
+            sys.exit(f"fatal: {args.name} does not import; not registered")
+        from .beliefs import Belief
+        names = [obj.__name__ for obj in vars(module).values()
+                 if isinstance(obj, type) and issubclass(obj, Belief)]
+        if not names:
+            os.remove(target)
+            sys.exit(f"fatal: {args.name} defines no Belief subclass")
+        print(f"Registered {os.path.basename(target)}: {', '.join(names)}")
+        return
+    target = os.path.join(directory, args.name if args.name.endswith(".py")
+                          else args.name + ".py")
+    if not os.path.exists(target):
+        sys.exit(f"error: no registered belief file '{args.name}'")
+    os.remove(target)
+    print(f"Removed {os.path.basename(target)}.")
+
+
 class _HeldValue:
     """A stub proposer serving the record's held value, so a rebuilt judge
     has a candidate to judge -- the tree speaks for itself."""
@@ -571,17 +710,21 @@ class _HeldValue:
         return (value, 1.0 if frozen else p)
 
 
-def _reconstructible_judges(ledger):
+def _reconstructible_judges(ledger, custom=None):
     """Validators rebuilt from the record: the belief table stores each
     instrument's constructor configuration (invariant 6 -- the id names a
     fixed configuration; the config column makes it loadable), and the
-    classes ship in ``thinair.validators``.  Scoped wrappers are skipped --
-    their inner mechanism is described separately and judges every cell.
-    Anything whose config did not survive JSON is skipped, silently:
-    a judge that cannot be rebuilt exactly must not be rebuilt at all.
+    classes come from ``thinair.validators`` plus the store's own
+    registered belief files (``thinair belief add``).  A live registered
+    instance under the row's id is used as-is -- that is how module-level
+    instances in belief files arrive.  Scoped wrappers are skipped: their
+    inner mechanism is described separately and judges every cell.
+    Anything whose config did not survive JSON is skipped, silently: a
+    judge that cannot be rebuilt exactly must not be rebuilt at all.
     """
     import json as _json
     from . import validators as V
+    from .beliefs import lookup
 
     rows = getattr(ledger, "belief_rows", lambda: [])()
     out = []
@@ -589,10 +732,14 @@ def _reconstructible_judges(ledger):
         if row["kind"] in (None, "Scoped", "ModelBelief", "HumanBelief",
                            "CodeBelief"):
             continue
+        live = lookup(row["id"])
+        if live is not None:
+            out.append(live)
+            continue
         config = row.get("config")
         if not config or "__unjson__" in config:
             continue
-        cls = getattr(V, row["kind"], None)
+        cls = getattr(V, row["kind"], None) or (custom or {}).get(row["kind"])
         if cls is None or not isinstance(cls, type):
             continue
         try:
@@ -640,9 +787,10 @@ def cmd_evaluate(ledger, args):
     # rebuilt from the record re-judge the held tree.
     entity = commit["entities"][0]
     held = {attr: spec[0] for attr, spec in cells.items()}
+    custom = _load_custom(ledger)
     instruments = [model(name) for name in names]
     if belief_arg == "*":
-        instruments += _reconstructible_judges(ledger)
+        instruments += _reconstructible_judges(ledger, custom)
     extra = [b.id for b in instruments]
     print(f"evaluate {', '.join(names)}"
           + (f" + {len(instruments) - len(names)} rebuilt validators"
@@ -658,7 +806,7 @@ def cmd_evaluate(ledger, args):
         if block:
             sys.stdout.write(f"\x1b[{block}A\x1b[J")
         lines = _matrix_lines(ledger, commit, held, extra=extra,
-                              active=active, always=True)
+                              active=active, always=True, custom=custom)
         for line in lines:
             print(line)
         block = len(lines)
@@ -711,7 +859,7 @@ def cmd_evaluate(ledger, args):
                 emit(f"  {attr:<18} {instrument.id[:40]} judges p {~got:g}")
     if not live:
         for line in _matrix_lines(ledger, commit, held, extra=extra,
-                                  always=True):
+                                  always=True, custom=custom):
             print(line)
 
 
@@ -828,6 +976,14 @@ def main(argv=None) -> int:
     blame = sub.add_parser("blame", help="every cell: who set it, when")
     blame.add_argument("entity")
     blame.set_defaults(run=cmd_blame)
+
+    belief = sub.add_parser(
+        "belief", aliases=["beliefs"],
+        help="custom beliefs the client can call: add <file.py> / "
+             "rm <name> / list")
+    belief.add_argument("action", choices=("add", "rm", "list"))
+    belief.add_argument("name", nargs="?", default=None)
+    belief.set_defaults(run=cmd_belief)
 
     evaluate = sub.add_parser(
         "evaluate", help="consult beliefs against a commit's state "

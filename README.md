@@ -130,6 +130,9 @@ $ thinair status
 $ thinair evaluate 5f0e88c1       # consult beliefs against that commit's
                                   # state — the matrix fills itself in,
                                   # one cell at a time, and it's recorded
+$ thinair belief add checks.py    # register your own beliefs with the
+                                  # client (list / rm to manage) — evaluate
+                                  # rebuilds and consults them too
 $ thinair diff 1e07b3a9...9c41f2ab   # two trees, cell by cell, ± colored
 $ thinair ground                  # print the measurement grounding, pipe-pure
                                   # — the first command of an agentic session
@@ -148,9 +151,12 @@ the whole tree with the commit's change highlighted, plus a belief ×
 attribute matrix of every probability, shaded by value overlap — pure
 green is exact agreement, pure red no overlap, and a near-miss text
 reading lands in between — one panel per commit, because branches are
-pointers to content, not copies of it.  `evaluate` doesn't stop at
-models: validators are rebuilt from the record's stored configurations
-and re-judge the tree, so the matrix's `?` cells fill in for them too.
+pointers to content, not copies of it — and one row per mechanism, since
+the column already names the attribute.  `evaluate` doesn't stop at
+models: validators — the built-ins, and your own once registered with
+`thinair belief add` — are rebuilt from the record's stored
+configurations and re-judge the tree, so the matrix's `?` cells fill in
+for them too; `x` marks the rows nobody here can call.
 
 Rounds and vetoes live *inside* their commit (`show` expands them, like
 `-p`); corroborating second opinions appear as notes; a replayed run

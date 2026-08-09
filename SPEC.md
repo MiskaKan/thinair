@@ -217,7 +217,8 @@ settle any record without reconstructing the strategy's classes.
 
 The `thinair` command inspects any store or `ledger.json` archive
 git-style — `log`, `show [commit]`, `status`, `branch [-d name]` (entities
-are branches), `blame`, `diff A...B` (two trees, cell by cell) — a
+are branches), `blame`, `diff A...B` (two trees, cell by cell),
+`belief add <file.py> | rm <name> | list` (custom instruments, below) — a
 pure derivation over §12's `history`, spending nothing.  (`source` and
 `beliefs` were folded into `show`, which renders the annotated tree and
 the panel.)  A *commit*
@@ -237,10 +238,12 @@ a glance where beliefs diverged, and how far.  `show` renders the *whole
 tree* as of the commit with what moved highlighted and the rest as dim
 context, then a belief × attribute matrix over the tree (each cell that
 belief's latest p, shaded by its value's overlap with the held one via
-`evaluate.similarity` — pure green exact, pure red none, partial text
-or numeric matches between; an empty cell says why it is empty — `-`
-scoped elsewhere and cannot speak, `?` could be asked and never was,
-which is exactly what `evaluate` fills in), then
+`evaluate.similarity`, in the terminal's own palette — theme green
+exact, theme red none, faded/yellow between; one row per *mechanism*,
+scoped wrappers pooling into their inner belief's row since the column
+already names the attribute; an empty cell says why it is empty — `?`
+could be asked and never was, which is exactly what `evaluate` fills
+in, `x` this client has no way to call it), then
 the readings panel: every proposer, per changed cell — its latest
 reading, or `-` where it never spoke — so what `evaluate` records is
 visible there from then on.  Matrix and readings pool opinions across the commit's refs:
@@ -266,7 +269,13 @@ table stores every described belief's constructor configuration (a
 so `evaluate '*'` rebuilds each validator whose config survived JSON and
 has it re-judge the held tree — the candidate it judges is the record's
 own value.  A config that did not survive JSON is skipped entirely: a
-judge that cannot be rebuilt exactly must not be rebuilt at all.  On a
+judge that cannot be rebuilt exactly must not be rebuilt at all.
+Custom instruments extend the same door: `thinair belief add <file.py>`
+copies a belief module into `<store dir>/beliefs/`, and `evaluate`
+imports every registered file before rebuilding — classes resolve by
+kind exactly like the built-ins, and module-level instances register
+under their durable ids and are used live.  `belief rm` and
+`belief list` manage the folder; it travels with the store.  On a
 terminal it is the matrix answering itself: the table sits below the log
 and fills in one cell at a time (`…` marks the consultation in flight,
 `?` becomes a colored p as each reading lands); piped output stays plain
