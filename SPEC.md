@@ -253,7 +253,9 @@ tree* as of the commit with what moved highlighted and the rest as dim
 context, then a belief × attribute matrix over the tree (each cell that
 belief's latest p, shaded by its value's overlap with the held one via
 `evaluate.similarity`, in the terminal's own palette — theme green
-exact, theme red none, faded/yellow between; one row per *mechanism*,
+exact, theme red none, faded/yellow between; the *resolving* reading —
+the value the program actually served, its owning commit's author —
+renders bold; one row per *mechanism*,
 scoped wrappers pooling into their inner belief's row since the column
 already names the attribute; an empty cell says why it is empty — `?`
 could be asked and never was, which is exactly what `evaluate` fills

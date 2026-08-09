@@ -88,21 +88,27 @@ def dim(text):
     return _paint("2", text)
 
 
-def shade(overlap: float, text: str) -> str:
+def shade(overlap: float, text: str, bold: bool = False) -> str:
     """Paint by similarity, in the terminal's own palette: exact agreement
     is the theme's green, no overlap its red, and partial text or numeric
     overlap lands between as faded green, yellow, faded red -- typed
     matching via ``evaluate.similarity``, so "how green" means the same
-    thing a settlement's ``~`` metric means."""
+    thing a settlement's ``~`` metric means.  ``bold`` marks the resolving
+    reading (bold replaces the faint variants: emphasis and fading do not
+    mix)."""
     if overlap >= 1.0:
-        return green(text)
-    if overlap >= 0.66:
-        return _paint("2;32", text)
-    if overlap >= 0.33:
-        return yellow(text)
-    if overlap > 0.0:
-        return _paint("2;31", text)
-    return red(text)
+        code = "32"
+    elif overlap >= 0.66:
+        code = "2;32"
+    elif overlap >= 0.33:
+        code = "33"
+    elif overlap > 0.0:
+        code = "2;31"
+    else:
+        code = "31"
+    if bold:
+        code = "1;" + code.removeprefix("2;")
+    return _paint(code, text)
 
 
 def _signature_text(commit, attr, p) -> str:
@@ -473,6 +479,12 @@ def _matrix_lines(ledger, commit, held, extra=(), active=None, always=False,
     if not always and len(rows) < 2:
         return []                    # a matrix of one voice says nothing
     attachments = _attachments(ledger, custom)
+    # the resolving belief per cell -- its reading is the value the
+    # program actually served, so its number renders bold
+    resolving = {}
+    for attr, cell in (stats or {}).items():
+        owner, _p, _frozen = cell
+        resolving[attr] = _base_id(ledger, owner["author"], bases)
     footer = {attr: (stats or {}).get(attr) for attr in attrs}
     footer_texts = ["p 1.00 ±0.00" if frozen
                     else _signature_text(owner, attr, p)
@@ -482,7 +494,8 @@ def _matrix_lines(ledger, commit, held, extra=(), active=None, always=False,
                 *(len(text) for text in footer_texts)) + 2
     lines = ["matrix:  " + dim("(rows beliefs, columns attributes; shade = "
                                "value overlap, green exact ... red none; "
-                               "? never asked, x unreachable from here)"),
+                               "bold = the resolving reading; ? never "
+                               "asked, x unreachable from here)"),
              dim(" " * 46 + "".join(a[:14].rjust(width) for a in attrs))]
     for belief_id, cells_ in rows.items():
         line = f"  {belief_id[:44]:<44}"
@@ -493,7 +506,8 @@ def _matrix_lines(ledger, commit, held, extra=(), active=None, always=False,
             if got is not None:
                 # a recorded reading always shows, frozen column or not
                 p, overlap = got
-                line += shade(overlap, f"{p:.2f}".rjust(width))
+                line += shade(overlap, f"{p:.2f}".rjust(width),
+                              bold=resolving.get(attr) == belief_id)
                 continue
             if active == (belief_id, attr):
                 line += yellow("…".rjust(width))

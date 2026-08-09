@@ -1273,3 +1273,20 @@ def test_frozen_footer_colors_by_prior_estimates(tmp_path, monkeypatch,
     footer = [l for l in capsys.readouterr().out.splitlines()
               if "(held)" in l][0]
     assert "\x1b[2;31m" in footer or "\x1b[31m" in footer
+
+
+def test_the_resolving_reading_renders_bold(store, monkeypatch, capsys):
+    """The value the program actually served: its author's cell is the
+    bold one in its column."""
+    main(["--store", store, "log", "--oneline", "inv-1"])
+    settle = [l for l in capsys.readouterr().out.splitlines()
+              if "[settle]" in l][0].split()[0]
+    monkeypatch.setattr("thinair.cli._tty", lambda: True)
+    main(["--store", store, "show", settle])
+    matrix = capsys.readouterr().out.split("matrix:")[1].split("readings:")[0]
+    model_row = [l for l in matrix.splitlines()
+                 if l.strip().startswith("model:small-fast")][0]
+    assert "\x1b[1;32m" in model_row                     # bold: it resolved
+    judge_row = [l for l in matrix.splitlines()
+                 if l.strip().startswith("tokenSubset")][0]
+    assert "\x1b[1;" not in judge_row                    # judges stay plain
