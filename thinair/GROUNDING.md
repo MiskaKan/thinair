@@ -1,15 +1,5 @@
 # thinair — The Measurement Space
 
-*This file is self-contained grounding. Link it, as-is, to an LLM and it carries
-everything needed to (a) look at raw data the right way, (b) produce a concrete
-measurement strategy for creating value from that data, and (c) turn such strategies
-into thinair programs. Part 1 is the theory, Part 2 is what you do when handed data,
-Part 3 is the framework the strategies run on. When a strategy graduates from
-document to code, the rules of the build live in SPEC.md §13, next to the contract
-they belong to.*
-
----
-
 # Part 1 — The Pillars
 
 ## What this is
@@ -384,8 +374,7 @@ document.
 
 ---
 
-Without the framework, this file still works alone: link it to an LLM, provide sample
-data, and ask for a measurement strategy per Part 2. But wherever thinair is
-installed — and if `thinair ground` printed this, it is — the strategy is a waypoint,
-not the destination: write the program, run it, and let the record it leaves judge
-the strategy.
+A measurement strategy per Part 2 has value before any code exists: the plan can be
+judged before a single call is spent. But wherever thinair is installed, the strategy
+is a waypoint, not the destination: write the program, run it, and let the record it
+leaves judge the strategy.

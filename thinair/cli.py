@@ -1291,36 +1291,24 @@ SPEC.md.
 '''
 
 
-_GROUND_NOTE = """# thinair — the working grounding
-
-*This is the working set: the framework, the installed instruments, and
-the client manual — sized to land whole in an agent's context.  The
-measurement theory underneath (the pillars, the moves, the experiment
-protocol) is `thinair ground --full`; read it before designing a
-measurement strategy from raw data.*
-
----
-
-"""
-
-
 def cmd_ground(_ledger, args):
-    """The grounding, in two tiers.  Default: Part 3 of GROUNDING.md (the
-    framework) plus two generated appendices -- the built-in belief roster
-    and the client manual for agents -- small enough that a harness shows
-    it inline instead of truncating to a file.  `--full` prepends the
-    measurement theory (Parts 1-2), for strategy design.  Nothing else on
-    stdout, so the output pipes straight into an agent's context; the
-    first command of an agentic session."""
+    """The grounding, dumped as-is -- no meta, no explaining the file to
+    its reader.  Default: GROUNDING.md minus the strategy-design-only
+    stretch (the mathematical anchors and Part 2, the experiment
+    protocol), plus two generated appendices -- the built-in belief
+    roster and the client manual for agents -- sized so a harness shows
+    it inline instead of truncating to a file.  `--full` restores the
+    cut.  Nothing else on stdout, so the output pipes straight into an
+    agent's context; the first command of an agentic session."""
     from importlib.resources import files
     text = files("thinair").joinpath("GROUNDING.md").read_text(
         encoding="utf-8")
-    if getattr(args, "full", False):
-        sys.stdout.write(text)
-    else:
-        _head, sep, part3 = text.partition("\n# Part 3 ")
-        sys.stdout.write(_GROUND_NOTE)
-        sys.stdout.write(sep.lstrip("\n") + part3 if sep else text)
+    if not getattr(args, "full", False):
+        head, cut, rest = text.partition("## Mathematical anchors")
+        _skip, mark, tail = rest.partition("# Part 3 ")
+        if cut and mark:
+            text = head + mark + tail
+    sys.stdout.write(text)
     sys.stdout.write(_builtin_roster())
     sys.stdout.write(_client_manual())
 
@@ -1396,11 +1384,11 @@ def main(argv=None) -> int:
     diff.set_defaults(run=cmd_diff)
 
     ground = sub.add_parser(
-        "ground", help="print the working grounding; pipe it to an agent")
+        "ground", help="print the measurement grounding; pipe it to an agent")
     ground.add_argument("--full", action="store_true",
-                        help="prepend the measurement theory (Parts 1-2): "
-                             "read it before designing a strategy from raw "
-                             "data")
+                        help="include the experiment protocol (Part 2) and "
+                             "the mathematical anchors: for designing a "
+                             "strategy from raw data")
     ground.set_defaults(run=cmd_ground, needs_store=False)
 
     help_ = sub.add_parser("help", help="show help for thinair or a command")
