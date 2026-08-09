@@ -881,7 +881,10 @@ def history(ledger: Ledger, entity: str | None = None) -> list[dict]:
     and only three things do -- an assignment or freeze (one cell, human or
     code), an episode changeset (atomic, the call expression as message,
     the parent tree recorded at run time), and a settlement (a believed
-    cell resolving).  Deliberation -- rounds, vetoes -- lives *inside* its
+    cell resolving).  *Entities are refs, not commit identity*: the hash
+    covers parent, tree, author, kind, message and changes -- never the
+    entity -- so anonymous runs with identical histories collapse into one
+    chain carrying every ref (``entities`` per commit, ``heads`` at tips).  Deliberation -- rounds, vetoes -- lives *inside* its
     commit; corroborations are notes; replay creates nothing, exactly like
     a checkout.  Pure derivation, zero model calls; sequence ``t`` is the
     clock, as everywhere in the record.
@@ -996,48 +999,79 @@ def history(ledger: Ledger, entity: str | None = None) -> list[dict]:
     for key in list(spans):
         close(key)
 
-    # second pass: order by t, thread trees and commit ids through.  The
-    # commit id chains entity | parent commit | tree, exactly so that two
-    # entities with identical content never share an id -- identity is
-    # positional, like git's, while the *tree* stays the bare state hash
-    # (that is what episode parent pointers recorded at run time).
+    # second pass: order by t, thread trees and commit ids through.  Commit
+    # identity is git's, made literal: sha1(parent | tree | author | kind |
+    # message | changes) -- the *entity is not in the hash*.  Entities are
+    # refs: movable names pointing at commits.  Two anonymous runs with
+    # byte-identical histories therefore collapse into one chain carrying
+    # both refs, and genuinely different histories fork exactly where they
+    # diverge.  The tree stays the bare state hash episodes point at, and a
+    # commit's Date is the first time its state was reached.
     import hashlib
     events.sort(key=lambda ev: ev["t"])
-    cells: dict[str, dict] = {}
-    last_commit: dict[str, str] = {}
-    kept: list[dict] = []
+    live: dict[str, dict] = {}                 # entity -> current cells
+    tip: dict[str, dict] = {}                  # entity -> its head commit
+    by_id: dict[str, dict] = {}
+    passes: dict[str, list] = {}               # entity -> [(commit, t here)]
+    commits: list[dict] = []
     for ev in events:
-        entity_cells = cells.setdefault(ev["entity"], {})
-        ev["parent_tree"] = _state_hash(entity_cells)
-        if ev["kind"] == "episode":
-            ev["parent_matches"] = ev["parent_tree"] == ev["recorded_parent"]
+        owner = ev.pop("entity")
+        cells_ = live.setdefault(owner, {})
+        parent_tree = _state_hash(cells_)
         for attr, (value, p, frozen) in ev["changes"].items():
-            already = entity_cells.get(attr)
+            already = cells_.get(attr)
             if frozen or already is None or not already[2]:
-                entity_cells[attr] = (value, p, frozen)   # frozen wins
-        ev["tree"] = _state_hash(entity_cells)
-        if ev["tree"] == ev["parent_tree"] and ev["kind"] != "episode":
+                cells_[attr] = (value, p, frozen)         # frozen wins
+        tree = _state_hash(cells_)
+        if tree == parent_tree and ev["kind"] != "episode":
             continue        # a commit is whatever moved the state hash;
                             # an identical re-settlement moved nothing --
                             # the reading is on record, the tree stood still
-        ev["parent"] = last_commit.get(ev["entity"])
-        chain = f"{ev['entity']}|{ev['parent'] or ''}|{ev['tree']}"
-        ev["hash"] = hashlib.sha1(chain.encode("utf-8")).hexdigest()[:12]
-        last_commit[ev["entity"]] = ev["hash"]
-        kept.append(ev)
-    events = kept
+        parent_commit = tip.get(owner)
+        parent_id = parent_commit["hash"] if parent_commit else None
+        material = "|".join((
+            parent_id or "", tree, ev["author"], ev["kind"],
+            str(ev.get("message") or ""),
+            repr(sorted((attr, normal_form(value), p, frozen)
+                        for attr, (value, p, frozen) in ev["changes"].items()))))
+        commit_id = hashlib.sha1(material.encode("utf-8")).hexdigest()[:12]
+        commit = by_id.get(commit_id)
+        if commit is None:
+            commit = ev
+            commit["hash"] = commit_id
+            commit["parent"] = parent_id
+            commit["tree"] = tree
+            commit["parent_tree"] = parent_tree
+            if commit["kind"] == "episode":
+                commit["parent_matches"] = parent_tree == commit["recorded_parent"]
+            commit["entities"] = []
+            by_id[commit_id] = commit
+            commits.append(commit)
+        if owner not in commit["entities"]:
+            commit["entities"].append(owner)
+        tip[owner] = commit
+        passes.setdefault(owner, []).append((commit, ev["t"]))
 
-    # corroborations become notes on the commit that owns their cell
+    for commit in commits:
+        commit["heads"] = []
+    for owner, head in tip.items():
+        head["heads"].append(owner)
+
+    # corroborations become notes on the commit that owns their cell,
+    # located along the noting entity's own chain
     for note in notes:
-        owner = None
-        for ev in events:
-            if ev["entity"] == note.entity and note.attr in ev["changes"] \
-                    and ev["t"] < note.t:
-                owner = ev
-        if owner is not None:
-            owner.setdefault("notes", []).append(
-                (note.belief, note.attr, note.value, note.p))
-    return events
+        target = None
+        for commit, t_here in passes.get(note.entity, ()):
+            if note.attr in commit["changes"] and t_here < note.t:
+                target = commit
+        if target is not None:
+            entry = (note.belief, note.attr, note.value, note.p)
+            if entry not in target.setdefault("notes", []):
+                target["notes"].append(entry)
+
+    if entity is not None:
+        return [commit for commit, _t in passes.get(entity, ())]
+    return commits
 
 
 def _cells_of(g: dict) -> dict:

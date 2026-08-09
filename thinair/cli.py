@@ -91,29 +91,38 @@ def _message(commit) -> str:
     return stated
 
 
+def _label(commit) -> str:
+    """The display name: the first ref, with a marker when others share it."""
+    entities = commit["entities"]
+    return entities[0] if len(entities) == 1 \
+        else f"{entities[0]}(+{len(entities) - 1})"
+
+
 def _decorations(commits):
-    """Branch tips, git-style: every entity is a branch, its newest commit
-    the tip; the newest commit overall wears HEAD."""
-    tips: dict[str, dict] = {}
-    for commit in commits:                             # newest first: keep it
-        tips.setdefault(commit["entity"], commit)
-    out: dict[float, str] = {}
+    """Branch tips, git-style: refs at their head commits; the newest commit
+    overall wears HEAD.  A collapsed chain shows every ref on one tip."""
+    out: dict[str, str] = {}
     head_t = max((c["t"] for c in commits), default=None)
-    for entity, tip in tips.items():
-        label = f"HEAD -> {entity}" if tip["t"] == head_t else entity
-        out[tip["t"]] = f" ({label})"
+    for commit in commits:
+        if not commit.get("heads"):
+            continue
+        label = ", ".join(commit["heads"])
+        if commit["t"] == head_t:
+            label = "HEAD -> " + label
+        out[commit["hash"]] = f" ({label})"
     return out
 
 
 def _lanes(commits_newest_first):
-    """One lane per entity while its chain is on screen: '*' on the commit's
-    own lane, '|' through the others -- git's graph, for parallel branches."""
+    """One lane per chain while it is on screen: '*' on the commit's own
+    lane, '|' through the others -- git's graph, for parallel branches.
+    A collapsed multi-ref chain is one lane; forks get their own."""
     oldest_row: dict[str, int] = {}
     for row, commit in enumerate(commits_newest_first):
-        oldest_row[commit["entity"]] = row
+        oldest_row[commit["entities"][0]] = row
     lanes: list[str | None] = []
     for row, commit in enumerate(commits_newest_first):
-        entity = commit["entity"]
+        entity = commit["entities"][0]
         if entity not in lanes:
             try:
                 lanes[lanes.index(None)] = entity
@@ -138,14 +147,14 @@ def cmd_log(ledger, args):
     for star, bar, commit in _lanes(commits):
         head = f"{star} " if args.graph else ""
         body = f"{bar} " if args.graph else ""
-        decor = decorations.get(commit["t"], "")
+        decor = decorations.get(commit["hash"], "")
         if args.oneline:
             print(f"{head}{yellow(commit['hash'])}{yellow(decor)} "
-                  f"{commit['entity']:<12} "
+                  f"{_label(commit):<12} "
                   f"[{commit['kind']}] {_message(commit)}")
             continue
         print(f"{head}{yellow('commit ' + commit['hash'])}{yellow(decor)} "
-              f"({commit['entity']})")
+              f"({_label(commit)})")
         print(f"{body}Author: {commit['author']}")
         print(f"{body}Date:   t={commit['t']:g}")
         print(body.rstrip())
@@ -188,22 +197,26 @@ def _readings(ledger, commit):
         return
     print()
     print("readings:")
-    for attr in sorted(commit["changes"]):
-        print(f"  {attr}:")
-        for belief_id in roster:
-            label = belief_id[:44]
-            latest = ledger.latest(commit["entity"], attr, belief=belief_id)
-            if latest is None:
-                print(dim(f"    {label:<46} -"))
-                continue
-            meta = latest.meta or {}
-            tag = ("corroboration" if meta.get("corroboration") else
-                   "frozen" if latest.frozen else
-                   "resolving" if belief_id == commit["author"] else "")
-            line = f"    {label:<46} {_value(latest.value, 40)}"
-            if not latest.frozen:
-                line += f" (p {latest.p:g})"
-            print(green(line) + (dim(f"   {tag}") if tag else ""))
+    many = len(commit["entities"]) > 1
+    for entity in commit["entities"]:
+        if many:
+            print(f"  [{entity}]")
+        for attr in sorted(commit["changes"]):
+            print(f"  {attr}:")
+            for belief_id in roster:
+                label = belief_id[:44]
+                latest = ledger.latest(entity, attr, belief=belief_id)
+                if latest is None:
+                    print(dim(f"    {label:<46} -"))
+                    continue
+                meta = latest.meta or {}
+                tag = ("corroboration" if meta.get("corroboration") else
+                       "frozen" if latest.frozen else
+                       "resolving" if belief_id == commit["author"] else "")
+                line = f"    {label:<46} {_value(latest.value, 40)}"
+                if not latest.frozen:
+                    line += f" (p {latest.p:g})"
+                print(green(line) + (dim(f"   {tag}") if tag else ""))
 
 
 def cmd_show(ledger, args):
@@ -212,7 +225,8 @@ def cmd_show(ledger, args):
     if not matches:
         sys.exit(f"fatal: bad revision '{args.commit}'")
     for commit in matches:
-        print(f"{yellow('commit ' + commit['hash'])} ({commit['entity']})")
+        print(f"{yellow('commit ' + commit['hash'])} "
+              f"({', '.join(commit['entities'])})")
         print(f"Author: {commit['author']}")
         print(f"Date:   t={commit['t']:g}")
         print(f"Parent: {commit['parent'] or '(root)'}")
@@ -224,7 +238,7 @@ def cmd_show(ledger, args):
         print()
         print(f"    {_message(commit)}")
         print()
-        print(f"diff --thinair {commit['entity']}")
+        print(f"diff --thinair {_label(commit)}")
         for attr, (value, p, frozen) in sorted(commit["changes"].items()):
             mark = "frozen" if frozen else f"p={p:g}"
             print(green(f"+ {attr} = {_value(value)}   ({mark})"))
@@ -244,14 +258,14 @@ def cmd_show(ledger, args):
 
 def cmd_status(ledger, args):
     commits = history(ledger)
-    entities = {c["entity"] for c in commits}
+    entities = {e for c in commits for e in c["entities"]}
     beliefs = ledger.beliefs()
     print(f"On store {getattr(ledger, 'path', '(json archive)')}")
     print(f"{len(ledger)} opinions, {len(commits)} commits, "
           f"{len(entities)} entities, {len(beliefs)} beliefs")
     if commits:
         last = commits[-1]
-        print(f"HEAD is at {last['hash']} ({last['entity']}) "
+        print(f"HEAD is at {last['hash']} ({_label(last)}) "
               f"{_message(last)}")
 
 
@@ -259,10 +273,11 @@ def cmd_branch(ledger, args):
     commits = history(ledger)
     heads: dict[str, dict] = {}
     for commit in commits:
-        heads[commit["entity"]] = commit
+        for entity in commit.get("heads", ()):
+            heads[entity] = commit
     for entity in sorted(heads):
         head = heads[entity]
-        count = sum(1 for c in commits if c["entity"] == entity)
+        count = sum(1 for c in commits if entity in c["entities"])
         print(f"  {entity:<20} {head['hash']}  {count} commits")
 
 
@@ -341,11 +356,15 @@ def _commit_at(commits, prefix):
 
 
 def _tree_at(commits, commit):
-    """attr -> (value, p, frozen, author) for the commit's entity, as of it."""
+    """attr -> (value, p, frozen, author) as of the commit -- by walking the
+    parent pointers, which need no entity: ancestry is in the hashes."""
+    index = {c["hash"]: c for c in commits}
+    chain, cursor = [], commit
+    while cursor is not None:
+        chain.append(cursor)
+        cursor = index.get(cursor["parent"]) if cursor["parent"] else None
     cells: dict[str, tuple] = {}
-    for earlier in commits:
-        if earlier["entity"] != commit["entity"] or earlier["t"] > commit["t"]:
-            continue
+    for earlier in reversed(chain):
         for attr, (value, p, frozen) in earlier["changes"].items():
             already = cells.get(attr)
             if frozen or already is None or not already[2]:
@@ -370,9 +389,10 @@ def cmd_beliefs(ledger, args):
     scope = None
     if args.commit:
         commit = _commit_at(commits, args.commit)
-        scope = commit["entity"]
-        spoke = {o.belief for o in ledger.opinions(entity=scope)}
-        print(f"beliefs on {commit['hash']} ({scope}):")
+        spoke = {o.belief for scope in commit["entities"]
+                 for o in ledger.opinions(entity=scope)}
+        print(f"beliefs on {commit['hash']} "
+              f"({', '.join(commit['entities'])}):")
     else:
         spoke = set(ledger.beliefs())
         print("beliefs on record:")
@@ -399,7 +419,6 @@ def cmd_evaluate(ledger, args):
 
     commits = history(ledger)
     commit = _commit_at(commits, args.commit)
-    entity = commit["entity"]
     cells = _tree_at(commits, commit)
     if args.belief == "*":
         names = _model_names(ledger)
@@ -411,28 +430,31 @@ def cmd_evaluate(ledger, args):
         names = [raw[len("model:"):].split("@T")[0]
                  if raw.startswith("model:") else raw]
 
-    print(f"evaluate {', '.join(names)} @ {commit['hash']} ({entity})")
-    for name in names:
-        belief = model(name)
-        for attr in sorted(cells):
-            e = _RecordSnapshot(entity, cells, deriving=attr)
-            stamp = belief.exposure(e, attr)
-            prior = ledger.opinions(entity=entity, attr=attr, belief=belief.id)
-            if any((o.meta or {}).get("exposure") == stamp for o in prior):
-                print(f"  {attr:<18} {belief.id}: asked and answered")
-                continue
-            got = belief(e, attr)
-            if got is None:
-                continue
-            ledger.add(Opinion(
-                belief=belief.id, entity=entity, attr=attr,
-                value=+got, p=~got, frozen=False,
-                meta=dict(getattr(got, "meta", None) or {},
-                          corroboration=True, at=commit["hash"])))
-            held, _p, _frozen, _author = cells[attr]
-            verdict = "agrees" if values_equal(+got, held) else \
-                f"DIFFERS from {_value(held)}"
-            print(f"  {attr:<18} ⇒ {_value(+got)} (p {~got:g})  {verdict}")
+    print(f"evaluate {', '.join(names)} @ {commit['hash']} "
+          f"({', '.join(commit['entities'])})")
+    for entity in commit["entities"]:       # a shared commit: every ref's
+        for name in names:                  # cells get the reading
+            belief = model(name)
+            for attr in sorted(cells):
+                e = _RecordSnapshot(entity, cells, deriving=attr)
+                stamp = belief.exposure(e, attr)
+                prior = ledger.opinions(entity=entity, attr=attr,
+                                        belief=belief.id)
+                if any((o.meta or {}).get("exposure") == stamp for o in prior):
+                    print(f"  {attr:<18} {belief.id}: asked and answered")
+                    continue
+                got = belief(e, attr)
+                if got is None:
+                    continue
+                ledger.add(Opinion(
+                    belief=belief.id, entity=entity, attr=attr,
+                    value=+got, p=~got, frozen=False,
+                    meta=dict(getattr(got, "meta", None) or {},
+                              corroboration=True, at=commit["hash"])))
+                held, _p, _frozen, _author = cells[attr]
+                verdict = "agrees" if values_equal(+got, held) else \
+                    f"DIFFERS from {_value(held)}"
+                print(f"  {attr:<18} ⇒ {_value(+got)} (p {~got:g})  {verdict}")
 
 
 def cmd_diff(ledger, args):
@@ -451,12 +473,13 @@ def cmd_diff(ledger, args):
     if second:
         b = _commit_at(commits, second)
     else:
-        b = [c for c in commits if c["entity"] == a["entity"]][-1]
-    if a["t"] > b["t"] and a["entity"] == b["entity"]:
+        b = [c for c in commits
+             if set(c["entities"]) & set(a["entities"])][-1]
+    if a["t"] > b["t"] and set(a["entities"]) & set(b["entities"]):
         a, b = b, a                        # oldest on the left, like a range
     tree_a, tree_b = _tree_at(commits, a), _tree_at(commits, b)
-    print(f"diff --thinair a/{a['entity']}@{a['hash']} "
-          f"b/{b['entity']}@{b['hash']}")
+    print(f"diff --thinair a/{_label(a)}@{a['hash']} "
+          f"b/{_label(b)}@{b['hash']}")
     for attr in sorted(set(tree_a) | set(tree_b)):
         va, vb = tree_a.get(attr), tree_b.get(attr)
         if va is not None and vb is not None \
@@ -480,7 +503,7 @@ def cmd_source(ledger, args):
     commits = history(ledger)
     commit = _commit_at(commits, args.commit)
     tree = _tree_at(commits, commit)
-    print(dim(f"# {commit['entity']} @ {commit['hash']} (t={commit['t']:g})"))
+    print(dim(f"# {_label(commit)} @ {commit['hash']} (t={commit['t']:g})"))
     for attr, (value, p, frozen, author) in sorted(tree.items()):
         line = f"{attr} = {_value(value, limit=70)}"
         if not frozen:

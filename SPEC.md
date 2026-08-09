@@ -210,10 +210,13 @@ tree as annotated source), `beliefs [commit]` — a pure derivation over
 §12's `history`, spending nothing.  `show` ends with the readings panel:
 every proposer on record, per changed cell — its latest reading, or `-`
 where it never spoke — so what `evaluate` records is visible there from
-then on.  Commit ids chain
-entity | parent | tree, so identical content on two entities never shares
-an id; the tree itself stays the bare state hash episodes point at.
-Output colors only a terminal; `NO_COLOR` wins.  `thinair ground` prints the shipped GROUNDING.md
+then on.  Commit identity is git's: sha1(parent | tree | author | kind |
+message | changes) — **the entity is not in the hash; entities are refs.**
+Anonymous runs with byte-identical histories collapse into one chain
+carrying every ref, and different histories fork exactly where they
+diverge; a commit's Date is the first time its state was reached.  The
+tree itself stays the bare state hash episodes point at.  Output colors
+only a terminal; `NO_COLOR` wins.  `thinair ground` prints the shipped GROUNDING.md
 verbatim, store-free and pipe-pure, so an agentic session's first command
 can be its own grounding.  The one exception is `evaluate [belief|*] [commit]`
 (HEAD by default): it rebuilds the commit's tree as a sealed snapshot,

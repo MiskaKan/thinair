@@ -301,9 +301,9 @@ def test_evaluate_star_uses_every_reconstructible_belief(store, capsys):
         restore_config(None, previous)
 
 
-def test_identical_content_never_shares_a_commit_id(tmp_path):
-    """Two entities with byte-identical states are different commits: the id
-    chains entity | parent | tree, so identity is positional, like git's."""
+def test_identical_histories_collapse_into_refs(tmp_path):
+    """Entities are refs, not commit identity: byte-identical histories are
+    ONE chain carrying every ref, exactly git's content addressing."""
     ledger = SqliteLedger(tmp_path / "o.db")
 
     class Card(Thing):
@@ -313,9 +313,29 @@ def test_identical_content_never_shares_a_commit_id(tmp_path):
     Card(__entity__="card-1", __ledger__=ledger, text="same words")
     Card(__entity__="card-2", __ledger__=ledger, text="same words")
     commits = history(ledger)
+    assert len(commits) == 1                             # one commit
+    assert commits[0]["entities"] == ["card-1", "card-2"]
+    assert sorted(commits[0]["heads"]) == ["card-1", "card-2"]
+
+
+def test_diverging_histories_fork_where_they_diverge(tmp_path):
+    ledger = SqliteLedger(tmp_path / "o.db")
+
+    class Card(Thing):
+        __beliefs__ = [human("jane")]
+        text: str
+
+    one = Card(__entity__="card-1", __ledger__=ledger, text="same words")
+    two = Card(__entity__="card-2", __ledger__=ledger, text="same words")
+    two.note = "only mine"                               # card-2 diverges
+    commits = history(ledger)
     assert len(commits) == 2
-    assert commits[0]["hash"] != commits[1]["hash"]
-    assert commits[0]["tree"] == commits[1]["tree"]     # same content, though
+    root, fork = commits
+    assert root["entities"] == ["card-1", "card-2"]      # shared ancestry
+    assert fork["entities"] == ["card-2"]
+    assert fork["parent"] == root["hash"]                # a true fork
+    assert root["heads"] == ["card-1"]                   # card-1's tip is root
+    assert fork["heads"] == ["card-2"]
 
 
 def test_diff_between_two_commits(store, capsys):

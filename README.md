@@ -112,7 +112,9 @@ from it; nothing you or your code established is ever asked twice.
 The ledger maps onto git so cleanly that the CLI is a deliberate copy: the
 tree is the object's state hash, a commit is whatever moved it — an
 assignment, an episode's atomic changeset, a belief settling a cell — and
-every entity is a branch with its own chain.
+every entity is a branch: a ref, not part of commit identity, so unnamed
+objects with byte-identical histories collapse into one chain carrying
+every ref, exactly like branches on one commit.
 
 ```console
 $ thinair log --all --decorate --oneline --graph
