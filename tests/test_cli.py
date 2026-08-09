@@ -949,7 +949,9 @@ def test_the_consensus_view_travels_everywhere(store, capsys):
 
     matrix = out[out.index("matrix:"):out.index("readings:")]
     footer = [l for l in matrix.splitlines() if "(held)" in l]
-    assert footer and "±" in footer[0] and "frozen" in footer[0]
+    assert footer and "±" in footer[0]
+    assert "p 1.00 ±0.00" in footer[0]                   # the frozen fiat,
+                                                         # unmeasured so far
 
     from thinair.beliefs import restore_config, set_config
     previous = set_config(None, engine=FakeEngine([{"value": 1249.5,
@@ -992,3 +994,43 @@ def test_frozen_columns_are_skipped_unless_included(store, capsys):
         assert "source_text" in included and engine.call_count > spent
     finally:
         restore_config(None, previous)
+
+
+def test_a_frozen_fact_is_measurable_in_the_footer(tmp_path, capsys):
+    """Readings show through frozen columns, and the footer prices the
+    fact: p 1.00 with its deviation against what other beliefs read."""
+    from thinair import freeze
+    from thinair.beliefs import restore_config, set_config
+
+    ledger = SqliteLedger(tmp_path / "o.db")
+    engine = FakeEngine([{"value": 10.0, "p": 0.9}])
+
+    class Box(Thing):
+        __beliefs__ = [model("small-fast", engine=engine), human("jane")]
+        size = contract(float)
+
+    b = Box(__entity__="box-9", __ledger__=ledger)
+    +b.size
+    freeze(b.size)
+
+    main(["--store", str(tmp_path / "o.db"), "show", "HEAD"])
+    out = capsys.readouterr().out
+    matrix = out[out.index("matrix:"):]
+    model_row = [l for l in matrix.splitlines()
+                 if l.strip().startswith("model:small-fast")][0]
+    assert "0.90" in model_row                           # the reading shows
+    assert "p 1.00 ±0.00" in matrix                      # fact, unmeasured
+
+    previous = set_config(None, engine=FakeEngine([{"value": 10.0,
+                                                    "p": 0.7}]))
+    try:
+        main(["--store", str(tmp_path / "o.db"), "evaluate", "HEAD",
+              "deepseek-v4-flash", "--include-frozen"])
+        capsys.readouterr()
+    finally:
+        restore_config(None, previous)
+
+    main(["--store", str(tmp_path / "o.db"), "show", "HEAD"])
+    matrix = capsys.readouterr().out
+    assert "p 1.00 ±0.15" in matrix                      # σ of [1.0, 0.7]:
+                                                         # the fact, priced

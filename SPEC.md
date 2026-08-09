@@ -246,11 +246,14 @@ exact, theme red none, faded/yellow between; one row per *mechanism*,
 scoped wrappers pooling into their inner belief's row since the column
 already names the attribute; an empty cell says why it is empty — `?`
 could be asked and never was, which is exactly what `evaluate` fills
-in, `x` this client has no way to call it; a *frozen* column shows the
-freezer's own number and reads `frozen` on every other row, judged as
-of the commit shown — closing with a `(held)` footer row stating each
-cell's standing consensus, `p 0.95 ±0.02`, which updates live while
-`evaluate` fills the table), then
+in, `x` this client has no way to call it; in a *frozen* column recorded
+readings still show, but empty cells read `frozen` rather than inviting
+anyone, judged as of the commit shown — closing with a `(held)` footer
+row stating each cell's standing consensus, `p 0.95 ±0.02`, which
+updates live while `evaluate` fills the table.  The footer is the one
+place a frozen cell speaks in probability: the fiat is `p 1.00`, and its
+deviation measures how close the declared fact sits to what other
+beliefs have read — `±0.00` until someone has), then
 the readings panel: every proposer, per changed cell — its latest
 reading, or `-` where it never spoke — so what `evaluate` records is
 visible there from then on.  Matrix and readings pool opinions across the commit's refs:

@@ -357,9 +357,10 @@ def _matrix_lines(ledger, commit, held, extra=(), active=None, always=False,
     if not always and len(rows) < 2:
         return []                    # a matrix of one voice says nothing
     footer = {attr: (stats or {}).get(attr) for attr in attrs}
-    footer_texts = [_signature_text(owner, attr, p)
+    footer_texts = ["p 1.00 ±0.00" if frozen
+                    else _signature_text(owner, attr, p)
                     for attr, cell in footer.items() if cell is not None
-                    for owner, p, frozen in (cell,) if not frozen]
+                    for owner, p, frozen in (cell,)]
     width = max(8, *(min(len(a), 14) for a in attrs),
                 *(len(text) for text in footer_texts)) + 2
     lines = ["matrix:  " + dim("(rows beliefs, columns attributes; shade = "
@@ -370,26 +371,26 @@ def _matrix_lines(ledger, commit, held, extra=(), active=None, always=False,
         fillable = _can_fill(ledger, belief_id, custom)
         line = f"  {belief_id[:44]:<44}"
         for attr in attrs:
-            if active == (belief_id, attr) and attr not in cells_:
+            got = cells_.get(attr)
+            if got is not None:
+                # a recorded reading always shows, frozen column or not
+                p, overlap = got
+                line += shade(overlap, f"{p:.2f}".rjust(width))
+                continue
+            if active == (belief_id, attr):
                 line += yellow("…".rjust(width))
                 continue
-            freezer = (frozen_by or {}).get(attr)
-            if freezer is not None \
-                    and belief_id != _base_id(ledger, freezer, bases):
-                # the cell is pinned: the freezer's row carries its number,
-                # every other row reads frozen -- earlier negotiation
-                # readings stay in the readings panel, out of the matrix
+            if (frozen_by or {}).get(attr) is not None:
+                # pinned by fiat: an empty cell is not an invitation
                 line += dim("frozen".rjust(width))
                 continue
-            got = cells_.get(attr)
-            if got is None:
-                line += dim(("?" if fillable else "x").rjust(width))
-                continue
-            p, overlap = got
-            line += shade(overlap, f"{p:.2f}".rjust(width))
+            line += dim(("?" if fillable else "x").rjust(width))
         lines.append(line)
     if stats is not None:
-        # the bottom row: what the tree holds, with the cell's consensus
+        # the bottom row: what the tree holds, with the cell's consensus.
+        # The one place a frozen cell speaks in probability: the fiat is
+        # p 1.00, and its deviation measures how close the declared fact
+        # sits to what other beliefs have read -- ±0.00 until someone has.
         line = dim(f"  {'(held)':<44}")
         for attr in attrs:
             got = footer.get(attr)
@@ -398,7 +399,15 @@ def _matrix_lines(ledger, commit, held, extra=(), active=None, always=False,
                 continue
             owner, p, frozen = got
             if frozen:
-                line += dim("frozen".rjust(width))
+                view = (owner.get("consensus") or {}).get(attr) or {}
+                text = f"p 1.00 ±{view.get('dev') or 0.0:.2f}".rjust(width)
+                voices = view.get("n", 1) + view.get("dissent", 0)
+                if voices <= 1:
+                    line += dim(text)
+                else:
+                    score = (view.get("n", 1) + view.get("dissent", 0)
+                             * view.get("similarity", 0.0)) / voices
+                    line += shade(score, text)
                 continue
             line += _signature(owner, attr, p, pad=width)
         lines.append(line)

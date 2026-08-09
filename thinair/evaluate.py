@@ -1122,17 +1122,19 @@ def history(ledger: Ledger, entity: str | None = None) -> list[dict]:
 
     # consensus: how the beliefs that spoke on a cell relate.  A belief by
     # itself is never wrong -- what carries information is the spread.  Per
-    # believed cell: the resolving p, every agreeing judge's p from the same
+    # cell: the resolving p, every agreeing judge's p from the same
     # negotiation, and every agreeing corroboration note; ``dev`` is their
     # population standard deviation (needs two voices), ``dissent`` counts
-    # notes holding a different value.  Declared expectations (``expect``)
-    # are judged against exactly this, in the CLI and nowhere earlier.
+    # notes holding a different value.  A frozen cell participates as the
+    # fiat it is -- base p 1.0 -- so its deviation measures how close the
+    # declared fact sits to what other beliefs read.  Declared expectations
+    # (``expect``) are judged against exactly this, in the CLI and nowhere
+    # earlier.
     for commit in commits:
         consensus: dict[str, dict] = {}
         for attr, (value, p, frozen) in commit["changes"].items():
-            if frozen:
-                continue
-            ps = [p] + [vp for _b, vp in (commit.get("panel") or {}).get(attr, ())]
+            ps = [1.0 if frozen else p] \
+                + [vp for _b, vp in (commit.get("panel") or {}).get(attr, ())]
             dissent, overlaps = 0, []
             for _belief, noted_attr, noted_value, noted_p in commit.get("notes", ()):
                 if noted_attr != attr:
