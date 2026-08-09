@@ -387,12 +387,15 @@ def test_evaluate_is_cached_into_the_readings_panel(store, capsys):
 
 
 def test_ground_prints_the_grounding_pipe_pure(tmp_path, monkeypatch, capsys):
-    """No store needed, none created, nothing on stdout but the file."""
+    """No store needed, none created, nothing on stdout but the text."""
     monkeypatch.chdir(tmp_path)
     assert main(["ground"]) == 0
     out = capsys.readouterr().out
-    assert out.startswith("# thinair — The Measurement Space")
-    assert "Pillar I" in out and "Part 2" in out
+    assert out.startswith("# thinair — the working grounding")
+    assert main(["ground", "--full"]) == 0
+    full = capsys.readouterr().out
+    assert full.startswith("# thinair — The Measurement Space")
+    assert "Pillar I" in full and "Part 2" in full
     assert not (tmp_path / ".thinair").exists()
 
 
@@ -1314,13 +1317,34 @@ def test_ground_demands_a_running_program(tmp_path, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "class Ticket(Thing):" in out                 # runnable skeleton
     assert "__entity__=" in out                          # named branches
-    assert "the plan, not\nthe deliverable" in out.replace("\r", "")
+    assert "the plan, not the deliverable" in " ".join(out.split())
     # the verify loop: debug through the record, finish on consensus
     assert "not done until the record agrees" in out
     assert "`agree=` near 1.00" in out
     # and the theory document itself no longer ends at "no code at all"
     assert "needs no code at all" not in out
     assert "the strategy is a waypoint" in out
+
+
+def test_ground_is_tiered(tmp_path, monkeypatch, capsys):
+    """Default ground is the working set -- framework, roster, manual --
+    sized to land whole in a harness's inline tool output; --full
+    prepends the measurement theory for strategy design."""
+    monkeypatch.chdir(tmp_path)
+    main(["ground"])
+    out = capsys.readouterr().out
+    assert "the working grounding" in out                # the tier note
+    assert "`thinair ground --full`" in out              # names the rest
+    assert "# Part 3 " in out                            # the framework
+    assert "Pillar I " not in out                        # theory stays out
+    assert "# Part 2 " not in out
+    assert len(out.encode()) < 20_000                    # fits inline
+
+    main(["ground", "--full"])
+    full = capsys.readouterr().out
+    assert "Pillar I " in full                           # theory included
+    assert "the thinair client, for agents" in full      # manual still there
+    assert "the working grounding" not in full           # no tier note
 
 
 def test_the_held_row_is_never_gray(store, monkeypatch, capsys):

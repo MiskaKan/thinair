@@ -286,8 +286,13 @@ hash; entities are refs.**  Anonymous runs with byte-identical histories
 collapse into one chain carrying every ref, and different histories fork
 exactly where they diverge; a commit's Date is the first time its state
 was reached.  The tree itself stays the bare state hash episodes point at.
-Output colors only a terminal; `NO_COLOR` wins.  `thinair ground` prints
-the shipped GROUNDING.md plus two generated appendices — the built-in
+Output colors only a terminal; `NO_COLOR` wins.  `thinair ground` is
+tiered: the default prints the working set — Part 3 of the shipped
+GROUNDING.md (the framework), under a note naming what was left out —
+sized to land whole in an agent harness's inline tool output;
+`--full` prints the entire GROUNDING.md (the measurement theory, for
+strategy design from raw data).  Both close with two generated
+appendices — the built-in
 belief roster, and a client manual for agents (a runnable program
 skeleton — the strategy document is the plan, never the deliverable —
 the command set, `--ai-readable`, the verify loop: debug through the

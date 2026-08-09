@@ -1172,10 +1172,10 @@ are blind to the most load-bearing part of the output.
 
 ### Build -- the deliverable is a running program
 
-Part 2 above produces a strategy *document*.  That is the plan, not
-the deliverable: where thinair is installed, a strategy that never
-executes measures nothing.  Graduate it to code (SPEC.md §13).  The
-whole skeleton:
+A measurement strategy (Part 2 of the theory, `ground --full`) is a
+*document* -- the plan, not the deliverable: where thinair is
+installed, a strategy that never executes measures nothing.  Graduate
+it to code (SPEC.md §13).  The whole skeleton:
 
     from thinair import Thing, contract, model
     from thinair.validators import TokenSubset
@@ -1193,10 +1193,10 @@ whole skeleton:
 Every read is measured once and lands in `.thinair/opinions.db`;
 reruns replay from the record at zero cost.  `__entity__` names the
 branch you will see in `thinair log` (omit it and one is generated).
-One Thing per document; Pillar II in code means pre-passes,
-aggregation, and every derivable quantity stay exact Python --
-beliefs are consulted only where epistemic uncertainty genuinely
-enters.  The record the run leaves *is* the strategy's evidence; the
+One Thing per document.  Uncertainty enters only at the readings
+(Pillar II): pre-passes, aggregation, and every derivable quantity
+stay exact Python -- beliefs are consulted only where epistemic
+uncertainty genuinely enters.  The record the run leaves *is* the strategy's evidence; the
 commands below are how you read it back.
 
 ### Inspect
@@ -1291,14 +1291,36 @@ SPEC.md.
 '''
 
 
-def cmd_ground(_ledger, _args):
-    """The grounding -- GROUNDING.md verbatim, then two generated
-    appendices: the built-in belief roster and the client manual for
-    agents.  Nothing else on stdout, so the output pipes straight into an
-    agent's context; the first command of an agentic session."""
+_GROUND_NOTE = """# thinair — the working grounding
+
+*This is the working set: the framework, the installed instruments, and
+the client manual — sized to land whole in an agent's context.  The
+measurement theory underneath (the pillars, the moves, the experiment
+protocol) is `thinair ground --full`; read it before designing a
+measurement strategy from raw data.*
+
+---
+
+"""
+
+
+def cmd_ground(_ledger, args):
+    """The grounding, in two tiers.  Default: Part 3 of GROUNDING.md (the
+    framework) plus two generated appendices -- the built-in belief roster
+    and the client manual for agents -- small enough that a harness shows
+    it inline instead of truncating to a file.  `--full` prepends the
+    measurement theory (Parts 1-2), for strategy design.  Nothing else on
+    stdout, so the output pipes straight into an agent's context; the
+    first command of an agentic session."""
     from importlib.resources import files
-    sys.stdout.write(files("thinair").joinpath("GROUNDING.md").read_text(
-        encoding="utf-8"))
+    text = files("thinair").joinpath("GROUNDING.md").read_text(
+        encoding="utf-8")
+    if getattr(args, "full", False):
+        sys.stdout.write(text)
+    else:
+        _head, sep, part3 = text.partition("\n# Part 3 ")
+        sys.stdout.write(_GROUND_NOTE)
+        sys.stdout.write(sep.lstrip("\n") + part3 if sep else text)
     sys.stdout.write(_builtin_roster())
     sys.stdout.write(_client_manual())
 
@@ -1374,7 +1396,11 @@ def main(argv=None) -> int:
     diff.set_defaults(run=cmd_diff)
 
     ground = sub.add_parser(
-        "ground", help="print the measurement grounding; pipe it to an agent")
+        "ground", help="print the working grounding; pipe it to an agent")
+    ground.add_argument("--full", action="store_true",
+                        help="prepend the measurement theory (Parts 1-2): "
+                             "read it before designing a strategy from raw "
+                             "data")
     ground.set_defaults(run=cmd_ground, needs_store=False)
 
     help_ = sub.add_parser("help", help="show help for thinair or a command")
