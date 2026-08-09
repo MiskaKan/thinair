@@ -189,7 +189,7 @@ def test_a_model_def_version_hashes_into_the_belief_id():
 # 7. no network in the core
 # --------------------------------------------------------------------------
 
-CORE = ("ledger.py", "thing.py", "policy.py", "debug.py",
+CORE = ("ledger.py", "thing.py", "policy.py", "debug.py", "evaluate.py",
         "validators/__init__.py", "validators/form.py", "validators/grounding.py",
         "validators/consistency.py", "validators/reference.py",
         "validators/executable.py")

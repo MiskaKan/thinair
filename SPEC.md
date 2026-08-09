@@ -29,7 +29,7 @@ These hold in every module, and each has a test that fails loudly.
 | 4 | Freezing is a code-only capability | no `frozen=True` in any model-reachable module; episode returns carrying `frozen` are rejected |
 | 5 | Vetoes are control flow; everything else is measurement | no policy returns a `p` no belief stated |
 | 6 | Belief identity is durable | id derives from the full configuration; `register` refuses a clash |
-| 7 | No network in the core | import-graph assertion over `ledger`, `thing`, `policy`, `debug`, `validators` |
+| 7 | No network in the core | import-graph assertion over `ledger`, `thing`, `policy`, `debug`, `validators`, `evaluate` |
 
 ## 3. The Belief contract
 
@@ -167,13 +167,38 @@ proposal, each verdict with its reason, the resolution, episode actions, and
 commit or rollback.  `source(thing)` / `thing.__source__` renders frozen
 attributes plain and believed ones annotated `# p=0.93 ← model/extract-v3`.
 
-## 12. Deferred, and permanently excluded
+## 12. Settlement: `thinair.evaluate`
 
-**Deferred (Layer 2):** credibility, similarity between beliefs,
-dissimilarity-weighted pooling, `evaluate`, `scoreboard`, credibility-driven
-routing, `Pooled` / `MostCredible`.  Also: nested imagined calls, handles for
-oversized episode values, async consultation, non-OpenAI-compatible
-transports.
+Layer 2's first slice, as built: what the record *earned*, computed from the
+ledger and nothing else.  Everything below the driver is classical math with
+zero model calls — the import-graph assertion of invariant 7 covers
+`evaluate.py`.
+
+| group | names |
+| --- | --- |
+| driver | `evaluate(thing, order=)` — resolve every declared cell; `order` is context (the twin reshuffle); unresolvable cells profile as `gap`, never raise |
+| record | `reading` (veto-aware; an unregistered judge raises rather than reading as a low score), `verdicts`, `coverage` (resolved / vetoed / absent) |
+| agreement | `agree` / `adjacent` (scale-typed), `kappa` (chance-corrected: agreement is evidence in proportion to how likely disagreement was) |
+| statistics | `ranks`, `median`, `spearman` (paired), `mannwhitney` (unpaired), `wilson`, `n_eff` |
+| orders | `bradley_terry` — strengths with SEs, graph connectivity, consistency (the principled transitivity reading) |
+| instrument | `reliability` (+ bespoke `compare`), `drift`, `discrimination`, `grounded` → `concordance`, `calibration`, `separation`, `tiers` |
+| data | `LICENSED` (scale type → licensed statistics), `GRADES` (vibes → claim → finding → calibrated) |
+
+Ground has two homes, one gatherer: `grounded(ledger)` reads outcomes frozen
+*after* measurement on the same cell — calibration accrues from the ledger
+alone; `ground=fn` maps measured entities to parallel ground entities that
+stay invisible to the instrument.  Model opinions carry an `exposure`
+fingerprint in `meta` (a hash of the rendered context), so dissimilarity in
+mechanism AND exposure is computable from the ledger after the fact.
+
+## 13. Deferred, and permanently excluded
+
+**Deferred (Layer 2, second slice):** credibility, similarity between
+beliefs, dissimilarity-weighted pooling, credibility-driven routing,
+`Pooled` / `MostCredible`.  A `scoreboard` needs no surface: it is the §12
+instrument measurements grouped by durable belief id.  Also: nested imagined
+calls, handles for oversized episode values, async consultation,
+non-OpenAI-compatible transports.
 
 **Permanently excluded:** model-served actuators; any freeze path reachable by
 a model; any narrative-memory runtime.  State plus the ledger is the whole

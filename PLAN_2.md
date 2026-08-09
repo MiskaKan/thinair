@@ -149,6 +149,11 @@ instrument earned in domains that do freeze.
 - **Declare scale types; use only licensed statistics.** Ordinal → medians, Spearman.
   Interval or better → means, Pearson, differences. This habit alone removes a class of
   confident nonsense.
+- **Read parts, compute derivations.** When the measurand derives from printed
+  components — a sum, a rate, a difference — measure the components, each one
+  groundable in the text, and derive in exact code. A grounding validator attached to
+  the derived answer does worse than block it: it pulls the instrument toward whatever
+  number *is* printed, and the result passes every check and is wrong.
 - **Block before pairwise work.** Cheap projections partition; expensive pairwise work
   happens within blocks. Cautions: blocking errors are unrecoverable (validate block
   assignment on a sample), and a global ranking needs the comparison graph connected
@@ -247,6 +252,9 @@ strategy** — a document, not code — with exactly these sections:
    mean; which dissimilar paths re-derive it (dissimilar in mechanism AND exposure);
    the discrimination check; the instrument-reliability sub-pass (re-measure a sample
    under reshuffled context; the resulting agreement caps all downstream confidence).
+   A law can check only a reading that exists: cells that never resolve are coverage
+   gaps, not clean negatives — count them, and separate a refusal (a judgement) from a
+   dead cell (the absence of one) by their recorded reasons.
 5. **Confidence plan.** How per-finding confidence is composed from law readings and
    path agreement; the n_eff honesty note wherever paths share mechanism; what will
    remain a claim rather than a finding; where calibration against frozen ground is
@@ -352,7 +360,11 @@ Layer 2 — scoring beliefs by dissimilarity-weighted agreement — remains defe
 design evidence comes from these experiments: the ledger of every run records which
 beliefs agreed, on what, with what mechanism/exposure overlap, and how their readings
 fared against frozen outcomes. Method-factor and design-effect machinery over that
-record *is* Layer 2.
+record *is* Layer 2. The path to building it is part of this plan: experiments
+accumulate ledgers; once the record spans the moves — ordering, shared axes, persistent
+structure — it is distilled into an implementation brief for Layer 2, derived from what
+the ledgers show rather than from theory. That brief, not this file, is the build
+document.
 
 # Part 4 — For the implementer
 
@@ -368,15 +380,26 @@ When a strategy graduates from document to code, build it on the thinair package
    version) on every opinion, so calibration and dissimilarity are computable after the
    fact. An experiment whose ledger cannot answer "which paths agreed and how
    independent were they?" was wasted.
-3. **Freezing discipline.** Frozen = code results and human acts only. In experiments,
+3. **Pre-registration is write-once.** Hash the strategy and its inputs before the
+   first call; a resumed or repaired run never re-stamps. Drift between the stamp and
+   the code that actually ran is disclosed, not overwritten.
+4. **Freezing discipline.** Frozen = code results and human acts only. In experiments,
    freeze outcomes (ground) eagerly and conclusions never.
-4. **Validation is budgeted, not bolted on.** The two-tier budget from Part 2 §7 is a
+5. **Validation is budgeted, not bolted on.** The two-tier budget from Part 2 §7 is a
    runtime concern: findings calls and validation calls are separately countable in the
    ledger.
-5. **Reliability before findings.** The instrument sub-pass (Part 2 §4) runs first;
+6. **Reliability before findings.** The instrument sub-pass (Part 2 §4) runs first;
    its reading is recorded and caps reported confidence downstream. If the instrument
    can't read an axis reliably, the axis is redesigned or dropped before money is
    spent on it.
+
+The settlement half of every strategy — veto-aware reading of the record,
+scale-licensed agreement, reliability/drift/discrimination, concordance with the
+frozen ground, calibration, Bradley–Terry, the two-tier budget — ships as
+`thinair/evaluate.py` (SPEC.md §12) and is pure classical math over the ledger:
+never re-implement it inside an experiment, and never ask the model to compute
+what it already computes. The model is a column factory; `evaluate` is the
+grader that makes trying many columns cheap.
 
 The immediate use of this file needs no code at all: link it to an LLM, provide sample
 data, and ask for a measurement strategy per Part 2. The strategies are the experiment;

@@ -524,6 +524,19 @@ class config_scope:
         restore_config(self.owner, self._previous)
 
 
+def _exposure(messages: Any) -> str:
+    """A fingerprint of the rendered context a model reading was shown.
+
+    Dissimilarity between two readings is mechanism AND exposure; the belief
+    id carries the mechanism, and without this stamp the exposure half is
+    unrecoverable from the ledger after the fact.  Same rendered context ->
+    same fingerprint, so "did these two agreeing readings see the same
+    snapshot?" is answerable forever, warm or cold.
+    """
+    blob = _json_dumps(messages)
+    return hashlib.sha1(blob.encode("utf-8")).hexdigest()[:12]
+
+
 # --------------------------------------------------------------------------
 # the generative belief -- the only door to the network
 # --------------------------------------------------------------------------
@@ -601,6 +614,7 @@ class ModelBelief(Belief):
             e, attr, contract=contract, objections=objections,
             dialect=self.definition.prompt_dialect)
         schema = prompts.response_schema(getattr(contract, "schema", None))
+        exposure = _exposure(messages)
         try:
             payload, meta = complete_json(
                 self.engine(getattr(e, "__owner__", None)), messages, schema=schema,
@@ -608,10 +622,12 @@ class ModelBelief(Belief):
                 think=self.think)
         except ParseFailure as exc:
             return Judgment(None, 0.0, {"reason": f"unparseable completion: {exc}",
-                                        "model": self.model_name})
+                                        "model": self.model_name,
+                                        "exposure": exposure})
         if not isinstance(payload, dict) or "value" not in payload:
             return Judgment(None, 0.0, {"reason": "completion carried no 'value'",
-                                        "model": self.model_name})
+                                        "model": self.model_name,
+                                        "exposure": exposure})
         p = payload.get("p", 0.5)
         try:
             p = min(1.0, max(0.0, float(p)))
@@ -619,7 +635,7 @@ class ModelBelief(Belief):
             p = 0.5
         provenance = dict(meta)
         provenance.update({"model": self.model_name, "think": self.think,
-                           "template": self.template})
+                           "template": self.template, "exposure": exposure})
         if payload.get("why"):
             provenance["why"] = payload["why"]
         return Judgment(payload["value"], p, provenance)
@@ -635,6 +651,7 @@ class ModelBelief(Belief):
             dialect=self.definition.prompt_dialect)
         schema = prompts.episode_schema(episode.returns)
         engine = self.engine(getattr(e, "__owner__", None))
+        exposure = _exposure(convo)          # the state the episode set out from
         actions_left = episode.action_budget
         transcript: list[dict] = []
         while True:
@@ -690,7 +707,8 @@ class ModelBelief(Belief):
                 provenance = dict(meta)
                 provenance.update({"model": self.model_name, "changes": changes,
                                    "actions": transcript,
-                                   "template": self.episode_template})
+                                   "template": self.episode_template,
+                                   "exposure": exposure})
                 return Judgment(step.get("value"), p, provenance)
             convo.append({"role": "user", "content":
                           f"Unknown action {action!r}. Use get, call or return."})

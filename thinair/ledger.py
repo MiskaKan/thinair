@@ -2,8 +2,9 @@
 
 An :class:`Opinion` is a Belief evaluated at a cell.  The ledger memoizes
 Beliefs into Opinions and does nothing else -- zero evaluative logic, no
-deletion, no ranking.  Any future Layer 2 math is pure functions over this
-module's data (SPEC.md §12) and needs no migration.
+deletion, no ranking.  All Layer 2 math is pure functions over this module's
+data -- the built slice in ``evaluate`` (SPEC.md §12), the deferred rest
+(SPEC.md §13) -- and needs no migration.
 
 This module imports nothing else from the package.
 """

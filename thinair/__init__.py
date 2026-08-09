@@ -33,6 +33,7 @@ capability: assignment, code execution, and the explicit ``freeze`` verb.
 
 from __future__ import annotations
 
+from . import evaluate
 from .beliefs import (
     Belief,
     Discriminative,
@@ -107,6 +108,8 @@ __version__ = "0.1.0"
 __all__ = [
     # the object surface
     "Thing", "Cell", "Snapshot", "contract", "snapshot", "freeze", "source",
+    # settlement over the record
+    "evaluate",
     # the one contract
     "Belief", "Discriminative", "Judgment", "Opinion", "Ledger",
     "ModelBelief", "HumanBelief", "Scoped",
