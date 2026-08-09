@@ -1301,3 +1301,15 @@ def test_ground_teaches_the_client_to_agents(tmp_path, monkeypatch, capsys):
     assert "thinair belief add" in out                   # how to extend
     assert "def judge(self, value, e, attr):" in out     # a working example
     assert not (tmp_path / ".thinair").exists()          # still store-free
+
+
+def test_the_held_row_is_never_gray(store, monkeypatch, capsys):
+    """Every (held) cell is colored -- a frozen fact nobody has measured
+    is green like any unopposed value; coverage is the parens' story."""
+    monkeypatch.setattr("thinair.cli._tty", lambda: True)
+    main(["--store", store, "show", "HEAD"])
+    footer = [l for l in capsys.readouterr().out.splitlines()
+              if "(held)" in l][0]
+    cells = footer.split("(held)")[1]
+    assert "\x1b[2m" not in cells                        # only the label dims
+    assert "\x1b[32m" in cells

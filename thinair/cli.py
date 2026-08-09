@@ -540,10 +540,10 @@ def _matrix_lines(ledger, commit, held, extra=(), active=None, always=False,
                     if freezer else None
                 estimates = [cells_[attr][1] for base, cells_ in rows.items()
                              if attr in cells_ and base != freezer_base]
-                if estimates:
-                    line += shade(sum(estimates) / len(estimates), text)
-                else:
-                    line += dim(text)
+                # no other readings -> nothing disagrees -> green, like
+                # every other unopposed cell; no gray exceptions here
+                line += shade(sum(estimates) / len(estimates)
+                              if estimates else 1.0, text)
                 continue
             line += _signature(owner, attr, p, pad=width)
         lines.append(line)
