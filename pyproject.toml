@@ -8,15 +8,23 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "thinair"
-version = "0.1.0"
+version = "2.0.0"
 description = "Python objects whose attributes are beliefs, not values — the LLM as a measurement instrument for data no parser can read"
-# The long description IS the grounding: the same file an LLM is meant to be
-# handed with raw data.  The PyPI page teaches what the package teaches.
-readme = { file = "thinair/GROUNDING.md", content-type = "text/markdown" }
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [{ name = "Miska Kankkonen" }]
 keywords = ["llm", "measurement", "beliefs", "probabilistic", "data-analysis",
             "structured-output", "validation", "calibration"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+]
 requires-python = ">=3.11"
 dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/MiskaKan/thinair"
 
 [project.optional-dependencies]
 dev = ["pytest>=7"]
