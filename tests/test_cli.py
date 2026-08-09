@@ -614,7 +614,8 @@ def test_show_paints_the_belief_by_attribute_matrix(store, monkeypatch,
     out = capsys.readouterr().out
     assert "matrix:" in out
     assert "model:small-fast" in out and "model:qwen3-35b" in out
-    assert "\x1b[32m" in out                             # agreement in green
+    assert "\x1b[2;32m" in out                           # agreement in the
+                                                         # one soft green
 
 
 def test_ground_appends_the_builtin_roster(tmp_path, monkeypatch, capsys):
@@ -841,8 +842,8 @@ def test_matrix_shades_by_value_overlap(tmp_path, monkeypatch, capsys):
     main(["--store", str(tmp_path / "o.db"), "show", "HEAD"])
     out = capsys.readouterr().out
     matrix = out[out.index("matrix:"):out.index("readings:")]
-    assert "\x1b[32m" in matrix                          # exact: theme green
-    assert "\x1b[2;32m" in matrix or "\x1b[33m" in matrix \
+    assert "\x1b[2;32m" in matrix                        # exact: soft green
+    assert "\x1b[33m" in matrix \
         or "\x1b[2;31m" in matrix                        # partial: between
 
 
@@ -1099,12 +1100,12 @@ def test_readings_shade_by_agreement_with_the_held_value(tmp_path,
     main(["--store", str(tmp_path / "o.db"), "show", "HEAD"])
     readings = capsys.readouterr().out.split("readings:")[1]
     jane = [l for l in readings.splitlines() if "human:jane" in l][0]
-    assert "\x1b[1;32m" in jane                          # holds it -- bold,
-                                                         # it is the one in use
+    assert "\x1b[4;2;32m" in jane                        # holds it -- under-
+                                                         # lined, the one in use
     model_line = [l for l in readings.splitlines()
                   if "model:small-fast" in l][0]
     assert "\x1b[2;31m" in model_line or "\x1b[31m" in model_line
-    assert "\x1b[1;" not in model_line                   # overruled: plain
+    assert "\x1b[4;" not in model_line                   # overruled: plain
 
 
 def test_parens_shade_by_evaluation_coverage(store, monkeypatch, capsys):
@@ -1117,7 +1118,7 @@ def test_parens_shade_by_evaluation_coverage(store, monkeypatch, capsys):
     main(["--store", store, "log", "--oneline", "inv-1"])
     lines = capsys.readouterr().out.splitlines()
     settle = [l for l in lines if "[settle]" in l][0]
-    assert "\x1b[32m(" in settle                         # total: both models
+    assert "\x1b[2;32m(" in settle                         # total: both models
                                                          # + tokenSubset spoke
     episode = [l for l in lines if "[episode]" in l]
     assert episode                                       # (episodes carry no
@@ -1133,7 +1134,7 @@ def test_parens_shade_by_evaluation_coverage(store, monkeypatch, capsys):
     main(["--store", store, "log", "--oneline", "inv-1"])
     after = [l for l in capsys.readouterr().out.splitlines()
              if "[settle]" in l][0]
-    assert "\x1b[32m(" in after                          # still complete
+    assert "\x1b[2;32m(" in after                          # still complete
 
 
 def test_coverage_is_per_attribute(tmp_path, monkeypatch, capsys):
@@ -1158,7 +1159,7 @@ def test_coverage_is_per_attribute(tmp_path, monkeypatch, capsys):
     main(["--store", str(tmp_path / "o.db"), "log", "--oneline"])
     customer = [l for l in capsys.readouterr().out.splitlines()
                 if "customer" in l][0]
-    assert "\x1b[32m(" in customer                       # its panel is done
+    assert "\x1b[2;32m(" in customer                       # its panel is done
 
 
 def test_ai_readable_says_the_colors_in_text(store, capsys):
@@ -1275,9 +1276,10 @@ def test_frozen_footer_colors_by_prior_estimates(tmp_path, monkeypatch,
     assert "\x1b[2;31m" in footer or "\x1b[31m" in footer
 
 
-def test_the_resolving_reading_renders_bold(store, monkeypatch, capsys):
+def test_the_resolving_reading_renders_underlined(store, monkeypatch, capsys):
     """The value the program actually served: its author's cell is the
-    bold one in its column."""
+    underlined one in its column -- emphasis by line, so the gradient
+    keeps its one soft green."""
     main(["--store", store, "log", "--oneline", "inv-1"])
     settle = [l for l in capsys.readouterr().out.splitlines()
               if "[settle]" in l][0].split()[0]
@@ -1286,10 +1288,12 @@ def test_the_resolving_reading_renders_bold(store, monkeypatch, capsys):
     matrix = capsys.readouterr().out.split("matrix:")[1].split("readings:")[0]
     model_row = [l for l in matrix.splitlines()
                  if l.strip().startswith("model:small-fast")][0]
-    assert "\x1b[1;32m" in model_row                     # bold: it resolved
+    assert "\x1b[4;2;32m" in model_row                   # underlined: resolved
     judge_row = [l for l in matrix.splitlines()
                  if l.strip().startswith("tokenSubset")][0]
-    assert "\x1b[1;" not in judge_row                    # judges stay plain
+    assert "\x1b[4;" not in judge_row                    # judges stay plain
+    assert "\x1b[1;3" not in matrix and "\x1b[32m" not in matrix
+                                                         # no second green
 
 
 def test_ground_teaches_the_client_to_agents(tmp_path, monkeypatch, capsys):
@@ -1358,30 +1362,77 @@ def test_the_held_row_colors_earned_agreement_and_dims_unopposed(
     footer = [l for l in capsys.readouterr().out.splitlines()
               if "(held)" in l][0]
     cells = footer.split("(held)")[1]
-    assert "\x1b[32m" in cells                 # corroborated: earned green
+    assert "\x1b[2;32m" in cells               # corroborated: earned green
     assert "\x1b[2m" in cells                  # unopposed: dim, unearned
 
 
-def test_ai_readable_refuses_to_flatter_the_unopposed(tmp_path, capsys):
-    """One reading, judges nodding along: nothing could have disagreed, so
-    the signature says `agree=unopposed`, never a purchased 1.00."""
+def test_each_signature_channel_earns_its_own_color(monkeypatch):
+    """Every voice counts the same -- a validator's verdict colors the
+    value channel exactly like a model's reading.  The ± colors by the
+    recorded min-max range; a cell where nothing else spoke waits dim
+    whole."""
+    from thinair.cli import _signature
+
+    monkeypatch.setattr("thinair.cli._tty", lambda: True)
+    commit = {"consensus": {"size": {"n": 2, "dissent": 0, "dev": 0.02,
+                                     "range": 0.05}}, "expect": {}}
+    out = _signature(commit, "size", 0.95)
+    assert "\x1b[2;32mp 0.95" in out           # two voices agree: green
+    assert "\x1b[2;32m±0.02" in out            # spread: tight, soft green
+
+    far = {"consensus": {"size": {"n": 1, "dissent": 1, "similarity": 0.2,
+                                  "dev": 0.3, "range": 0.6}}, "expect": {}}
+    mid = _signature(far, "size", 0.95)
+    assert "\x1b[33mp 0.95" in mid             # a voice landed elsewhere
+
+    lone = _signature({"consensus": {"size": {"n": 1, "dissent": 0}},
+                       "expect": {}}, "size", 0.95)
+    assert "\x1b[2mp 0.95" in lone and "\x1b[2m±0.00" in lone
+
+
+def test_oneline_caps_at_the_screen(store, monkeypatch, capsys):
+    """--oneline means one line: a row longer than the screen is cut with
+    an ellipsis (ANSI codes pass through unmeasured).  A piped reader is
+    never cut -- `_columns()` is None off-screen."""
+    from thinair.cli import _columns
+    assert _columns() is None                  # capsys is a pipe: no cap
+
+    monkeypatch.setattr("thinair.cli._columns", lambda: 48)
+    main(["--store", store, "log", "--oneline"])
+    lines = capsys.readouterr().out.splitlines()
+    assert any(line.endswith(" …") for line in lines)
+    assert all(len(line) <= 48 for line in lines)
+
+
+def test_ai_readable_counts_every_voice_and_unopposed_means_alone(
+        tmp_path, capsys):
+    """No castes: a validator's verdict earns `agree=` exactly like a
+    second model would.  `agree=unopposed` is reserved for a cell where
+    nothing else spoke at all."""
+    from typing import Any
+
     ledger = SqliteLedger(tmp_path / "o.db")
-    engine = FakeEngine([{"value": "Anna", "p": 0.9}])
+    engine = FakeEngine([{"value": "Anna", "p": 0.9},
+                         {"value": "hello", "p": 0.8}])
 
     class Ticket(Thing):
         __beliefs__ = [model("small-fast", engine=engine), human("jane")]
         source_text: str
         customer = Thing(str, extracted_from="source_text")
+        note = Thing(Any)
 
     t = Ticket(__entity__="tick-9", __ledger__=ledger,
                source_text="From Anna")
     +t.customer
+    +t.note
     main(["--store", str(tmp_path / "o.db"), "--ai-readable", "log",
           "--oneline", "tick-9"])
-    line = [l for l in capsys.readouterr().out.splitlines()
-            if "[settle]" in l][0]
-    assert "agree=unopposed" in line
-    assert "agree=1.00" not in line
+    lines = [l for l in capsys.readouterr().out.splitlines()
+             if "[settle]" in l]
+    customer = [l for l in lines if "customer" in l][0]
+    assert "agree=1.00" in customer            # the validator is a voice
+    note = [l for l in lines if "note" in l][0]
+    assert "agree=unopposed" in note           # truly alone: no flattery
 
 
 def test_forked_chains_collapse_with_a_slash(tmp_path, capsys):

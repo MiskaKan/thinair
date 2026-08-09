@@ -979,6 +979,17 @@ def history(ledger: Ledger, entity: str | None = None) -> list[dict]:
     notes: list = []
     panels: dict[str, list] = {}           # entity -> declared panel so far
 
+    def readings_of(span, but=None):
+        """The negotiation's *other* independent readings: each candidate
+        belief's last stance, minus the one the settlement is attributed
+        to.  A model revising itself across rounds is one reader with one
+        final stance -- only distinct instruments count."""
+        stances: dict[str, object] = {}
+        for cand in span["candidates"]:
+            stances[cand.belief] = cand              # last stance wins
+        stances.pop(but, None)
+        return [(c.belief, c.value, c.p) for c in stances.values()]
+
     def close(key):
         span = spans.pop(key, None)
         if span is None or not span["candidates"]:
@@ -1008,6 +1019,7 @@ def history(ledger: Ledger, entity: str | None = None) -> list[dict]:
             rounds=span["rounds"], vetoes=span["overruled"],
             unknown_judges=unknown,
             panel={final.attr: agreeing},
+            readings={final.attr: readings_of(span, but=final.belief)},
             expect={final.attr: expect} if expect else {},
             # when the negotiation finished: its judges speak after the
             # candidate whose t is the commit's Date
@@ -1083,6 +1095,7 @@ def history(ledger: Ledger, entity: str | None = None) -> list[dict]:
                 message=None, changes={o.attr: (o.value, o.p, False)},
                 rounds=span["rounds"] if span else 1,
                 vetoes=span["overruled"] if span else [],
+                readings={o.attr: readings_of(span)} if span else {},
                 unknown_judges=[], end=o.t))
             continue
         if _generative(meta) and "round" in meta:
@@ -1161,36 +1174,30 @@ def history(ledger: Ledger, entity: str | None = None) -> list[dict]:
         head["heads"].append(owner)
 
     # corroborations become notes on the commit that owns their cell,
-    # located along the noting entity's own chain.  The fifth slot says
-    # whether the note is an independent *reading* (a model or code opinion)
-    # or a judge's verdict -- consensus must not confuse the two.
+    # located along the noting entity's own chain
     for note in notes:
         target = None
         for commit, t_here in passes.get(note.entity, ()):
             if note.attr in commit["changes"] and t_here < note.t:
                 target = commit
         if target is not None:
-            entry = (note.belief, note.attr, note.value, note.p,
-                     _generative(note.meta or {}))
+            entry = (note.belief, note.attr, note.value, note.p)
             if entry not in target.setdefault("notes", []):
                 target["notes"].append(entry)
 
     # consensus: how the beliefs that spoke on a cell relate.  A belief by
-    # itself is never wrong -- what carries information is the spread.  Per
-    # cell: the resolving p, every agreeing judge's p from the same
-    # negotiation, and every agreeing corroboration note; ``dev`` is their
+    # itself is never wrong -- what carries information is the spread.
+    # Every belief that spoke counts the same -- models, validators, humans,
+    # code: there is exactly one kind of voice, an opinion with a value and
+    # a p.  Per cell: the resolving p, every panel verdict from the same
+    # negotiation, the negotiation's other candidate stances (on the commit
+    # as ``readings``), and every corroboration note.  A voice holding the
+    # settled value joins ``ps`` (a validator dissents through its p, and
+    # that lands in the spread); a voice holding a *different* value counts
+    # in ``dissent`` with its ``similarity``.  ``dev`` is the agreeing ps'
     # population standard deviation (needs two voices) and ``range`` their
     # min-max spread -- one voice far from the rest barely moves a
     # deviation, and the range is what refuses to average it away.
-    # ``dissent`` counts notes holding a different value.
-    #
-    # Judges and readers are tallied apart, because judges cannot disagree
-    # with the candidate they were handed: ``readers`` counts independent
-    # readings of the cell (the resolving reading or fiat, plus generative
-    # notes), ``readers_dissent`` the readings that landed elsewhere,
-    # ``readers_similarity`` how close those landed.  Agreement among
-    # readers is earned; agreement among judges is purchased by
-    # construction and must never be sold as evidence (Pillar III).
     #
     # A frozen cell participates as the fiat it is -- base p 1.0 -- so its
     # deviation measures how close the declared fact sits to what other
@@ -1202,31 +1209,21 @@ def history(ledger: Ledger, entity: str | None = None) -> list[dict]:
             ps = [1.0 if frozen else p] \
                 + [vp for _b, vp in (commit.get("panel") or {}).get(attr, ())]
             dissent, overlaps = 0, []
-            readers, readers_dissent, reader_overlaps = 1, 0, []
-            for _belief, noted_attr, noted_value, noted_p, generative \
-                    in commit.get("notes", ()):
-                if noted_attr != attr:
-                    continue
-                if generative:
-                    readers += 1
-                if values_equal(noted_value, value):
-                    ps.append(noted_p)
+            others = [(rv, rp) for _b, rv, rp
+                      in (commit.get("readings") or {}).get(attr, ())] \
+                + [(nv, np_) for _b, na, nv, np_ in commit.get("notes", ())
+                   if na == attr]
+            for other_value, other_p in others:
+                if values_equal(other_value, value):
+                    ps.append(other_p)
                 else:
                     dissent += 1
-                    overlap = similarity(noted_value, value)
-                    overlaps.append(overlap)
-                    if generative:
-                        readers_dissent += 1
-                        reader_overlaps.append(overlap)
-            cell_view = dict(n=len(ps), dissent=dissent, readers=readers,
-                             readers_dissent=readers_dissent)
+                    overlaps.append(similarity(other_value, value))
+            cell_view = dict(n=len(ps), dissent=dissent)
             if overlaps:
                 # the second metric: not "did someone disagree" but "how far
                 # away did the dissenting readings land"
                 cell_view["similarity"] = sum(overlaps) / len(overlaps)
-            if reader_overlaps:
-                cell_view["readers_similarity"] = \
-                    sum(reader_overlaps) / len(reader_overlaps)
             if len(ps) >= 2:
                 mean = sum(ps) / len(ps)
                 cell_view["dev"] = (sum((x - mean) ** 2 for x in ps) / len(ps)) ** 0.5

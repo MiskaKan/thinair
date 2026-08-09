@@ -468,10 +468,10 @@ def test_settled_serves_the_fiat_that_reading_refuses():
 # consensus: readers apart from judges, and the min-max range
 # --------------------------------------------------------------------------
 
-def test_consensus_counts_readers_apart_from_judges():
-    """A judge verdicts the candidate it is handed -- its concord is
-    purchased.  Only independent readings move `readers`, and the p spread
-    keeps its min-max `range` beside the deviation."""
+def test_every_belief_that_spoke_is_one_voice():
+    """No castes: a validator's verdict counts exactly like a model's
+    reading -- it dissents through its p, which the min-max `range`
+    carries beside the deviation."""
     from thinair.evaluate import history
 
     ledger = Ledger()
@@ -480,17 +480,67 @@ def test_consensus_counts_readers_apart_from_judges():
     ledger.add(Opinion(belief="schemaBelief[int]", entity="e9", attr="size",
                        value=4, p=1.0, meta={"judged": "schemaBelief[int]"}))
     view = history(ledger, entity="e9")[-1]["consensus"]["size"]
-    assert view["readers"] == 1                    # the judge never counts
+    assert view["n"] == 2                          # the validator is a voice
 
     ledger.add(Opinion(belief="model:b", entity="e9", attr="size", value=4,
                        p=0.5, meta={"model": "b", "corroboration": True}))
     view = history(ledger, entity="e9")[-1]["consensus"]["size"]
-    assert view["readers"] == 2
-    assert view["readers_dissent"] == 0
-    assert view["range"] == pytest.approx(0.5)     # 1.0 (judge) down to 0.5
+    assert view["n"] == 3 and view["dissent"] == 0
+    assert view["range"] == pytest.approx(0.5)     # 1.0 (validator) to 0.5
     assert view["dev"] < view["range"]             # the range refuses to average
 
     ledger.add(Opinion(belief="model:c", entity="e9", attr="size", value=7,
                        p=0.8, meta={"model": "c", "corroboration": True}))
     view = history(ledger, entity="e9")[-1]["consensus"]["size"]
-    assert view["readers"] == 3 and view["readers_dissent"] == 1
+    assert view["n"] == 3 and view["dissent"] == 1
+
+
+def test_the_negotiations_other_candidates_are_voices():
+    """Escalation is a second voice on the same cell: the earlier
+    instrument's last stance is on the settle commit (``readings``) and
+    counts in the consensus -- corroboration is not the only way to
+    oppose."""
+    from thinair.evaluate import history
+
+    ledger = Ledger()
+    ledger.add(Opinion(belief="model:flash", entity="e8", attr="size",
+                       value=4, p=0.9, meta={"model": "flash", "round": 1}))
+    ledger.add(Opinion(belief="model:pro", entity="e8", attr="size",
+                       value=4, p=0.95, meta={"model": "pro", "round": 2}))
+    commit = history(ledger, entity="e8")[-1]
+    assert commit["author"] == "model:pro"
+    assert commit["readings"]["size"] == [("model:flash", 4, 0.9)]
+    view = commit["consensus"]["size"]
+    assert view["n"] == 2 and view["dissent"] == 0
+    assert view["range"] == pytest.approx(0.05)    # both agreeing ps count
+
+
+def test_a_model_revising_itself_stays_one_voice():
+    """Rounds are not voices: only distinct instruments count, and each
+    counts once, by its last stance."""
+    from thinair.evaluate import history
+
+    ledger = Ledger()
+    ledger.add(Opinion(belief="model:a", entity="e8b", attr="size",
+                       value=3, p=0.6, meta={"model": "a", "round": 1}))
+    ledger.add(Opinion(belief="model:a", entity="e8b", attr="size",
+                       value=4, p=0.9, meta={"model": "a", "round": 2}))
+    commit = history(ledger, entity="e8b")[-1]
+    assert commit["readings"]["size"] == []
+    assert commit["consensus"]["size"]["n"] == 1
+
+
+def test_a_dissenting_candidate_is_a_dissenting_voice():
+    """An overruled candidate from another instrument is real opposition:
+    it lands in ``dissent`` with its similarity, exactly like a
+    dissenting corroboration."""
+    from thinair.evaluate import history
+
+    ledger = Ledger()
+    ledger.add(Opinion(belief="model:a", entity="e8c", attr="size",
+                       value=3, p=0.7, meta={"model": "a", "round": 1}))
+    ledger.add(Opinion(belief="model:b", entity="e8c", attr="size",
+                       value=4, p=0.9, meta={"model": "b", "round": 2}))
+    view = history(ledger, entity="e8c")[-1]["consensus"]["size"]
+    assert view["n"] == 1 and view["dissent"] == 1
+    assert 0.0 < view["similarity"] < 1.0          # 3 vs 4: near, not equal

@@ -268,25 +268,31 @@ home with `/` on a connector row above their shared parent (`|/`); no
 merges exist in the record, so `\` never appears.  On a terminal, `log`,
 `show`, `diff`, `blame` and `branch` page through `less -FRX` exactly as
 git does (`THINAIR_PAGER`, then `PAGER`, override; empty or `cat`
-disables), and color survives the pager.  A believed cell
+disables), and color survives the pager.  `--oneline` rows cap at the
+screen's width, cut with an ellipsis (ANSI-aware); a piped reader gets
+whole lines, never a cut.  A believed cell
 renders everywhere as its **trust signature** — `(p 0.93 ±0.04)`, the
 resolving belief's honest p with the agreeing voices' deviation, always
 numeric (`±0.00` when unmeasured).  The text is painted
-on the overlap gradient, and the gradient counts **independent readers
-only** — the resolving reading or fiat plus generative corroborations;
-judges verdict the candidate they are handed, so their concord is
-purchased by construction and never colors anything.  With two or more
-readers the score folds each reading's `evaluate.similarity` to the held
-value (trigram Jaccard for strings, relative closeness for numbers, token
-Jaccard for containers — classical, model-free) — green for earned
-agreement, mid-ramp for dissent, distance as color rather than text.  An
-**unopposed** cell — one reading, which nothing could have contradicted —
-renders dim whole, `±` included: no channel has earned a color, and a
-spread computed over judges' ps would contradict the dim p beside it.
-Once readers exist, the `±` wears its own color,
+on the overlap gradient, and the gradient counts **every belief that
+spoke** — the resolving reading or fiat, the negotiation's panel
+verdicts, its *other* candidate stances (recorded on the settle commit
+as `readings` — escalation is a second voice), and corroborations.
+There is exactly one kind of voice: models, validators, humans and
+code all count the same — a validator dissents through its p, which
+the `±` spread carries.  With two or more voices the score folds each
+dissenting voice's `evaluate.similarity`
+to the held value (trigram Jaccard for strings, relative closeness for
+numbers, token Jaccard for containers — classical, model-free) — green
+for agreement, mid-ramp for dissent, distance as color rather
+than text.  An **unopposed** cell — nothing else spoke at all —
+renders its `p` dim: the value channel is unearned.
+The `±` wears its own color regardless,
 from the *min-max range* of the recorded ps rather than their deviation
 (one voice far from the rest barely moves a deviation; the range refuses
-to average it away) — the printed number stays the deviation.  A violated
+to average it away) — it colors
+whenever two ps exist and dims only when the cell is alone —
+the printed number stays the deviation.  A violated
 declared expectation (§8) is always the theme's red.  The *parens* carry the
 other channel: coverage — of the mechanisms this client could consult
 *on this cell*, the fraction that have spoken; the pool is per
@@ -295,8 +301,8 @@ attribute, and rebuildable mechanisms no wrapper claims — priority's
 enum never counts against customer; durable criteria only, so warm and
 cold processes agree).  Green parens mean the cell's panel is complete;
 red parens mean almost nobody was asked.  `--ai-readable` states both
-channels in text (`agree=` — or `agree=unopposed` for a single-reader
-cell — `asked=`, `expect-violated`) for readers without a palette.  The signature is the standard rendering wherever a
+channels in text (`agree=` — or `agree=unopposed` for a cell where
+nothing else spoke — `asked=`, `expect-violated`) for readers without a palette.  The signature is the standard rendering wherever a
 believed cell appears: the log, `show`'s context lines, `blame`, the
 matrix footer.  The readings panel shades each reading by its own
 overlap with the held value — the record's disagreements are visible
@@ -304,10 +310,12 @@ reading by reading.  `show` renders the *whole
 tree* as of the commit with what moved highlighted and the rest as dim
 context, then a belief × attribute matrix over the tree (each cell that
 belief's latest p, shaded by its value's overlap with the held one via
-`evaluate.similarity`, in the terminal's own palette — theme green
-exact, theme red none, faded/yellow between; the *resolving* reading —
+`evaluate.similarity`, in the terminal's own palette — the *soft*
+(faint) green for agreement, the gradient's one and only green, theme
+red for none, faded red/yellow between; the *resolving* reading —
 the value the program actually served, its owning commit's author —
-renders bold; one row per *mechanism*,
+renders underlined (emphasis by line, never a second shade of the
+color); one row per *mechanism*,
 scoped wrappers pooling into their inner belief's row since the column
 already names the attribute; an empty cell says why it is empty — `?`
 could be asked and never was, which is exactly what `evaluate` fills
@@ -399,7 +407,7 @@ zero model calls — the import-graph assertion of invariant 7 covers
 | orders | `bradley_terry` — strengths with SEs, graph connectivity, consistency (the principled transitivity reading) |
 | instrument | `reliability` (+ bespoke `compare`), `drift`, `discrimination`, `grounded` → `concordance`, `calibration`, `separation`, `tiers` |
 | record structure | `graph` (typed edges: authored / ref / host / child; exposure groups), `lineage` (upstream: what a value rests on), `invalidated` (downstream: what a change calls into question) |
-| commits | `history` — the record as authored, atomic transitions: the tree is the state hash; assignments, episode changesets (parent tree re-derived and checked against the recorded pointer), settlements and *panel changes* commit (kind `belief`: `Thing.__init__` records the declared panel fingerprint idempotently as `__panel__`; the first declaration per entity is a silent baseline, a changed one commits `+ added - removed` with the tree untouched — the instrument is part of what the history is a history of); deliberation lives inside its commit; corroborations are notes; replay commits nothing.  Each commit carries per-cell `consensus` — agreeing voices, their p-deviation *and* min-max `range`, dissent count, plus `readers` / `readers_dissent` / `readers_similarity` tallying independent readings apart from judges' purchased concord (notes carry a fifth slot saying which they are) — and any declared `expect` (§8) — a belief is never wrong alone; the spread is the signal |
+| commits | `history` — the record as authored, atomic transitions: the tree is the state hash; assignments, episode changesets (parent tree re-derived and checked against the recorded pointer), settlements and *panel changes* commit (kind `belief`: `Thing.__init__` records the declared panel fingerprint idempotently as `__panel__`; the first declaration per entity is a silent baseline, a changed one commits `+ added - removed` with the tree untouched — the instrument is part of what the history is a history of); deliberation lives inside its commit; corroborations are notes; replay commits nothing.  Each commit carries per-cell `consensus` — agreeing voices (`n`), their p-deviation *and* min-max `range`, `dissent` count with its mean `similarity` — every belief that spoke counts the same, models and validators alike; the negotiation's other candidate beliefs ride the commit as `readings` (each instrument's last stance) — and any declared `expect` (§8) — a belief is never wrong alone; the spread is the signal |
 | data | `LICENSED` (scale type → licensed statistics), `GRADES` (vibes → claim → finding → calibrated) |
 
 Ground has two homes, one gatherer: `grounded(ledger)` reads outcomes frozen

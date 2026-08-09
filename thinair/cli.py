@@ -102,6 +102,46 @@ def _pager(enabled: bool):
         process.wait()
 
 
+def _columns():
+    """The screen's width, findable even while stdout is the pager's pipe
+    -- the pager renders to the same terminal the process started on.
+    ``None`` when the output is not a screen at all (a pipe, a file): a
+    reader that is a program gets whole lines, never a cut."""
+    if not (_PAGING or sys.stdout.isatty()):
+        return None
+    for stream in (sys.__stdout__, sys.__stderr__):
+        try:
+            return os.get_terminal_size(stream.fileno()).columns
+        except (OSError, ValueError, AttributeError):
+            continue
+    return None
+
+
+def _clip(line: str, width) -> str:
+    """Cap a rendered line at the screen's width: ANSI codes pass through
+    unmeasured, and a cut ends in a reset plus a dim ellipsis so no color
+    bleeds past the edge."""
+    if width is None:
+        return line
+    visible, i, kept = 0, 0, []
+    while i < len(line):
+        if line[i] == "\x1b":
+            j = line.find("m", i)
+            if j == -1:
+                break
+            kept.append(line[i:j + 1])
+            i = j + 1
+            continue
+        if visible >= width - 2:
+            text = "".join(kept)
+            reset = "\x1b[0m" if "\x1b[" in text else ""
+            return text + reset + dim(" …")
+        kept.append(line[i])
+        visible += 1
+        i += 1
+    return line
+
+
 def _paint(code: str, text: str) -> str:
     return f"\x1b[{code}m{text}\x1b[0m" if _tty() else text
 
@@ -111,7 +151,7 @@ def yellow(text):
 
 
 def green(text):
-    return _paint("32", text)
+    return _paint("2;32", text)          # the one green: always the soft one
 
 
 def red(text):
@@ -130,17 +170,16 @@ def dim(text):
     return _paint("2", text)
 
 
-def shade(overlap: float, text: str, bold: bool = False) -> str:
-    """Paint by similarity, in the terminal's own palette: exact agreement
-    is the theme's green, no overlap its red, and partial text or numeric
-    overlap lands between as faded green, yellow, faded red -- typed
-    matching via ``evaluate.similarity``, so "how green" means the same
-    thing a settlement's ``~`` metric means.  ``bold`` marks the resolving
-    reading (bold replaces the faint variants: emphasis and fading do not
-    mix)."""
-    if overlap >= 1.0:
-        code = "32"
-    elif overlap >= 0.66:
+def shade(overlap: float, text: str, resolving: bool = False) -> str:
+    """Paint by similarity, in the terminal's own palette: agreement is
+    the *soft* green -- the gradient's one and only green -- no overlap
+    the theme's red, and partial text or numeric overlap lands between
+    as yellow and faded red -- typed matching via
+    ``evaluate.similarity``, so "how green" means the same thing a
+    settlement's ``~`` metric means.  ``resolving`` underlines the
+    reading in use: emphasis by line, never by a second shade of the
+    color."""
+    if overlap >= 0.66:
         code = "2;32"
     elif overlap >= 0.33:
         code = "33"
@@ -148,8 +187,8 @@ def shade(overlap: float, text: str, bold: bool = False) -> str:
         code = "2;31"
     else:
         code = "31"
-    if bold:
-        code = "1;" + code.removeprefix("2;")
+    if resolving:
+        code = "4;" + code
     return _paint(code, text)
 
 
@@ -163,14 +202,13 @@ def _signature_text(commit, attr, p) -> str:
 
 
 def _verdict(commit, attr, p):
-    """``(score, violated)``: agreement among the cell's independent
-    *readers*, and whether a declared expectation is missed.
+    """``(score, violated)``: value agreement among *every* belief that
+    spoke on the cell, and whether a declared expectation is missed.
 
-    ``score=None`` means the cell is **unopposed**: one reading, which
-    nothing on record could have contradicted.  Judges never count --
-    they verdict the candidate they were handed, so their concord is
-    purchased by construction and earns nothing (Pillar III).  ``agree=``
-    used to flatter exactly this way; now it refuses to.
+    All voices count the same -- models, validators, humans, notes: one
+    kind of belief, one kind of voice (a validator dissents through its
+    p, which the ± spread carries).  ``score=None`` means the cell is
+    **unopposed** in the literal sense: nothing else spoke at all.
     """
     view = (commit.get("consensus") or {}).get(attr) or {}
     expect = (commit.get("expect") or {}).get(attr) or {}
@@ -179,12 +217,12 @@ def _verdict(commit, attr, p):
     violated = (bool(bounds) and not (bounds[0] <= p <= bounds[1])) \
         or (expect.get("deviation") is not None and dev is not None
             and dev > expect["deviation"])
-    readers = view.get("readers", 1)
-    if readers <= 1:
+    agreeing = view.get("n", 1)
+    dissenting = view.get("dissent", 0)
+    voices = agreeing + dissenting
+    if voices <= 1:
         return None, violated
-    dissenting = view.get("readers_dissent", 0)
-    score = ((readers - dissenting)
-             + dissenting * view.get("readers_similarity", 0.0)) / readers
+    score = (agreeing + dissenting * view.get("similarity", 0.0)) / voices
     return score, violated
 
 
@@ -193,16 +231,18 @@ def _signature(commit, attr, p, pad=0) -> str:
     on the overlap gradient.
 
     The number is the resolving belief's honest p with the agreeing
-    voices' spread beside it; the color is the record's verdict on the
-    *value* -- green when independent readers agree, sliding toward red
-    as dissenting readings land farther away, and plain (dim) while the
-    cell is unopposed: a single reading earns no color either way.
+    voices' spread beside it; its color is the record's verdict on the
+    *value* -- green when the beliefs that spoke hold the same value,
+    sliding toward red as dissenting voices land farther away, and plain
+    (dim) only while the cell is truly alone: nothing else spoke at all.
+    Every belief counts the same -- models, validators, humans, notes.
 
     The ``±`` wears its own color, from the **min-max range** of the
     recorded ps rather than their deviation -- one voice far from the
     rest barely moves a deviation, and the range refuses to average it
-    away.  The printed number stays the deviation.  A violated declared
-    expectation is always the theme's red.
+    away -- so a validator's half-hearted p shows here even while the
+    values agree.  The printed number stays the deviation.  A violated
+    declared expectation is always the theme's red.
     """
     view = (commit.get("consensus") or {}).get(attr) or {}
     dev = view.get("dev")
@@ -213,13 +253,10 @@ def _signature(commit, attr, p, pad=0) -> str:
     score, violated = _verdict(commit, attr, p)
     if violated:
         return lead + red(head + tail)
-    if score is None:
-        # unopposed: no independent reader has spoken, so neither the value
-        # match nor the spread is evidence yet -- the whole signature waits
-        # dim.  (Coloring the ± off the judges' ps here would contradict the
-        # p beside it; the parens still say whether anyone could be asked.)
-        return lead + dim(head + tail)
-    head = shade(score, head)
+    # each channel earns its own color: the value-match head waits dim
+    # only while nothing else spoke, and the ± measures the recorded ps'
+    # spread, coloring whenever two ps exist to be apart.
+    head = dim(head) if score is None else shade(score, head)
     tail = dim(tail) if spread is None else shade(1.0 - spread, tail)
     return lead + head + tail
 
@@ -291,8 +328,8 @@ def _signed(commit, attr, p, reach=None) -> str:
     cov = reach(commit, attr) if reach is not None else None
     if _AI_READABLE:
         score, violated = _verdict(commit, attr, p)
-        # ``agree=unopposed``: one reader, nothing could have disagreed --
-        # not evidence, and never printed as a flattering 1.00
+        # ``agree=unopposed``: nothing else spoke -- not evidence, and
+        # never printed as a flattering 1.00
         parts = ["agree=unopposed" if score is None else f"agree={score:.2f}"]
         if cov is not None:
             parts.append(f"asked={cov[0]}/{cov[1]}")
@@ -424,15 +461,16 @@ def cmd_log(ledger, args):
     # default, as in git; --no-decorate turns them off.
     decorations = {} if args.no_decorate else _decorations(commits)
     reach = _reach(ledger)
-    for pre, star, bar, commit in _lanes(commits):
+    width = _columns()                     # oneline is one line: cap at the
+    for pre, star, bar, commit in _lanes(commits):     # screen, git-style
         if args.graph and pre:
             print(pre)
         head = f"{star} " if args.graph else ""
         body = f"{bar} " if args.graph else ""
         decor = decorations.get(commit["hash"], "")
         if args.oneline:
-            print(f"{head}{yellow(commit['hash'])}{decor} "
-                  f"[{commit['kind']}] {_message(commit, reach)}")
+            print(_clip(f"{head}{yellow(commit['hash'])}{decor} "
+                        f"[{commit['kind']}] {_message(commit, reach)}", width))
             continue
         print(f"{head}{yellow('commit ' + commit['hash'])}{decor}")
         print(f"{body}Author: {commit['author']}")
@@ -453,8 +491,9 @@ def cmd_log(ledger, args):
 
 
 def _proposer_roster(ledger):
-    """Every belief on record that answers cells (models, humans) -- the
-    rows of the readings panel; judges verdict, they do not read."""
+    """Every belief on record that can produce a value unprompted
+    (``proposes``) -- the rows of the readings panel.  A capability
+    fact, not a caste: in the consensus every voice counts the same."""
     roster = []
     for belief_id in ledger.beliefs():
         if belief_id.startswith(("policy:", "changeset:")):
@@ -489,7 +528,7 @@ def _visible_at(o, commit) -> bool:
         return True
     return any(o.belief == belief and o.attr == attr
                and values_equal(o.value, value) and o.p == p
-               for belief, attr, value, p, _reads in commit.get("notes", ()))
+               for belief, attr, value, p in commit.get("notes", ()))
 
 
 def _readings(ledger, commit):
@@ -526,10 +565,10 @@ def _readings(ledger, commit):
             if not latest.frozen:
                 line += f" (p {latest.p:g})"
             # shaded like the matrix: how far this reading sits from what
-            # the commit holds -- and the reading in use renders bold
+            # the commit holds -- and the reading in use renders underlined
             held = commit["changes"][attr][0]
             print(shade(similarity(latest.value, held), line,
-                        bold=belief_id == commit["author"])
+                        resolving=belief_id == commit["author"])
                   + (dim(f"   {tag}") if tag else ""))
 
 
@@ -602,7 +641,7 @@ def _matrix_lines(ledger, commit, held, extra=(), active=None, always=False,
         return []                    # a matrix of one voice says nothing
     attachments = _attachments(ledger, custom)
     # the resolving belief per cell -- its reading is the value the
-    # program actually served, so its number renders bold
+    # program actually served, so its number renders underlined
     resolving = {}
     for attr, cell in (stats or {}).items():
         owner, _p, _frozen = cell
@@ -616,7 +655,7 @@ def _matrix_lines(ledger, commit, held, extra=(), active=None, always=False,
                 *(len(text) for text in footer_texts)) + 2
     lines = ["matrix:  " + dim("(rows beliefs, columns attributes; shade = "
                                "value overlap, green exact ... red none; "
-                               "bold = the resolving reading; ? never "
+                               "underlined = the resolving reading; ? never "
                                "asked, x unreachable from here)"),
              dim(" " * 46 + "".join(a[:14].rjust(width) for a in attrs))]
     for belief_id, cells_ in rows.items():
@@ -629,7 +668,7 @@ def _matrix_lines(ledger, commit, held, extra=(), active=None, always=False,
                 # a recorded reading always shows, frozen column or not
                 p, overlap = got
                 line += shade(overlap, f"{p:.2f}".rjust(width),
-                              bold=resolving.get(attr) == belief_id)
+                              resolving=resolving.get(attr) == belief_id)
                 continue
             if active == (belief_id, attr):
                 line += yellow("…".rjust(width))
@@ -735,13 +774,12 @@ def cmd_show(ledger, args):
         print(f"return {_value(value)}   (p={p:g})")
     for value, p in commit["vetoes"]:
         print(red(f"- {_value(value)}   (vetoed at p={p:g})"))
-    for belief, attr, value, p, reads in commit.get("notes", ()):
+    for belief, attr, value, p in commit.get("notes", ()):
         held = commit["changes"].get(attr)
         overlap = ""
         if held is not None and not values_equal(value, held[0]):
             overlap = f", ~{similarity(value, held[0]):.2f}"
-        verb = "read" if reads else "judged"
-        print(dim(f"note: {belief} {verb} {attr} as {_value(value)} "
+        print(dim(f"note: {belief} read {attr} as {_value(value)} "
                   f"(p={p:g}{overlap})"))
     for judge in commit.get("unknown_judges", ()):
         print(f"?     {judge} judged this; necessity unknown here")
@@ -1298,9 +1336,9 @@ def _client_manual() -> str:
 You are likely a coding agent in a repository whose `.thinair/` holds a
 record.  The `thinair` command is git for that record.  **Always pass
 `--ai-readable`**: it states the display's color channels as text --
-`agree=` (value agreement among *independent readings*; judges never
-count, their concord is built in; `agree=unopposed` means one reading,
-which nothing could have contradicted -- no evidence either way),
+`agree=` (value agreement among *every belief that spoke* -- models,
+validators, humans, notes: all voices count the same;
+`agree=unopposed` means nothing else spoke -- no evidence either way),
 `asked=N/M` (how much of the cell's panel has spoken), and
 `expect-violated` (a declared expectation was missed).  Without it you
 are blind to half the output.
@@ -1372,9 +1410,8 @@ Rebuilds the commit's tree, consults every reconstructible belief
 records the answers as corroborations -- idempotent per (commit,
 belief, cell), so re-running is free.  This is the command that turns
 `?` into numbers, `asked=1/3` into `asked=3/3`, and `agree=unopposed`
-into an earned `agree=`: model corroborations are the independent
-readers agreement is counted over (validator verdicts fill the matrix
-but can never earn it).  Frozen cells are skipped by default -- a fact
+into an earned `agree=`: every corroboration is a voice, model and
+validator alike.  Frozen cells are skipped by default -- a fact
 is not a question -- and `--include-frozen` prices the facts too.
 Models need an endpoint: `THINAIR_MODEL`, `THINAIR_BASE_URL`,
 `THINAIR_API_KEY`.
@@ -1394,11 +1431,11 @@ store already holds what every belief saw and said.  After each run:
   `[belief]` commit means the panel changed under you.
 - Fill the matrix before trusting it: run `evaluate` until `asked=` is
   full.  A cell at `±0.00 asked=1/3` is unmeasured, not settled, and
-  `agree=unopposed` is exactly one reading -- nothing could have
+  `agree=unopposed` means nothing else spoke -- nothing could have
   disagreed, so nothing was earned.
 - Then read the signatures.  Done means `agree=` near 1.00 across the
-  cells that matter -- computed over real independent readers, never
-  over judges -- and no `expect-violated` anywhere.  Low `agree=`
+  cells that matter, computed over every belief that spoke,
+  and no `expect-violated` anywhere.  Low `agree=`
   is a *located* disagreement, never a reason to blindly rerun: `show`
   the readings, `blame` the cell, then either improve the prompt
   material (docstrings, `Thing(..., doc=...)`), tighten the declaration, or
