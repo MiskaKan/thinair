@@ -992,19 +992,29 @@ def history(ledger: Ledger, entity: str | None = None) -> list[dict]:
     for key in list(spans):
         close(key)
 
-    # second pass: order by t, thread the tree hashes through
+    # second pass: order by t, thread trees and commit ids through.  The
+    # commit id chains entity | parent commit | tree, exactly so that two
+    # entities with identical content never share an id -- identity is
+    # positional, like git's, while the *tree* stays the bare state hash
+    # (that is what episode parent pointers recorded at run time).
+    import hashlib
     events.sort(key=lambda ev: ev["t"])
     cells: dict[str, dict] = {}
+    last_commit: dict[str, str] = {}
     for ev in events:
         entity_cells = cells.setdefault(ev["entity"], {})
-        ev["parent"] = _state_hash(entity_cells)
+        ev["parent_tree"] = _state_hash(entity_cells)
         if ev["kind"] == "episode":
-            ev["parent_matches"] = ev["parent"] == ev["recorded_parent"]
+            ev["parent_matches"] = ev["parent_tree"] == ev["recorded_parent"]
         for attr, (value, p, frozen) in ev["changes"].items():
             already = entity_cells.get(attr)
             if frozen or already is None or not already[2]:
                 entity_cells[attr] = (value, p, frozen)   # frozen wins
-        ev["hash"] = _state_hash(entity_cells)
+        ev["tree"] = _state_hash(entity_cells)
+        ev["parent"] = last_commit.get(ev["entity"])
+        chain = f"{ev['entity']}|{ev['parent'] or ''}|{ev['tree']}"
+        ev["hash"] = hashlib.sha1(chain.encode("utf-8")).hexdigest()[:12]
+        last_commit[ev["entity"]] = ev["hash"]
 
     # corroborations become notes on the commit that owns their cell
     for note in notes:

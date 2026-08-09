@@ -205,8 +205,12 @@ settle any record without reconstructing the strategy's classes.
 
 The `thinair` command inspects any store or `ledger.json` archive
 git-style — `log`, `show`, `status`, `branch` (entities are branches),
-`blame`, `beliefs [commit]` — a pure derivation over §12's `history`,
-spending nothing.  `thinair ground` prints the shipped GROUNDING.md
+`blame`, `diff A...B` (two trees, cell by cell), `source [commit]` (the
+tree as annotated source), `beliefs [commit]` — a pure derivation over
+§12's `history`, spending nothing.  Commit ids chain
+entity | parent | tree, so identical content on two entities never shares
+an id; the tree itself stays the bare state hash episodes point at.
+Output colors only a terminal; `NO_COLOR` wins.  `thinair ground` prints the shipped GROUNDING.md
 verbatim, store-free and pipe-pure, so an agentic session's first command
 can be its own grounding.  The one exception is `evaluate [belief|*] [commit]`
 (HEAD by default): it rebuilds the commit's tree as a sealed snapshot,

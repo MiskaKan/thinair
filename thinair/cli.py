@@ -14,6 +14,8 @@ commands are deliberate copies:
     thinair evaluate [belief] [commit]          consult beliefs against a
                                                 commit's state -- spends
                                                 calls, records corroborations
+    thinair diff A...B | A B | A                two trees, cell by cell
+    thinair source [commit]                     the tree as annotated source
     thinair ground                              print the measurement
                                                 grounding (GROUNDING.md) --
                                                 pipe it to an agent
@@ -50,6 +52,32 @@ def open_store(path: str | None) -> Ledger:
 def _value(v, limit=60):
     text = json.dumps(v, ensure_ascii=False, default=str)
     return text if len(text) <= limit else text[: limit - 2] + " …"
+
+
+# -- color, git's way: only to a terminal, and NO_COLOR wins ---------------
+
+def _tty() -> bool:
+    return sys.stdout.isatty() and not os.environ.get("NO_COLOR")
+
+
+def _paint(code: str, text: str) -> str:
+    return f"\x1b[{code}m{text}\x1b[0m" if _tty() else text
+
+
+def yellow(text):
+    return _paint("33", text)
+
+
+def green(text):
+    return _paint("32", text)
+
+
+def red(text):
+    return _paint("31", text)
+
+
+def dim(text):
+    return _paint("2", text)
 
 
 def _message(commit) -> str:
@@ -112,10 +140,12 @@ def cmd_log(ledger, args):
         body = f"{bar} " if args.graph else ""
         decor = decorations.get(commit["t"], "")
         if args.oneline:
-            print(f"{head}{commit['hash']}{decor} {commit['entity']:<12} "
+            print(f"{head}{yellow(commit['hash'])}{yellow(decor)} "
+                  f"{commit['entity']:<12} "
                   f"[{commit['kind']}] {_message(commit)}")
             continue
-        print(f"{head}commit {commit['hash']}{decor} ({commit['entity']})")
+        print(f"{head}{yellow('commit ' + commit['hash'])}{yellow(decor)} "
+              f"({commit['entity']})")
         print(f"{body}Author: {commit['author']}")
         print(f"{body}Date:   t={commit['t']:g}")
         print(body.rstrip())
@@ -139,27 +169,30 @@ def cmd_show(ledger, args):
     if not matches:
         sys.exit(f"fatal: bad revision '{args.commit}'")
     for commit in matches:
-        print(f"commit {commit['hash']} ({commit['entity']})")
+        print(f"{yellow('commit ' + commit['hash'])} ({commit['entity']})")
         print(f"Author: {commit['author']}")
         print(f"Date:   t={commit['t']:g}")
-        print(f"Parent: {commit['parent']}"
-              + ("" if commit["kind"] != "episode" else
-                 f" (recorded {commit['recorded_parent']}"
-                 + (")" if commit["parent_matches"] else " -- MISMATCH)")))
+        print(f"Parent: {commit['parent'] or '(root)'}")
+        if commit["kind"] == "episode":
+            verdict = "" if commit["parent_matches"] else "  -- MISMATCH"
+            print(f"Tree:   {commit['tree']} (parent tree "
+                  f"{commit['parent_tree']}, recorded "
+                  f"{commit['recorded_parent']}{verdict})")
         print()
         print(f"    {_message(commit)}")
         print()
         print(f"diff --thinair {commit['entity']}")
         for attr, (value, p, frozen) in sorted(commit["changes"].items()):
             mark = "frozen" if frozen else f"p={p:g}"
-            print(f"+ {attr} = {_value(value)}   ({mark})")
+            print(green(f"+ {attr} = {_value(value)}   ({mark})"))
         if commit["kind"] == "episode":
             value, p = commit["returned"]
             print(f"return {_value(value)}   (p={p:g})")
         for value, p in commit["vetoes"]:
-            print(f"- {_value(value)}   (vetoed at p={p:g})")
+            print(red(f"- {_value(value)}   (vetoed at p={p:g})"))
         for belief, attr, value, p in commit.get("notes", ()):
-            print(f"note: {belief} read {attr} as {_value(value)} (p={p:g})")
+            print(dim(f"note: {belief} read {attr} as {_value(value)} "
+                      f"(p={p:g})"))
         for judge in commit.get("unknown_judges", ()):
             print(f"?     {judge} judged this; necessity unknown here")
         print()
@@ -358,6 +391,59 @@ def cmd_evaluate(ledger, args):
             print(f"  {attr:<18} ⇒ {_value(+got)} (p {~got:g})  {verdict}")
 
 
+def cmd_diff(ledger, args):
+    """Two trees, compared cell by cell -- ``thinair diff A...B``, ``A B``,
+    or ``A`` alone against A's branch tip."""
+    import re
+    spec = args.commits
+    if len(spec) == 1 and re.search(r"\.\.", spec[0]):
+        first, second = re.split(r"\.{2,3}", spec[0], maxsplit=1)
+    elif len(spec) == 2:
+        first, second = spec
+    else:
+        first, second = spec[0], None
+    commits = history(ledger)
+    a = _commit_at(commits, first)
+    if second:
+        b = _commit_at(commits, second)
+    else:
+        b = [c for c in commits if c["entity"] == a["entity"]][-1]
+    if a["t"] > b["t"] and a["entity"] == b["entity"]:
+        a, b = b, a                        # oldest on the left, like a range
+    tree_a, tree_b = _tree_at(commits, a), _tree_at(commits, b)
+    print(f"diff --thinair a/{a['entity']}@{a['hash']} "
+          f"b/{b['entity']}@{b['hash']}")
+    for attr in sorted(set(tree_a) | set(tree_b)):
+        va, vb = tree_a.get(attr), tree_b.get(attr)
+        if va is not None and vb is not None \
+                and values_equal(va[0], vb[0]) and va[1:3] == vb[1:3]:
+            continue
+        if va is not None:
+            mark = "frozen" if va[2] else f"p={va[1]:g}"
+            print(red(f"- {attr} = {_value(va[0])}   ({mark})"))
+        if vb is not None:
+            mark = "frozen" if vb[2] else f"p={vb[1]:g}"
+            print(green(f"+ {attr} = {_value(vb[0])}   ({mark})"))
+
+
+def _short_author(author: str) -> str:
+    return author.split("@")[0]
+
+
+def cmd_source(ledger, args):
+    """The commit's tree rendered as source: frozen attributes plain,
+    believed ones annotated -- ``source(thing)``, for any point in time."""
+    commits = history(ledger)
+    commit = _commit_at(commits, args.commit)
+    tree = _tree_at(commits, commit)
+    print(dim(f"# {commit['entity']} @ {commit['hash']} (t={commit['t']:g})"))
+    for attr, (value, p, frozen, author) in sorted(tree.items()):
+        line = f"{attr} = {_value(value, limit=70)}"
+        if not frozen:
+            line += dim(f"   # p={p:g} ← {_short_author(author)}")
+        print(line)
+
+
 def cmd_ground(_ledger, _args):
     """The grounding, verbatim -- nothing else on stdout, so the output can
     be piped straight into an agent's context.  The first command of an
@@ -411,6 +497,16 @@ def main(argv=None) -> int:
     evaluate.add_argument("belief", nargs="?", default="*")
     evaluate.add_argument("commit", nargs="?", default=None)
     evaluate.set_defaults(run=cmd_evaluate)
+
+    diff = sub.add_parser("diff", help="two trees, cell by cell")
+    diff.add_argument("commits", nargs="+",
+                      help="A...B, or A B, or A against its branch tip")
+    diff.set_defaults(run=cmd_diff)
+
+    source = sub.add_parser(
+        "source", help="the commit's tree as annotated source")
+    source.add_argument("commit", nargs="?", default=None)
+    source.set_defaults(run=cmd_source)
 
     ground = sub.add_parser(
         "ground", help="print the measurement grounding; pipe it to an agent")

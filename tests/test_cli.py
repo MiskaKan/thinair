@@ -250,6 +250,47 @@ def test_evaluate_star_uses_every_reconstructible_belief(store, capsys):
         restore_config(None, previous)
 
 
+def test_identical_content_never_shares_a_commit_id(tmp_path):
+    """Two entities with byte-identical states are different commits: the id
+    chains entity | parent | tree, so identity is positional, like git's."""
+    ledger = SqliteLedger(tmp_path / "o.db")
+
+    class Card(Thing):
+        __beliefs__ = [human("jane")]
+        text: str
+
+    Card(__entity__="card-1", __ledger__=ledger, text="same words")
+    Card(__entity__="card-2", __ledger__=ledger, text="same words")
+    commits = history(ledger)
+    assert len(commits) == 2
+    assert commits[0]["hash"] != commits[1]["hash"]
+    assert commits[0]["tree"] == commits[1]["tree"]     # same content, though
+
+
+def test_diff_between_two_commits(store, capsys):
+    main(["--store", store, "log", "--oneline", "inv-1"])
+    lines = capsys.readouterr().out.strip().splitlines()
+    newest, oldest = lines[0].split()[0], lines[-1].split()[0]
+
+    main(["--store", store, "diff", f"{oldest}...{newest}"])
+    out = capsys.readouterr().out
+    assert "diff --thinair" in out
+    assert "+ total = 1249.5   (p=0.93)" in out          # gained since root
+    assert '+ note = "overdue"' in out                   # the episode's write
+    assert "- " not in out.replace("--thinair", "")      # nothing was lost
+
+    main(["--store", store, "diff", oldest])             # A against branch tip
+    assert "+ total" in capsys.readouterr().out
+
+
+def test_source_renders_the_tree_annotated(store, capsys):
+    main(["--store", store, "source"])                   # HEAD by default
+    out = capsys.readouterr().out
+    assert 'source_text = "Widget 999.00' in out
+    assert "total = 1249.5   # p=0.93 ← model:small-fast" in out
+    assert 'note = "overdue"' in out                     # the episode's write
+
+
 def test_ground_prints_the_grounding_pipe_pure(tmp_path, monkeypatch, capsys):
     """No store needed, none created, nothing on stdout but the file."""
     monkeypatch.chdir(tmp_path)
