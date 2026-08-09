@@ -242,7 +242,15 @@ Opinion.__hash__ = lambda self: hash((self.belief, self.entity, self.attr, self.
 # --------------------------------------------------------------------------
 
 class Ledger:
-    """Append-only memory.  No deletion API, no evaluative logic."""
+    """Append-only memory.  No deletion API, no evaluative logic.
+
+    This class is also the storage interface: a backend is a Ledger with a
+    different home.  The kernel a backend overrides is ``add``, ``opinions``,
+    ``cells``, ``beliefs``, ``next_t``, ``__len__`` and ``__iter__``;
+    everything else -- ``latest``, ``latest_frozen``, ``slice_for``,
+    ``extend``, ``to_json``, ``dump`` -- derives from the kernel and comes
+    for free.  ``thinair.store.SqliteLedger`` is the shipped example.
+    """
 
     VERSION = 1
 
@@ -331,7 +339,7 @@ class Ledger:
     def to_json(self) -> dict:
         return {"thinair": self.VERSION,
                 "kind": "ledger",
-                "opinions": [o.to_json() for o in self._all]}
+                "opinions": [o.to_json() for o in self]}
 
     @classmethod
     def from_json(cls, blob: dict) -> "Ledger":

@@ -34,6 +34,7 @@ capability: assignment, code execution, and the explicit ``freeze`` verb.
 from __future__ import annotations
 
 from . import evaluate
+from . import store
 from .beliefs import (
     Belief,
     Discriminative,
@@ -108,8 +109,8 @@ __version__ = "0.1.0"
 __all__ = [
     # the object surface
     "Thing", "Cell", "Snapshot", "contract", "snapshot", "freeze", "source",
-    # settlement over the record
-    "evaluate",
+    # settlement over the record, and where the record lives
+    "evaluate", "store",
     # the one contract
     "Belief", "Discriminative", "Judgment", "Opinion", "Ledger",
     "ModelBelief", "HumanBelief", "Scoped",
@@ -131,3 +132,8 @@ __all__ = [
     "Executes", "PassesTests", "RoundTrip", "Calculator", "RegexBehavior",
     "__version__",
 ]
+
+# Tracking is on unless switched off (THINAIR_STORE=off): the default ledger
+# becomes .thinair/opinions.db, created lazily on the first append.  Explicit
+# ledgers and use_ledger() scopes are untouched.
+store.install()

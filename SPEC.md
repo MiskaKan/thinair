@@ -167,6 +167,18 @@ proposal, each verdict with its reason, the resolution, episode actions, and
 commit or rollback.  `source(thing)` / `thing.__source__` renders frozen
 attributes plain and believed ones annotated `# p=0.93 ← model/extract-v3`.
 
+**The store.**  The default ledger is durable: `.thinair/opinions.db`,
+created lazily on the first append.  `THINAIR_STORE=off` keeps the old
+in-memory default; `THINAIR_STORE=<path>` relocates the file; explicit
+`__ledger__=` and `use_ledger(...)` are untouched.  `Ledger` itself is the
+backend interface — a backend overrides the kernel (`add`, `opinions`,
+`cells`, `beliefs`, `next_t`, `__len__`, `__iter__`) and inherits the rest;
+`store.SqliteLedger` is the shipped one.  On relaunch the tape continues
+(`t` resumes from `MAX(t)`), and everything frozen short-circuits from the
+record at zero calls.  The store is operational truth; the committed
+evidence of an experiment remains a JSON extract (§13 rule 7), from which
+the database is rebuildable — storage slices, `evaluate` judges.
+
 ## 12. Settlement: `thinair.evaluate`
 
 Layer 2's first slice, as built: what the record *earned*, computed from the
