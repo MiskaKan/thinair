@@ -337,7 +337,10 @@ of it:
   — which attaches the validators the shape implies (a bare annotation
   `source_text: str` declares too). The panel changes through operators — `t += belief`
   / `t -= belief` in place, `t + belief` / `t - belief` for a fresh handle — and every
-  change is recorded: the strategy is part of the history.
+  change is recorded: the strategy is part of the history. So **never `t += belief`
+  just for a second opinion** — `corroborate(t, beliefs=[...])` consults any belief,
+  on or off the panel; `+=` declares a new strategy (a `[belief]` commit, a real
+  negotiating member), and the next run records the removal: churn, not strategy.
   `Thing.__default__ = model("...")` names the generative belief any panel without one
   falls back to. Pinning is a property of the *belief* (`frozen=True`), never a verb on
   the Thing: **a value code already knows is assigned, never asked** — `t.axis = value`

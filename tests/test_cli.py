@@ -1391,6 +1391,35 @@ def test_each_signature_channel_earns_its_own_color(monkeypatch):
     assert "\x1b[2mp 0.95" in lone and "\x1b[2m±0.00" in lone
 
 
+def test_a_failed_ask_is_a_note_but_never_a_reading(
+        tmp_path, monkeypatch, capsys):
+    """An empty completion (no value, p 0) stays on the record and renders
+    as what it is -- an unanswered ask -- but it is no reading: the matrix
+    and the readings table keep the belief's last real stance."""
+    from thinair.ledger import Opinion
+
+    ledger = SqliteLedger(tmp_path / "opinions.db")
+    ledger.add(Opinion(belief="model:a", entity="e1", attr="size",
+                       value=4, p=0.9, meta={"model": "a", "round": 1}))
+    ledger.add(Opinion(belief="model:pro", entity="e1", attr="size",
+                       value=4, p=0.95,
+                       meta={"model": "pro", "corroboration": True}))
+    ledger.add(Opinion(belief="model:pro", entity="e1", attr="size",
+                       value=None, p=0.0,
+                       meta={"model": "pro", "corroboration": True,
+                             "reason": "completion carried no 'value'"}))
+    monkeypatch.setattr("thinair.cli._tty", lambda: True)
+    main(["--store", str(tmp_path / "opinions.db"), "show", "HEAD"])
+    out = capsys.readouterr().out
+    assert "note: model:pro was asked size; no answer came back" in out
+    assert "read size as null" not in out          # never dressed as a stance
+    stances = [l for l in out.splitlines()
+               if "model:pro" in l and "note:" not in l]
+    assert stances                                 # matrix row + readings row
+    assert all("0.95" in l for l in stances)       # the last *real* reading
+    assert not any("\x1b[31m" in l for l in stances)
+
+
 def test_oneline_caps_at_the_screen(store, monkeypatch, capsys):
     """--oneline means one line: a row longer than the screen is cut with
     an ellipsis (ANSI codes pass through unmeasured).  A piped reader is

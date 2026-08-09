@@ -1191,8 +1191,11 @@ def history(ledger: Ledger, entity: str | None = None) -> list[dict]:
     # code: there is exactly one kind of voice, an opinion with a value and
     # a p.  Per cell: the resolving p, every panel verdict from the same
     # negotiation, the negotiation's other candidate stances (on the commit
-    # as ``readings``), and every corroboration note.  A voice holding the
-    # settled value joins ``ps`` (a validator dissents through its p, and
+    # as ``readings``), and every corroboration note.  One belief is one
+    # voice: a belief that spoke more than once counts once, by its *last*
+    # word -- and a completion that carried no value never spoke at all
+    # (an empty answer at p 0 is a failed ask, not an opinion).  A voice
+    # holding the settled value joins ``ps`` (a validator dissents through its p, and
     # that lands in the spread); a voice holding a *different* value counts
     # in ``dissent`` with its ``similarity``.  ``dev`` is the agreeing ps'
     # population standard deviation (needs two voices) and ``range`` their
@@ -1209,11 +1212,16 @@ def history(ledger: Ledger, entity: str | None = None) -> list[dict]:
             ps = [1.0 if frozen else p] \
                 + [vp for _b, vp in (commit.get("panel") or {}).get(attr, ())]
             dissent, overlaps = 0, []
-            others = [(rv, rp) for _b, rv, rp
-                      in (commit.get("readings") or {}).get(attr, ())] \
-                + [(nv, np_) for _b, na, nv, np_ in commit.get("notes", ())
-                   if na == attr]
-            for other_value, other_p in others:
+            spoke: dict = {}
+            for b, rv, rp in (commit.get("readings") or {}).get(attr, ()):
+                if rv is None and rp == 0.0:
+                    continue                   # never spoke
+                spoke[b] = (rv, rp)
+            for b, na, nv, np_ in commit.get("notes", ()):
+                if na == attr and not (nv is None and np_ == 0.0):
+                    spoke[b] = (nv, np_)       # a later note is the last word
+            spoke.pop(commit["author"], None)  # already ps[0], the resolver
+            for other_value, other_p in spoke.values():
                 if values_equal(other_value, value):
                     ps.append(other_p)
                 else:

@@ -553,6 +553,8 @@ def _readings(ledger, commit):
                                            belief=belief_id):
                     if not _visible_at(got, commit):
                         continue
+                    if got.value is None and got.p == 0.0:
+                        continue           # a failed ask never spoke
                     if latest is None or got.t > latest.t:
                         latest = got
             if latest is None:
@@ -634,6 +636,9 @@ def _matrix_lines(ledger, commit, held, extra=(), active=None, always=False,
                     continue
                 if not _visible_at(o, commit):
                     continue         # the panel unwinds to the moment
+                if o.value is None and o.p == 0.0:
+                    continue         # a failed ask never spoke: the row
+                                     # keeps the belief's last real reading
                 rows.setdefault(_base_id(ledger, o.belief, bases), {})[attr] \
                     = (o.p, similarity(o.value, held[attr]))
     for belief_id in extra:
@@ -776,6 +781,11 @@ def cmd_show(ledger, args):
     for value, p in commit["vetoes"]:
         print(red(f"- {_value(value)}   (vetoed at p={p:g})"))
     for belief, attr, value, p in commit.get("notes", ()):
+        if value is None and p == 0:
+            # a failed ask, on record but not an opinion: it never spoke
+            print(dim(f"note: {belief} was asked {attr}; "
+                      "no answer came back"))
+            continue
         held = commit["changes"].get(attr)
         overlap = ""
         if held is not None and not values_equal(value, held[0]):
@@ -1412,7 +1422,9 @@ records the answers as corroborations -- idempotent per (commit,
 belief, cell), so re-running is free.  This is the command that turns
 `?` into numbers, `asked=1/3` into `asked=3/3`, and `agree=unopposed`
 into an earned `agree=`: every corroboration is a voice, model and
-validator alike.  Frozen cells are skipped by default -- a fact
+validator alike -- one voice per belief (its last word counts), and a
+completion carrying no value never spoke: a failed ask is a note, not
+an opinion.  Frozen cells are skipped by default -- a fact
 is not a question -- and `--include-frozen` prices the facts too.
 Models need an endpoint: `THINAIR_MODEL`, `THINAIR_BASE_URL`,
 `THINAIR_API_KEY`.

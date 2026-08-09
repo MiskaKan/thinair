@@ -544,3 +544,46 @@ def test_a_dissenting_candidate_is_a_dissenting_voice():
     view = history(ledger, entity="e8c")[-1]["consensus"]["size"]
     assert view["n"] == 1 and view["dissent"] == 1
     assert 0.0 < view["similarity"] < 1.0          # 3 vs 4: near, not equal
+
+
+def test_a_corroborators_last_word_is_its_voice():
+    """Asked twice, answered twice: still one voice.  The later note is
+    the belief's last word and replaces the earlier one in the tally,
+    exactly like rounds inside a negotiation."""
+    from thinair.evaluate import history
+
+    ledger = Ledger()
+    ledger.add(Opinion(belief="model:a", entity="e8d", attr="size",
+                       value=4, p=0.9, meta={"model": "a", "round": 1}))
+    ledger.add(Opinion(belief="model:pro", entity="e8d", attr="size",
+                       value=7, p=0.8,
+                       meta={"model": "pro", "corroboration": True}))
+    ledger.add(Opinion(belief="model:pro", entity="e8d", attr="size",
+                       value=4, p=0.95,
+                       meta={"model": "pro", "corroboration": True}))
+    commit = history(ledger, entity="e8d")[-1]
+    assert len(commit["notes"]) == 2               # both asks stay on record
+    view = commit["consensus"]["size"]
+    assert view["n"] == 2 and view["dissent"] == 0  # its last word agrees
+
+
+def test_an_empty_completion_never_spoke():
+    """A no-value answer at p 0 is a failed ask, not an opinion: it stays
+    on the commit as a note, but the belief's *word* is its previous real
+    reading -- the dead call does not drag the cell."""
+    from thinair.evaluate import history
+
+    ledger = Ledger()
+    ledger.add(Opinion(belief="model:a", entity="e8e", attr="size",
+                       value=4, p=0.9, meta={"model": "a", "round": 1}))
+    ledger.add(Opinion(belief="model:pro", entity="e8e", attr="size",
+                       value=4, p=0.95,
+                       meta={"model": "pro", "corroboration": True}))
+    ledger.add(Opinion(belief="model:pro", entity="e8e", attr="size",
+                       value=None, p=0.0,
+                       meta={"model": "pro", "corroboration": True,
+                             "reason": "completion carried no 'value'"}))
+    commit = history(ledger, entity="e8e")[-1]
+    assert len(commit["notes"]) == 2               # the failed ask is on record
+    view = commit["consensus"]["size"]
+    assert view["n"] == 2 and view["dissent"] == 0  # but it is not a voice

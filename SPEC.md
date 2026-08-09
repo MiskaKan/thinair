@@ -280,7 +280,11 @@ verdicts, its *other* candidate stances (recorded on the settle commit
 as `readings` — escalation is a second voice), and corroborations.
 There is exactly one kind of voice: models, validators, humans and
 code all count the same — a validator dissents through its p, which
-the `±` spread carries.  With two or more voices the score folds each
+the `±` spread carries.  One belief is one voice: a belief that spoke
+more than once counts once, by its last word — and a completion that
+carried no value never spoke at all (the failed ask stays on record as
+a note, rendered as what it is, but it is not an opinion: it does not
+count, shade a matrix cell, or stand as a belief's reading).  With two or more voices the score folds each
 dissenting voice's `evaluate.similarity`
 to the held value (trigram Jaccard for strings, relative closeness for
 numbers, token Jaccard for containers — classical, model-free) — green
@@ -408,7 +412,7 @@ zero model calls — the import-graph assertion of invariant 7 covers
 | orders | `bradley_terry` — strengths with SEs, graph connectivity, consistency (the principled transitivity reading) |
 | instrument | `reliability` (+ bespoke `compare`), `drift`, `discrimination`, `grounded` → `concordance`, `calibration`, `separation`, `tiers` |
 | record structure | `graph` (typed edges: authored / ref / host / child; exposure groups), `lineage` (upstream: what a value rests on), `invalidated` (downstream: what a change calls into question) |
-| commits | `history` — the record as authored, atomic transitions: the tree is the state hash; assignments, episode changesets (parent tree re-derived and checked against the recorded pointer), settlements and *panel changes* commit (kind `belief`: `Thing.__init__` records the declared panel fingerprint idempotently as `__panel__`; the first declaration per entity is a silent baseline, a changed one commits `+ added - removed` with the tree untouched — the instrument is part of what the history is a history of); deliberation lives inside its commit; corroborations are notes; replay commits nothing.  Each commit carries per-cell `consensus` — agreeing voices (`n`), their p-deviation *and* min-max `range`, `dissent` count with its mean `similarity` — every belief that spoke counts the same, models and validators alike; the negotiation's other candidate beliefs ride the commit as `readings` (each instrument's last stance) — and any declared `expect` (§8) — a belief is never wrong alone; the spread is the signal |
+| commits | `history` — the record as authored, atomic transitions: the tree is the state hash; assignments, episode changesets (parent tree re-derived and checked against the recorded pointer), settlements and *panel changes* commit (kind `belief`: `Thing.__init__` records the declared panel fingerprint idempotently as `__panel__`; the first declaration per entity is a silent baseline, a changed one commits `+ added - removed` with the tree untouched — the instrument is part of what the history is a history of); deliberation lives inside its commit; corroborations are notes; replay commits nothing.  Each commit carries per-cell `consensus` — agreeing voices (`n`), their p-deviation *and* min-max `range`, `dissent` count with its mean `similarity` — every belief that spoke counts the same, models and validators alike, one voice per belief (its last word), no-value completions never having spoken; the negotiation's other candidate beliefs ride the commit as `readings` (each instrument's last stance) — and any declared `expect` (§8) — a belief is never wrong alone; the spread is the signal |
 | data | `LICENSED` (scale type → licensed statistics), `GRADES` (vibes → claim → finding → calibrated) |
 
 Ground has two homes, one gatherer: `grounded(ledger)` reads outcomes frozen
