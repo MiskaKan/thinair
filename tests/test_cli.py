@@ -757,3 +757,18 @@ def test_log_has_no_branch_column_and_decorates_by_default(store, capsys):
     main(["--store", store, "log", "--oneline", "--no-decorate"])
     out = capsys.readouterr().out
     assert "HEAD -> " not in out and "(inv-1)" not in out
+
+
+def test_matrix_separates_out_of_scope_from_never_asked(store, capsys):
+    """An empty matrix cell says why: '-' the belief is scoped elsewhere
+    and cannot speak; '?' it could be asked and never was."""
+    main(["--store", store, "log", "--oneline", "inv-1"])
+    settle = [l for l in capsys.readouterr().out.splitlines()
+              if "[settle]" in l][0].split()[0]
+    main(["--store", store, "show", settle])
+    out = capsys.readouterr().out
+    scoped = [l for l in out.splitlines() if "@total" in l][0]
+    assert "-" in scoped and "?" not in scoped           # total-only belief
+    jane = [l for l in out.splitlines()
+            if l.strip().startswith("human:jane")][0]
+    assert "?" in jane                                   # askable, unasked

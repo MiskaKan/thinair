@@ -235,10 +235,12 @@ dissents on the value: `log --all --decorate --oneline --graph` shows at
 a glance where beliefs diverged, and how far.  `show` renders the *whole
 tree* as of the commit with what moved highlighted and the rest as dim
 context, then a belief × attribute matrix over the tree (each cell that
-belief's latest p, green agreeing / red differing), then the readings
-panel: every proposer, per changed cell — its latest reading, or `-`
-where it never spoke — so what `evaluate` records is visible there from
-then on.  Matrix and readings pool opinions across the commit's refs:
+belief's latest p, green agreeing / red differing; an empty cell says
+why it is empty — `-` scoped elsewhere and cannot speak, `?` could be
+asked and never was, which is exactly what `evaluate` fills in), then
+the readings panel: every proposer, per changed cell — its latest
+reading, or `-` where it never spoke — so what `evaluate` records is
+visible there from then on.  Matrix and readings pool opinions across the commit's refs:
 one commit is one content, so it gets one panel; branches are pointers,
 and per-ref detail stays reachable as notes and in the ledger itself.  Commit identity is git's: sha1(parent |
 tree | author | kind | message | changes) — **the entity is not in the

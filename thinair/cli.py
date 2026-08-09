@@ -265,11 +265,28 @@ def _readings(ledger, commit):
             print(green(line) + (dim(f"   {tag}") if tag else ""))
 
 
+def _scope_of(ledger, belief_id, attrs):
+    """The one attribute a scoped belief speaks at, or ``None`` (unscoped).
+
+    The belief table knows (``kind == "Scoped"``); cold archives fall back
+    to the id itself, whose ``@<attr>`` suffix is the scoping convention --
+    a model id's ``@T0.2/...`` tail never names an attribute of the tree.
+    """
+    row = getattr(ledger, "belief_row", lambda _id: None)(belief_id)
+    tail = belief_id.rsplit("@", 1)[-1] if "@" in belief_id else None
+    if row is not None and row.get("kind") == "Scoped":
+        return tail
+    return tail if tail in attrs else None
+
+
 def _matrix(ledger, commit, held):
     """Belief × attribute over the commit's whole tree: each cell is that
     belief's latest stated p -- green where its value matches what the
-    tree holds, red where it differs, ``-`` where it is silent.  Opinions
-    pool across the commit's refs: one commit, one panel."""
+    tree holds, red where it differs.  An empty cell says why it is empty:
+    ``-`` where the belief is scoped elsewhere and cannot speak, ``?``
+    where it could be asked and never was (``thinair evaluate`` fills
+    those in).  Opinions pool across the commit's refs: one commit, one
+    panel."""
     attrs = sorted(held)
     rows: dict[str, dict] = {}
     for entity in commit["entities"]:
@@ -283,15 +300,18 @@ def _matrix(ledger, commit, held):
         return                       # a matrix of one voice says nothing
     width = max(8, *(min(len(a), 14) for a in attrs)) + 2
     print()
-    print("matrix:  " + dim("(rows beliefs, columns attributes; "
-                            "green agrees, red differs)"))
+    print("matrix:  " + dim("(rows beliefs, columns attributes; green "
+                            "agrees, red differs; - out of scope, "
+                            "? never asked)"))
     print(dim(" " * 46 + "".join(a[:14].rjust(width) for a in attrs)))
     for belief_id, cells_ in rows.items():
+        scope = _scope_of(ledger, belief_id, set(attrs))
         line = f"  {belief_id[:44]:<44}"
         for attr in attrs:
             got = cells_.get(attr)
             if got is None:
-                line += dim("-".rjust(width))
+                mark = "-" if scope is not None and scope != attr else "?"
+                line += dim(mark.rjust(width))
                 continue
             p, agrees = got
             cell = f"{p:.2f}".rjust(width)
