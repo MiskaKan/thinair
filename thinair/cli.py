@@ -110,9 +110,12 @@ def shade(overlap: float, text: str) -> str:
 
 
 def _signature_text(commit, attr, p) -> str:
+    """``p 0.95 ±0.02`` -- or ``p 0.95 ±?`` when fewer than two agreeing
+    voices have measured the cell: an unmeasured spread says so instead of
+    hiding, because ``(p 0.95)`` alone reads as more settled than it is."""
     view = (commit.get("consensus") or {}).get(attr) or {}
     dev = view.get("dev")
-    return f"p {p:g}" + (f" ±{dev:.2f}" if dev is not None else "")
+    return f"p {p:g} ±" + (f"{dev:.2f}" if dev is not None else "?")
 
 
 def _signature(commit, attr, p, pad=0) -> str:
@@ -147,14 +150,51 @@ def _signature(commit, attr, p, pad=0) -> str:
     return shade(score, text)
 
 
-def _message(commit) -> str:
+def _reach(ledger):
+    """Coverage for the signature's parens: of the mechanisms this client
+    could hear on a cell, the fraction that have spoken -- judged by the
+    same rules as the matrix's ``?`` cells, so green parens mean "the
+    panel is complete" and red parens mean "almost nobody has been
+    asked".  ``None`` on archives, where askability is unknowable."""
+    if not hasattr(ledger, "belief_rows"):
+        return None
+    custom = _load_custom(ledger)
+    askable = {row["id"] for row in ledger.belief_rows()
+               if _can_fill(ledger, row["id"], custom)}
+
+    def coverage(commit, attr):
+        bases = set(commit["changes"])
+        spoken = set()
+        for entity in commit["entities"]:
+            for o in ledger.opinions(entity=entity, attr=attr):
+                if o.belief.startswith(("policy:", "changeset:")):
+                    continue
+                if not _visible_at(o, commit):
+                    continue
+                spoken.add(_base_id(ledger, o.belief, bases))
+        pool = spoken | askable
+        return len(spoken) / len(pool) if pool else 1.0
+
+    return coverage
+
+
+def _signed(commit, attr, p, reach=None) -> str:
+    """The signature in its parens, parens shaded by coverage."""
+    body = _signature(commit, attr, p)
+    if reach is None:
+        return f"({body})"
+    cov = reach(commit, attr)
+    return shade(cov, "(") + body + shade(cov, ")")
+
+
+def _message(commit, reach=None) -> str:
     if commit["kind"] == "episode":
         return commit["message"]
     attr, (value, p, frozen) = next(iter(commit["changes"].items()))
     arrow = "=" if frozen else "⇒"
     stated = f"{attr} {arrow} {_value(value)}"
     if not frozen:
-        stated += f" ({_signature(commit, attr, p)})"
+        stated += f" {_signed(commit, attr, p, reach)}"
     return stated
 
 
@@ -215,19 +255,20 @@ def cmd_log(ledger, args):
     # its chain to exist, so the tips say everything.  Decorations are on by
     # default, as in git; --no-decorate turns them off.
     decorations = {} if args.no_decorate else _decorations(commits)
+    reach = _reach(ledger)
     for star, bar, commit in _lanes(commits):
         head = f"{star} " if args.graph else ""
         body = f"{bar} " if args.graph else ""
         decor = decorations.get(commit["hash"], "")
         if args.oneline:
             print(f"{head}{yellow(commit['hash'])}{decor} "
-                  f"[{commit['kind']}] {_message(commit)}")
+                  f"[{commit['kind']}] {_message(commit, reach)}")
             continue
         print(f"{head}{yellow('commit ' + commit['hash'])}{decor}")
         print(f"{body}Author: {commit['author']}")
         print(f"{body}Date:   t={commit['t']:g}")
         print(body.rstrip())
-        print(f"{body}    {_message(commit)}")
+        print(f"{body}    {_message(commit, reach)}")
         detail = []
         if commit["rounds"] > 1 or commit["vetoes"]:
             detail.append(f"{commit['rounds']} rounds, "
@@ -314,7 +355,11 @@ def _readings(ledger, commit):
             line = f"    {label:<46} {_value(latest.value, 40)}"
             if not latest.frozen:
                 line += f" (p {latest.p:g})"
-            print(green(line) + (dim(f"   {tag}") if tag else ""))
+            # shaded like the matrix: how far this reading sits from what
+            # the commit holds
+            held = commit["changes"][attr][0]
+            print(shade(similarity(latest.value, held), line)
+                  + (dim(f"   {tag}") if tag else ""))
 
 
 def _base_id(ledger, belief_id, attrs):
@@ -334,18 +379,17 @@ def _base_id(ledger, belief_id, attrs):
 
 def _can_fill(ledger, belief_id, custom):
     """Could ``thinair evaluate`` fill this row's empty cells from here?
-    Models always (the id is the configuration); humans and code never (no
-    one to call); anything else when its instance is registered live or
-    its class + stored config rebuild it."""
+    Models always (the id is the configuration); humans, code and runtime
+    authors never (no one to call); anything else when its class -- built
+    in or from a registered belief file -- plus its stored config rebuild
+    it.  Deliberately durable-only: a warm registry must not make a cell
+    look reachable that a fresh process could not reach."""
     row = getattr(ledger, "belief_row", lambda _id: None)(belief_id) or {}
     if belief_id.startswith("model:") or row.get("kind") == "ModelBelief":
         return True
-    if belief_id.startswith(("human:", "code:")) \
+    if belief_id.startswith(("human:", "code:", "policy:", "changeset:")) \
             or row.get("kind") in ("HumanBelief", "CodeBelief", "Scoped"):
         return False
-    from .beliefs import lookup
-    if lookup(belief_id) is not None:
-        return True
     config = row.get("config")
     if not config or "__unjson__" in config:
         return False
@@ -472,6 +516,7 @@ def cmd_show(ledger, args):
     # moved is highlighted, the rest is context
     tree = _tree_at(commits, commit)
     stats = _cell_stats(commits, commit)
+    reach = _reach(ledger)
     print(f"diff --thinair {_label(commit)}")
     for attr in sorted(set(tree) | set(commit["changes"])):
         if attr not in commit["changes"]:
@@ -481,14 +526,14 @@ def cmd_show(ledger, args):
                 continue
             owner, held_p, _frozen = stats.get(attr) or (commit, p, frozen)
             print(dim(f"  {attr} = {_value(value)}")
-                  + f"   ({_signature(owner, attr, held_p)})")
+                  + f"   {_signed(owner, attr, held_p, reach)}")
             continue
         value, p, frozen = commit["changes"][attr]
         if frozen:
             print(green(f"+ {attr} = {_value(value)}   (frozen)"))
             continue
         print(green(f"+ {attr} = {_value(value)}")
-              + f"   ({_signature(commit, attr, p)})")
+              + f"   {_signed(commit, attr, p, reach)}")
     if commit["kind"] == "episode":
         value, p = commit["returned"]
         print(f"return {_value(value)}   (p={p:g})")
@@ -554,12 +599,13 @@ def cmd_blame(ledger, args):
     for commit in commits:
         for attr in commit["changes"]:
             latest[attr] = commit
+    reach = _reach(ledger)
     for attr in sorted(latest):
         commit = latest[attr]
         value, p, frozen = commit["changes"][attr]
-        mark = "frozen" if frozen else _signature(commit, attr, p)
+        tail = "(frozen)" if frozen else _signed(commit, attr, p, reach)
         print(f"{commit['hash']} ({commit['author'][:34]:<34} t={commit['t']:g}) "
-              f"{attr} = {_value(value)}   ({mark})")
+              f"{attr} = {_value(value)}   {tail}")
 
 
 class _RecordSnapshot:
@@ -829,18 +875,17 @@ def _reconstructible_judges(ledger, custom=None):
         if row["kind"] in (None, "Scoped", "ModelBelief", "HumanBelief",
                            "CodeBelief"):
             continue
+        if not _can_fill(ledger, row["id"], custom):
+            continue                 # the same gate the matrix's ? obeys:
+                                     # warm and cold reach identically
         live = lookup(row["id"])
         if live is not None:
-            out.append(live)
-            continue
-        config = row.get("config")
-        if not config or "__unjson__" in config:
-            continue
-        cls = getattr(V, row["kind"], None) or (custom or {}).get(row["kind"])
-        if cls is None or not isinstance(cls, type):
+            out.append(live)         # already constructed here: use as-is
             continue
         try:
-            spec = _json.loads(config)
+            spec = _json.loads(row["config"])
+            cls = getattr(V, row["kind"], None) \
+                or (custom or {}).get(row["kind"])
             belief = cls(*spec.get("args", ()),
                          **dict(spec.get("kwargs", {}), id=row["id"],
                                 necessary=row["necessary"],

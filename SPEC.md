@@ -228,7 +228,10 @@ overall; the default).  The log carries no per-commit branch column —
 membership is ancestry, so refs appear only as tip decorations, on by
 default as in git (`--no-decorate` for plain hashes).  A believed cell
 renders everywhere as its **trust signature** — `(p 0.93 ±0.04)`, the
-resolving belief's honest p with the agreeing voices' deviation — painted
+resolving belief's honest p with the agreeing voices' deviation, or
+`±?` when fewer than two agreeing voices have measured the cell: an
+unmeasured spread says so in text, which survives a copy-paste the way
+color does not.  The text is painted
 on the overlap gradient: the score folds every recorded reading's
 `evaluate.similarity` to the held value (trigram Jaccard for strings,
 relative closeness for numbers, token Jaccard for containers — classical,
@@ -236,8 +239,14 @@ model-free), so green is unanimous agreement, mid-ramp is dissent, and
 distance shows as color rather than as text.  A lone unchecked voice
 stays unpainted — green must mean "the record agrees", never "nobody
 looked" — and a violated declared expectation (§8) is always the theme's
-red.  The signature is the standard rendering wherever a believed cell
-appears: the log, `show`'s context lines, `blame`, the matrix footer.  `show` renders the *whole
+red.  The *parens* carry a third channel: coverage — of the mechanisms
+this client could consult on the cell (the matrix's `?` rules exactly,
+durable criteria only, so warm and cold processes agree), the fraction
+that have spoken; green parens mean the panel is complete.  The
+signature is the standard rendering wherever a believed cell appears:
+the log, `show`'s context lines, `blame`, the matrix footer.  The
+readings panel shades each reading by its own overlap with the held
+value — the record's disagreements are visible reading by reading.  `show` renders the *whole
 tree* as of the commit with what moved highlighted and the rest as dim
 context, then a belief × attribute matrix over the tree (each cell that
 belief's latest p, shaded by its value's overlap with the held one via

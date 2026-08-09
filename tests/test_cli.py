@@ -1063,3 +1063,74 @@ def test_the_panel_unwinds_to_the_commit(tmp_path, capsys):
     main(["--store", str(tmp_path / "o.db"), "show", "HEAD"])
     now = capsys.readouterr().out
     assert "99" in now                                   # but HEAD knows
+
+
+def test_unmeasured_spread_says_so(tmp_path, capsys):
+    """(p 0.7 ±?) not (p 0.7): a cell with fewer than two agreeing voices
+    admits its spread is unmeasured instead of looking settled."""
+    ledger = SqliteLedger(tmp_path / "o.db")
+    engine = FakeEngine([{"value": "calm", "p": 0.7}])
+
+    class Person(Thing):
+        __beliefs__ = [model("small-fast", engine=engine), human("jane")]
+
+    person = Person(__entity__="per-1", __ledger__=ledger)
+    +person.mood                                         # undeclared: one voice
+
+    main(["--store", str(tmp_path / "o.db"), "log", "--oneline"])
+    line = [l for l in capsys.readouterr().out.splitlines()
+            if "[settle]" in l][0]
+    assert "±?" in line
+
+
+def test_readings_shade_by_agreement_with_the_held_value(tmp_path,
+                                                         monkeypatch,
+                                                         capsys):
+    ledger = SqliteLedger(tmp_path / "o.db")
+    engine = FakeEngine([{"value": 10.0, "p": 0.9}])
+
+    class Box(Thing):
+        __beliefs__ = [model("small-fast", engine=engine), human("jane")]
+        size = contract(float)
+
+    b = Box(__entity__="box-r", __ledger__=ledger)
+    +b.size
+    b.size = 99.0                                        # the override holds
+
+    monkeypatch.setattr("thinair.cli._tty", lambda: True)
+    main(["--store", str(tmp_path / "o.db"), "show", "HEAD"])
+    readings = capsys.readouterr().out.split("readings:")[1]
+    jane = [l for l in readings.splitlines() if "human:jane" in l][0]
+    assert "\x1b[32m" in jane                            # holds the value
+    model_line = [l for l in readings.splitlines()
+                  if "model:small-fast" in l][0]
+    assert "\x1b[2;31m" in model_line or "\x1b[31m" in model_line
+
+
+def test_parens_shade_by_evaluation_coverage(store, monkeypatch, capsys):
+    """The signature's parens say how much of the callable panel has
+    spoken: mid-ramp while qwen3-35b is silent on a cell, green once
+    every reachable belief has weighed in."""
+    from thinair.beliefs import restore_config, set_config
+
+    monkeypatch.setattr("thinair.cli._tty", lambda: True)
+    main(["--store", store, "log", "--oneline", "inv-1"])
+    lines = capsys.readouterr().out.splitlines()
+    settle = [l for l in lines if "[settle]" in l][0]
+    assert "\x1b[32m(" in settle                         # total: both models
+                                                         # + tokenSubset spoke
+    episode = [l for l in lines if "[episode]" in l]
+    assert episode                                       # (episodes carry no
+                                                         # signature to wrap)
+
+    engine = FakeEngine([{"value": 1249.5, "p": 0.66}])
+    previous = set_config(None, engine=engine)
+    try:                                                 # silence nobody:
+        main(["--store", store, "evaluate", "HEAD"])     # every model reads
+        capsys.readouterr()
+    finally:
+        restore_config(None, previous)
+    main(["--store", store, "log", "--oneline", "inv-1"])
+    after = [l for l in capsys.readouterr().out.splitlines()
+             if "[settle]" in l][0]
+    assert "\x1b[32m(" in after                          # still complete
