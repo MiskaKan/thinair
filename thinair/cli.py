@@ -556,6 +556,20 @@ def main(argv=None) -> int:
         "ground", help="print the measurement grounding; pipe it to an agent")
     ground.set_defaults(run=cmd_ground, needs_store=False)
 
+    help_ = sub.add_parser("help", help="show help for thinair or a command")
+    help_.add_argument("topic", nargs="?", default=None)
+
+    def run_help(_ledger, args):
+        if args.topic is None:
+            parser.print_help()
+            return
+        chosen = sub.choices.get(args.topic)
+        if chosen is None:
+            sys.exit(f"fatal: no help for '{args.topic}'")
+        chosen.print_help()
+
+    help_.set_defaults(run=run_help, needs_store=False)
+
     args = parser.parse_args(argv)
     ledger = open_store(args.store) if getattr(args, "needs_store", True) \
         else None

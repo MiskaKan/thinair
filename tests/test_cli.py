@@ -176,6 +176,17 @@ def test_cli_refuses_a_missing_store(tmp_path):
         main(["--store", str(tmp_path / "nope.db"), "status"])
 
 
+def test_help_needs_no_store(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)                        # nowhere near a store
+    assert main(["help"]) == 0
+    assert "log" in capsys.readouterr().out
+    assert main(["help", "log"]) == 0
+    assert "--decorate" in capsys.readouterr().out
+    with pytest.raises(SystemExit):
+        main(["help", "rebase"])
+    assert not (tmp_path / ".thinair").exists()
+
+
 def test_a_dog(store, capsys):
     """log --all --decorate --oneline --graph: the go-to, made home."""
     main(["--store", store, "log", "--all", "--decorate", "--oneline",
