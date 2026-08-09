@@ -1228,6 +1228,29 @@ skipped by default -- a fact is not a question -- and
 `--include-frozen` prices the facts too.  Models need an endpoint:
 `THINAIR_MODEL`, `THINAIR_BASE_URL`, `THINAIR_API_KEY`.
 
+### Verify -- the implementation is not done until the record agrees
+
+Debug the application through its record, not print statements: the
+store already holds what every belief saw and said.  After each run:
+
+    thinair --ai-readable log --all --oneline    did it record what
+                                                 you intended?
+    thinair --ai-readable show <entity>          every cell + readings
+
+- Branches are your entities, commits your reads.  A read with no new
+  commit replayed from the record (free, by design); an attribute with
+  no commit at all was assigned, not believed.  An unexpected
+  `[belief]` commit means the panel changed under you.
+- Fill the matrix before trusting it: run `evaluate` until `asked=` is
+  full.  A cell at `±0.00 asked=1/3` is unmeasured, not settled.
+- Then read the signatures.  Done means `agree=` near 1.00 across the
+  cells that matter and no `expect-violated` anywhere.  Low `agree=`
+  is a *located* disagreement, never a reason to blindly rerun: `show`
+  the readings, `blame` the cell, then either improve the prompt
+  material (docstrings, `contract(doc=...)`), tighten the contract, or
+  report the divergence as a finding -- disagreement between dissimilar
+  instruments is information, not failure.
+
 ### Extend
 
 Add your own instrument when nothing built-in checks what matters:

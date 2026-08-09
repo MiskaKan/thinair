@@ -1315,6 +1315,9 @@ def test_ground_demands_a_running_program(tmp_path, monkeypatch, capsys):
     assert "class Ticket(Thing):" in out                 # runnable skeleton
     assert "__entity__=" in out                          # named branches
     assert "the plan, not\nthe deliverable" in out.replace("\r", "")
+    # the verify loop: debug through the record, finish on consensus
+    assert "not done until the record agrees" in out
+    assert "`agree=` near 1.00" in out
     # and the theory document itself no longer ends at "no code at all"
     assert "needs no code at all" not in out
     assert "the strategy is a waypoint" in out

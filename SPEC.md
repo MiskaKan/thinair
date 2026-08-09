@@ -290,8 +290,9 @@ Output colors only a terminal; `NO_COLOR` wins.  `thinair ground` prints
 the shipped GROUNDING.md plus two generated appendices — the built-in
 belief roster, and a client manual for agents (a runnable program
 skeleton — the strategy document is the plan, never the deliverable —
-the command set, `--ai-readable`, how to add beliefs, what the marks
-mean) — store-free
+the command set, `--ai-readable`, the verify loop: debug through the
+record and finish only when `agree=` is high with the matrix asked
+full, how to add beliefs, what the marks mean) — store-free
 and pipe-pure, so an agentic session's first command can be its own
 grounding *and* its own tool manual.  Two commands write.  `evaluate [commit] [belief|*]`
 rebuilds the commit's tree as a sealed snapshot, consults reconstructible
