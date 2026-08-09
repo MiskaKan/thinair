@@ -19,7 +19,8 @@ import inspect
 import uuid
 from typing import Any
 
-from .beliefs import Belief, HumanBelief, MemoBelief, Scoped, human
+from .beliefs import (Belief, HumanBelief, MemoBelief, Scoped,
+                      generative_members, human)
 from .beliefs import config as _config
 from .beliefs import config_scope as _config_scope
 from .ledger import Opinion, default_ledger, values_equal
@@ -34,8 +35,8 @@ from .policy import (
 )
 
 __all__ = ["Thing", "Cell", "Snapshot", "ThingMeta", "Contract", "contract",
-           "freeze", "snapshot", "LowConfidence", "Unresolvable", "Disagreement",
-           "resident_human"]
+           "corroborate", "freeze", "snapshot", "LowConfidence", "Unresolvable",
+           "Disagreement", "resident_human"]
 
 #: how the framework spells itself on a Thing.  Anything matching this is the
 #: framework's; everything else is the user's domain.
@@ -430,13 +431,22 @@ class Thing(metaclass=ThingMeta):
             object.__setattr__(self, name, value)
             return
         author = resident_human(self)
+        plain = _plain(value)
+        latest = self.__ledger__.latest(self.__entity__, name, frozen=True)
+        if latest is not None and latest.belief == author.id \
+                and values_equal(latest.value, plain):
+            # Idempotent re-statement: replaying the same program against the
+            # same record is the intended usage, and a diary of identical
+            # assignments informs nobody.  Nothing changed, nothing recorded,
+            # caches stand.
+            return
         meta = {"assigned": True}
         refs = references(value)
         if refs:
             meta["refs"] = refs
         self.__ledger__.add(Opinion(
             belief=author.id, entity=self.__entity__, attr=name,
-            value=_plain(value), p=1.0, frozen=True,
+            value=plain, p=1.0, frozen=True,
             meta=meta))
         self.__root__.__resolved__.pop((self.__entity__, name), None)
         self.__root__.__coerced__.clear()
@@ -885,6 +895,16 @@ def _read(thing, attr, contract=None, *, force=False):
         entries = [MemoBelief(b, memo, active) for b in route.panel(panel)]
         e = _build_snapshot(thing, attr, beliefs=entries, objections=objections,
                             round=round_number, extra=recorded)
+
+        # 0b. replay: if the world this read would show the head is
+        # byte-identical to what the record's last negotiation showed it,
+        # that negotiation *is* this read (SPEC.md §5).
+        if round_number == 1 and not force:
+            served = _replay(thing, attr, contract, route, policy, entries,
+                             e, ledger, entity, floor)
+            if served is not None:
+                return served
+
         opinions = []
         for entry in entries:
             # Generative members below the routed head are the *ladder*
@@ -934,6 +954,65 @@ def _read(thing, attr, contract=None, *, force=False):
         if route.exhausted and not route.escalate():
             raise Unresolvable(cell, route.attempts,
                                "the veto budget was exhausted")
+
+
+def _replay(thing, attr, contract, route, policy, entries, e, ledger, entity,
+            floor):
+    """Serve the recorded negotiation when the world has not moved.
+
+    A reading stands until the observed state changes (Pillar IV); the
+    exposure stamp makes "unchanged" checkable per cell instead of assumed.
+    The gate is deliberately conservative -- any doubt falls through to a
+    live consultation, which is never wrong, only costlier:
+
+    * only under a policy whose resolution is the head's vetted final
+      candidate (``replays_from_record``);
+    * only when the head can fingerprint its context without spending;
+    * only when the record's *latest* round-1 reading carries the same
+      exposure -- an older match means the world moved and moved back,
+      which is a fresh question;
+    * only when the recorded final candidate survived its judges, every one
+      of which must be on this panel, and clears any active ``require``.
+
+    Serving records nothing: replay is free, and the ledger stays a record
+    of consultations rather than of cache hits.
+    """
+    if not getattr(policy, "replays_from_record", False):
+        return None
+    fingerprint = getattr(route.head, "exposure", None)
+    if fingerprint is None:
+        return None
+    stated = [o for o in ledger.opinions(entity=entity, attr=attr,
+                                         belief=route.name)
+              if not (o.meta or {}).get("corroboration")]
+    if not stated:
+        return None
+    openers = [o for o in stated if (o.meta or {}).get("round") == 1]
+    if not openers or openers[-1].meta.get("exposure") != fingerprint(e, attr):
+        return None
+    final = stated[-1]
+    if floor is not None and final.p < floor:
+        return None
+    by_id = {entry.id: entry for entry in entries}
+    for other in ledger.opinions(entity=entity, attr=attr):
+        if other.belief == route.name or other.frozen:
+            continue
+        if (other.meta or {}).get("corroboration"):
+            continue
+        if other.t < openers[-1].t:
+            continue                       # an earlier negotiation's verdict
+        if not values_equal(other.value, final.value):
+            continue
+        judge = by_id.get(other.belief)
+        if judge is None:
+            return None                    # a judge this panel no longer has
+        if judge.necessary and other.p < judge.veto_line:
+            return None                    # the record ended vetoed: ask live
+    thing.__root__.__resolved__[(entity, attr)] = final
+    from .debug import trace
+
+    trace("replayed", (entity, attr), (final.value, final.p, final.belief))
+    return Cell(thing, attr, opinion=final, contract=contract)
 
 
 def _proposer_ids(policy, entries, route):
@@ -1124,6 +1203,64 @@ def freeze(target, attr=None, *, value=_MISSING, belief=None, p=None):
 
     trace("frozen", (entity, name), pinned)
     return Cell(cell.__parent__, name, opinion=pinned, contract=cell.__contract__)
+
+
+# --------------------------------------------------------------------------
+# second opinions: corroborate
+# --------------------------------------------------------------------------
+
+def corroborate(thing, attrs=None, beliefs=None):
+    """Ask the beliefs that were *not* asked, and record what they say.
+
+    Layer 1 answered each cell with one belief's vetted opinion; this verb
+    deliberately spends more to thicken the record for settlement.  For every
+    resolved cell (``attrs`` narrows; default: every declared attribute with
+    an opinion on record), each chosen belief -- default: the generative
+    members below the routed head; pass ``beliefs=`` for others, on the panel
+    or not -- is consulted once against the standing snapshot, and its
+    opinion is recorded **into the same cell**, tagged ``corroboration``.
+
+    Three rules, absolute: the resolution is untouched (no re-derivation, no
+    blending -- ``thinair.evaluate`` grades the agreement afterwards);
+    nothing freezes; and the verb is idempotent -- a belief that already
+    answered this cell under this exposure is not asked again.  Frozen cells
+    are corroborated too: a reading against a human assignment is
+    concordance-in-waiting.
+    """
+    contracts = type(thing).__contracts__
+    names = list(attrs) if attrs is not None else list(contracts)
+    unknown = [n for n in names if n not in contracts]
+    if unknown:
+        raise ValueError(f"not declared on {type(thing).__name__}: {unknown}")
+    entity, ledger = thing.__entity__, thing.__ledger__
+    if beliefs is None:
+        others = generative_members(thing.__beliefs__)[1:]     # the ladder
+    else:
+        others = list(beliefs)
+    out: dict[str, dict] = {}
+    for attr in names:
+        if ledger.latest(entity, attr) is None:
+            continue                       # never resolved: a coverage gap,
+                                           # not a corroboration target
+        for belief in others:
+            entry = MemoBelief(belief, {}, set())
+            e = _build_snapshot(thing, attr, beliefs=[entry])
+            fingerprint = getattr(belief, "exposure", None)
+            stamp = fingerprint(e, attr) if fingerprint else None
+            prior = ledger.opinions(entity=entity, attr=attr, belief=entry.id)
+            if prior and (stamp is None or any(
+                    (o.meta or {}).get("exposure") == stamp for o in prior)):
+                continue                   # asked and answered: idempotent
+            got = entry(e, attr)
+            if got is None:
+                continue                   # no opinion here is a legal answer
+            opinion = ledger.add(Opinion(
+                belief=entry.id, entity=entity, attr=attr,
+                value=_plain(+got), p=~got, frozen=False,
+                meta=dict(getattr(got, "meta", None) or {},
+                          corroboration=True)))
+            out.setdefault(attr, {})[entry.id] = opinion
+    return out
 
 
 # --------------------------------------------------------------------------

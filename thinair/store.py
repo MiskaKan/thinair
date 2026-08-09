@@ -66,6 +66,14 @@ CREATE TABLE IF NOT EXISTS opinion (
 );
 CREATE INDEX IF NOT EXISTS opinion_cell   ON opinion(entity, attr);
 CREATE INDEX IF NOT EXISTS opinion_belief ON opinion(belief);
+CREATE TABLE IF NOT EXISTS belief (
+    id          TEXT PRIMARY KEY,
+    kind        TEXT,
+    necessary   INTEGER,
+    veto_line   REAL,
+    proposes    INTEGER,
+    description TEXT
+);
 """
 
 
@@ -83,6 +91,7 @@ class SqliteLedger(Ledger):
     def __init__(self, path: str | os.PathLike = DEFAULT_PATH) -> None:
         self.path = os.fspath(path)
         self._conn: sqlite3.Connection | None = None
+        self._described: set[str] = set()
 
     # -- the connection, lazily -------------------------------------------
     def _db(self, create: bool) -> sqlite3.Connection | None:
@@ -123,7 +132,56 @@ class SqliteLedger(Ledger):
                  json.dumps(opinion.value, default=str),
                  float(opinion.p), int(opinion.frozen),
                  json.dumps(opinion.meta, default=str)))
+            self._describe(db, opinion.belief)
         return opinion
+
+    def _describe(self, db: sqlite3.Connection, belief_id: str) -> None:
+        """Persist the speaking belief's description, once.
+
+        The record can then answer "was this judge necessary, and where was
+        its veto line?" without the analysing process reconstructing the
+        strategy's classes -- the failure mode behind the original veto bug.
+        Descriptions only, never bodies: the database stores what the system
+        said and who said it; git stores what the system is.
+        """
+        if belief_id in self._described:
+            return
+        self._described.add(belief_id)
+        from .beliefs import lookup
+        belief = lookup(belief_id)
+        if belief is None:
+            return                            # unregistered here; a later
+                                              # process may describe it
+        describe = getattr(belief, "describe", None)
+        try:
+            description = describe() if callable(describe) else \
+                getattr(belief, "short", belief_id)
+        except Exception:                     # a describe() that throws never
+            description = belief_id           # blocks the record
+
+        db.execute(
+            "INSERT OR IGNORE INTO belief "
+            "(id, kind, necessary, veto_line, proposes, description) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (belief_id, type(belief).__name__,
+             int(bool(getattr(belief, "necessary", False))),
+             float(getattr(belief, "veto_line", 0.5)),
+             int(bool(getattr(belief, "proposes", False))),
+             str(description)))
+
+    def belief_row(self, belief_id: str) -> dict | None:
+        """The stored description of a belief, or ``None``."""
+        db = self._db(create=False)
+        if db is None:
+            return None
+        row = db.execute(
+            "SELECT id, kind, necessary, veto_line, proposes, description "
+            "FROM belief WHERE id = ?", (belief_id,)).fetchone()
+        if row is None:
+            return None
+        return dict(id=row[0], kind=row[1], necessary=bool(row[2]),
+                    veto_line=row[3], proposes=bool(row[4]),
+                    description=row[5])
 
     # -- the kernel: reading ----------------------------------------------
     @staticmethod

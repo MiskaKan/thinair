@@ -74,6 +74,15 @@ Two guarantees, both invisible at the interface: panel entries are memoized
 `thing.attr`:
 
 0. **Frozen short-circuit.**  Latest frozen opinion wins; no consultation.
+0b. **Replay.**  Under a policy with `replays_from_record` (the default,
+   `Proposed`), if the head can fingerprint its context without spending
+   (`ModelBelief.exposure`) and the cell's *latest* round-1 reading carries
+   the same `exposure`, the recorded negotiation is this read: its final
+   candidate — provided it survived its judges, all of whom must sit on this
+   panel, and clears any active `require` — resolves at zero calls and zero
+   writes.  Any mismatch or doubt falls through to live rounds.  This is
+   how the same program against the same record replays to the first cell
+   whose world moved, and runs live from exactly there.
 1. **Open.**  Build `e₀` from frozen state and standing resolutions, *minus
    the cell being derived*.  No generative member → `Unresolvable`.
 2. **Round.**  Every belief is called once with the round's snapshot.  Every
@@ -84,6 +93,8 @@ Two guarantees, both invisible at the interface: panel entries are memoized
    carries the prior rounds' opinions and objections.  Budget: 3 rounds, then
    escalate the route; 2 more per escalated route; then `Unresolvable`.
 4. **Resolve.**  The active `ResolutionPolicy` selects.  It never blends.
+   `Consulted` makes every generative member answer and records the spread;
+   the resolution is still the head's vetted candidate, its own p.
 5. Return a child `Cell` bound to the resolving opinion.
 
 ## 6. Freezing
@@ -98,6 +109,9 @@ Exactly three paths:
 
 Latest frozen wins; every predecessor stays in the ledger.  Freezing bypasses
 the veto gate deliberately: validators gate proposals, not authority.
+Assignment is idempotent: re-stating the latest frozen value from the same
+author records nothing, so a replayed program leaves no diary of identical
+re-statements.
 
 ## 7. Operators
 
@@ -182,6 +196,13 @@ record at zero calls.  The store is operational truth; the committed
 evidence of an experiment remains a JSON extract (§13 rule 7), from which
 the database is rebuildable — storage slices, `evaluate` judges.
 
+The store also keeps a `belief` table: id, kind, `necessary`, `veto_line`,
+`proposes`, description — written once per speaking belief, read back via
+`belief_row(id)`.  Descriptions, never bodies: the database stores what the
+system said and exactly who said it (invariant 6 makes the id the full
+configuration); mechanism lives in code.  A fresh process can therefore
+settle any record without reconstructing the strategy's classes.
+
 ## 12. Settlement: `thinair.evaluate`
 
 Layer 2's first slice, as built: what the record *earned*, computed from the
@@ -210,6 +231,16 @@ a Thing or Cell crosses into the record — assignment, episode arguments,
 `fn` arguments — `meta.refs` keeps the durable addresses (`entity`,
 `entity#attr`) that value-reduction would otherwise destroy; the record's
 dependency graph is thereby a pure derivation, never a stored structure.
+
+**Second opinions.**  The module verb `corroborate(thing, attrs=, beliefs=)`
+(it spends calls, so it lives with the runtime, not in `evaluate`) consults
+beliefs the read never asked — by default the generative ladder below the
+head; explicitly, any belief, on the panel or not — once per resolved cell
+against the standing snapshot, recording each opinion **into the same cell**
+tagged `corroboration`.  The resolution is untouched, nothing freezes, and
+the verb is idempotent by exposure: a belief that already answered a cell
+under the same context is not asked again.  What it records is exactly what
+this section's functions settle.
 
 ## 13. Building a strategy
 

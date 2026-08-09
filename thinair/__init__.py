@@ -95,6 +95,7 @@ from .ledger import (
     values_equal,
 )
 from .policy import (
+    Consulted,
     Disagreement,
     LowConfidence,
     Proposed,
@@ -103,7 +104,7 @@ from .policy import (
     Unanimous,
     Unresolvable,
 )
-from .thing import Cell, Snapshot, Thing, contract, freeze, snapshot
+from .thing import Cell, Snapshot, Thing, contract, corroborate, freeze, snapshot
 from .validators import (
     CalendarFact,
     Calculator,
@@ -146,6 +147,7 @@ __version__ = "2.0.0"
 __all__ = [
     # the object surface
     "Thing", "Cell", "Snapshot", "contract", "snapshot", "freeze", "source",
+    "corroborate",
     # settlement over the record, and where the record lives
     "evaluate", "store",
     # the one contract
@@ -156,7 +158,7 @@ __all__ = [
     # functions as cells
     "fn", "freeze_call", "call_id",
     # policies and what they raise
-    "ResolutionPolicy", "Proposed", "Unanimous", "Threshold",
+    "ResolutionPolicy", "Proposed", "Consulted", "Unanimous", "Threshold",
     "LowConfidence", "Unresolvable", "Disagreement",
     # the validator library, re-exported for convenience
     "Schema", "Format", "Checksum", "Range", "Enum", "Length", "Unique",

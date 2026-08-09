@@ -21,7 +21,7 @@ from .beliefs import generative_members
 from .ledger import values_equal
 
 __all__ = [
-    "ResolutionPolicy", "Proposed", "Unanimous", "Threshold",
+    "ResolutionPolicy", "Proposed", "Consulted", "Unanimous", "Threshold",
     "Route", "Attempt", "LowConfidence", "Unresolvable", "Disagreement",
     "ROUNDS_PER_ROUTE", "ESCALATED_ROUNDS",
 ]
@@ -136,6 +136,12 @@ class ResolutionPolicy:
     #: runtime consult them all; ``Proposed`` needs only the routed head.
     consults_all_proposers = False
 
+    #: policies whose resolution is exactly "the routed head's vetted final
+    #: candidate" may serve a recorded negotiation when the head's context
+    #: fingerprint matches the record (SPEC.md §5 step 0b).  Anything with
+    #: richer selection semantics resolves live.
+    replays_from_record = False
+
     def __repr__(self) -> str:                      # pragma: no cover - cosmetic
         return f"<{self.name}>"
 
@@ -154,6 +160,7 @@ class Proposed(ResolutionPolicy):
     """
 
     name = "proposed"
+    replays_from_record = True
 
     def resolve(self, opinions, cell=None, proposer=None):
         if not opinions:
@@ -163,6 +170,23 @@ class Proposed(ResolutionPolicy):
                 if opinion.belief == proposer:
                     return (opinion.value, opinion.p)
         return (opinions[-1].value, opinions[-1].p)
+
+
+class Consulted(Proposed):
+    """Eager measurement: every generative member answers, every answer is
+    recorded, and the resolution is still the routed proposer's vetted
+    candidate carrying its own p.
+
+    The stream mode, as a policy: where :class:`Unanimous` demands agreement
+    and raises, ``Consulted`` merely *observes* the spread -- divergence
+    lands in the ledger as data for settlement (``thinair.evaluate``), never
+    as an exception.  Costs one generative call per member per round; never
+    replays from the record, because being consulted fresh is the point.
+    """
+
+    name = "consulted"
+    consults_all_proposers = True
+    replays_from_record = False
 
 
 class Unanimous(ResolutionPolicy):

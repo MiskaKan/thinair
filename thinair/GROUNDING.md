@@ -341,9 +341,10 @@ of it:
   panel like any other candidate. Chained calls operate on fresh child things.
 - **Verbs live in the module, not on objects**: `contract` (declares an attribute's
   shape and attaches its validators), `model`, `human`, `snapshot`, `source`,
-  `freeze`, `freeze_call`, and `fn` — functions as cells: a call is a read of a
-  `(call_id, "result")` cell; pure code freezes it (memoization), model-served calls
-  stay opinions.
+  `freeze`, `freeze_call`, `corroborate` (consult the beliefs the read never
+  asked, recording second opinions into the same cells for settlement), and
+  `fn` — functions as cells: a call is a read of a `(call_id, "result")` cell;
+  pure code freezes it (memoization), model-served calls stay opinions.
 - **Settlement ships with the framework**: `thinair.evaluate` (SPEC.md §12) reads the
   ledger back — veto-aware readings, scale-licensed agreement, chance-corrected
   kappa, Bradley–Terry, reliability, drift, discrimination, concordance with the

@@ -156,12 +156,14 @@ def reading(ledger: Ledger, entity: str, attr: str, belief: str | None = None,
             strict: bool = True) -> dict | None:
     """The instrument's last candidate at a cell, and whether it was vetoed.
 
-    Veto detection needs each judge's ``necessary`` flag and ``veto_line``,
-    which live on the constructed belief, not in the record -- so the
-    strategy's classes must be constructed (registered) before analysis.
-    ``strict`` makes the failure loud: an unregistered judge raises instead
-    of silently reading every veto as an ordinary low score, which is a bug
-    this module exists to make unrepeatable.
+    Veto detection needs each judge's ``necessary`` flag and ``veto_line``.
+    They come from the constructed belief (the registry) or, failing that,
+    from the ledger's stored belief descriptions (``belief_row``, which a
+    store-backed ledger provides) -- so a fresh process can settle a record
+    without reconstructing the strategy's classes.  When neither source
+    knows the judge, ``strict`` makes the failure loud: an unknown judge
+    raises instead of silently reading every veto as an ordinary low score,
+    which is a bug this module exists to make unrepeatable.
 
     ``belief=None`` takes the cell's most recent instrument (a model or code
     opinion); frozen authority is not a reading -- ask
@@ -186,15 +188,23 @@ def reading(ledger: Ledger, entity: str, attr: str, belief: str | None = None,
         if not values_equal(other.value, last.value):
             continue                      # a verdict on some earlier candidate
         judge = lookup(other.belief)
-        if judge is None:
-            if strict:
-                raise LookupError(
-                    f"judge {other.belief!r} is not registered; construct the "
-                    f"strategy's classes before analysing, or pass strict=False")
+        if judge is not None:
+            necessary = getattr(judge, "necessary", False)
+            line = getattr(judge, "veto_line", 0.5)
+        else:
+            row = getattr(ledger, "belief_row", lambda _id: None)(other.belief)
+            if row is None:
+                if strict:
+                    raise LookupError(
+                        f"judge {other.belief!r} is neither registered nor "
+                        f"described in the ledger; construct the strategy's "
+                        f"classes, use a store-backed ledger, or pass "
+                        f"strict=False")
+                continue
+            necessary, line = row["necessary"], row["veto_line"]
+        if not necessary:
             continue
-        if not getattr(judge, "necessary", False):
-            continue
-        if other.p < getattr(judge, "veto_line", 0.5):
+        if other.p < line:
             vetoes.append((other.belief, (other.meta or {}).get("reason")))
     return dict(value=last.value, p=last.p, rounds=len(opinions),
                 vetoed=bool(vetoes), vetoes=vetoes, meta=last.meta or {})

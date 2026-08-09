@@ -604,15 +604,31 @@ class ModelBelief(Belief):
             return self.run_episode(e, episode)
         return self.propose(e, attr)
 
+    def context(self, e: Any, attr: str) -> list[dict]:
+        """The rendered messages this belief would be shown.  No network."""
+        from .engine import prompts
+
+        contract = (getattr(e, "__contracts__", {}) or {}).get(attr)
+        objections = list(getattr(e, "__objections__", ()) or ())
+        return prompts.attribute_messages(
+            e, attr, contract=contract, objections=objections,
+            dialect=self.definition.prompt_dialect)
+
+    def exposure(self, e: Any, attr: str) -> str:
+        """The context fingerprint, computable without spending a call.
+
+        This is what makes replay checkable per cell: rebuild the snapshot,
+        render, hash -- a match against a recorded reading's stamp proves the
+        model would be shown a byte-identical world.
+        """
+        return _exposure(self.context(e, attr))
+
     def propose(self, e: Any, attr: str) -> tuple | None:
         from .engine import complete_json, ParseFailure
         from .engine import prompts
 
         contract = (getattr(e, "__contracts__", {}) or {}).get(attr)
-        objections = list(getattr(e, "__objections__", ()) or ())
-        messages = prompts.attribute_messages(
-            e, attr, contract=contract, objections=objections,
-            dialect=self.definition.prompt_dialect)
+        messages = self.context(e, attr)
         schema = prompts.response_schema(getattr(contract, "schema", None))
         exposure = _exposure(messages)
         try:
