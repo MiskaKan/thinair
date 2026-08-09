@@ -118,10 +118,10 @@ every ref, exactly like branches on one commit.
 
 ```console
 $ thinair log --all --decorate --oneline --graph
-* 9c41f2ab77d1 (HEAD -> inv-1) inv-1  [episode] flag()
-| * fc28522f37 (memo-1) memo-1 [assign]  text = "pay this one first"
-* 5f0e88c1d24a inv-1  [settle]  total ⇒ 1249.5 (p 0.93 ±0.04)
-* 1e07b3a9c655 inv-1  [assign]  source_text = "Widget 999.00 …"
+* 9c41f2ab77d1 (HEAD -> inv-1) [episode] flag()
+| * fc28522f37 (memo-1) [assign] text = "pay this one first"
+* 5f0e88c1d24a [settle] total ⇒ 1249.5 (p 0.93 ±0.04)
+* 1e07b3a9c655 [assign] source_text = "Widget 999.00 …"
 
 $ thinair show HEAD               # or a hash prefix, or a branch name —
 $ thinair blame inv-1             # revisions resolve like git's

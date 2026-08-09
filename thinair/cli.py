@@ -186,18 +186,19 @@ def cmd_log(ledger, args):
     commits.reverse()                                  # newest first, like git
     if args.n:
         commits = commits[: args.n]
-    decorations = _decorations(commits) if args.decorate else {}
+    # No per-commit branch column: membership IS ancestry -- a ref requires
+    # its chain to exist, so the tips say everything.  Decorations are on by
+    # default, as in git; --no-decorate turns them off.
+    decorations = {} if args.no_decorate else _decorations(commits)
     for star, bar, commit in _lanes(commits):
         head = f"{star} " if args.graph else ""
         body = f"{bar} " if args.graph else ""
         decor = decorations.get(commit["hash"], "")
         if args.oneline:
             print(f"{head}{yellow(commit['hash'])}{decor} "
-                  f"{_label(commit):<12} "
                   f"[{commit['kind']}] {_message(commit)}")
             continue
-        print(f"{head}{yellow('commit ' + commit['hash'])}{decor} "
-              f"({_label(commit)})")
+        print(f"{head}{yellow('commit ' + commit['hash'])}{decor}")
         print(f"{body}Author: {commit['author']}")
         print(f"{body}Date:   t={commit['t']:g}")
         print(body.rstrip())
@@ -692,7 +693,10 @@ def main(argv=None) -> int:
                      help="every entity's chain (the default when no entity "
                           "is named)")
     log.add_argument("--decorate", action="store_true",
-                     help="mark branch tips; the newest commit wears HEAD")
+                     help="mark branch tips (the default, as in git; kept "
+                          "for the muscle memory)")
+    log.add_argument("--no-decorate", action="store_true",
+                     help="plain hashes, no ref names")
     log.add_argument("--graph", action="store_true",
                      help="draw the entity lanes")
     log.add_argument("-n", type=int, default=None)

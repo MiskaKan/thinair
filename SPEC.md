@@ -222,7 +222,10 @@ are branches), `blame`, `diff A...B` (two trees, cell by cell),
 pure derivation over §12's `history`, spending nothing.  A *commit*
 argument resolves the way git resolves names: a hash prefix, a branch
 (entity) name meaning that ref's tip, or `HEAD` (the newest commit
-overall; the default).  A believed cell's stated p appears with the cell's
+overall; the default).  The log carries no per-commit branch column —
+membership is ancestry, so refs appear only as tip decorations, on by
+default as in git (`--no-decorate` for plain hashes).  A believed cell's
+stated p appears with the cell's
 two consensus metrics beside it — `±` the deviation of agreeing p's, `~`
 the value-overlap of dissenting readings (`evaluate.similarity`: trigram
 Jaccard for strings, relative closeness for numbers, token Jaccard for

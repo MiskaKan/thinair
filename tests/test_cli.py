@@ -743,3 +743,17 @@ def test_show_pools_readings_across_a_commits_refs(tmp_path, capsys):
     assert "[card-x]" not in out and "[card-y]" not in out
     corroborating = [l for l in out.splitlines() if "corroboration" in l]
     assert len(corroborating) == 1                       # pooled, not per ref
+
+
+def test_log_has_no_branch_column_and_decorates_by_default(store, capsys):
+    """Membership is ancestry: no per-commit entity label; refs appear only
+    as tip decorations, which are on by default like git's."""
+    main(["--store", store, "log", "--oneline"])
+    lines = capsys.readouterr().out.strip().splitlines()
+    assert all(line.split()[1].startswith(("[", "("))    # kind or decoration:
+               for line in lines)                        # never an entity name
+    assert any("(HEAD -> " in line for line in lines)    # decorated, unasked
+
+    main(["--store", store, "log", "--oneline", "--no-decorate"])
+    out = capsys.readouterr().out
+    assert "HEAD -> " not in out and "(inv-1)" not in out
