@@ -908,9 +908,11 @@ def history(ledger: Ledger, entity: str | None = None) -> list[dict]:
             return
         final = span["candidates"][-1]
         vetoed, unknown = False, []
+        agreeing = []                # every judge's p on the value that stood
         for verdict in span["verdicts"]:
             if not values_equal(verdict.value, final.value):
                 continue
+            agreeing.append((verdict.belief, verdict.p))
             terms = _judge_terms(ledger, verdict.belief)
             if terms is None:
                 unknown.append(verdict.belief)
@@ -921,12 +923,15 @@ def history(ledger: Ledger, entity: str | None = None) -> list[dict]:
         if vetoed:
             return                          # a candidate that never survived
                                             # never changed the world
+        expect = (final.meta or {}).get("expect")
         events.append(dict(
             t=final.t, entity=final.entity, kind="settle",
             author=final.belief, message=None,
             changes={final.attr: (final.value, final.p, False)},
             rounds=span["rounds"], vetoes=span["overruled"],
-            unknown_judges=unknown))
+            unknown_judges=unknown,
+            panel={final.attr: agreeing},
+            expect={final.attr: expect} if expect else {}))
 
     for o in ledger:
         if entity is not None and o.entity != entity \
@@ -1068,6 +1073,34 @@ def history(ledger: Ledger, entity: str | None = None) -> list[dict]:
             entry = (note.belief, note.attr, note.value, note.p)
             if entry not in target.setdefault("notes", []):
                 target["notes"].append(entry)
+
+    # consensus: how the beliefs that spoke on a cell relate.  A belief by
+    # itself is never wrong -- what carries information is the spread.  Per
+    # believed cell: the resolving p, every agreeing judge's p from the same
+    # negotiation, and every agreeing corroboration note; ``dev`` is their
+    # population standard deviation (needs two voices), ``dissent`` counts
+    # notes holding a different value.  Declared expectations (``expect``)
+    # are judged against exactly this, in the CLI and nowhere earlier.
+    for commit in commits:
+        consensus: dict[str, dict] = {}
+        for attr, (value, p, frozen) in commit["changes"].items():
+            if frozen:
+                continue
+            ps = [p] + [vp for _b, vp in (commit.get("panel") or {}).get(attr, ())]
+            dissent = 0
+            for _belief, noted_attr, noted_value, noted_p in commit.get("notes", ()):
+                if noted_attr != attr:
+                    continue
+                if values_equal(noted_value, value):
+                    ps.append(noted_p)
+                else:
+                    dissent += 1
+            cell_view = dict(n=len(ps), dissent=dissent)
+            if len(ps) >= 2:
+                mean = sum(ps) / len(ps)
+                cell_view["dev"] = (sum((x - mean) ** 2 for x in ps) / len(ps)) ** 0.5
+            consensus[attr] = cell_view
+        commit["consensus"] = consensus
 
     if entity is not None:
         return [commit for commit, _t in passes.get(entity, ())]

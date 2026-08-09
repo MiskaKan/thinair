@@ -367,6 +367,7 @@ Every element of a strategy is a thinair construct:
 | Persistent structure / index | Ledger + frozen opinions on derived cells |
 | Budget tiers | Rounds / escalation, runtime-owned policy; recounted by `evaluate.tiers` |
 | Exposed weights | Human belief / frozen assignments — never a model output |
+| Declared expectations | `contract(p=, deviation=)` — stamped into the record and judged there, **never shown to the answering belief** (a belief told what to be sure of inflates) and never a gate: a reading is not wrong alone; the spread between readings is the signal |
 
 Layer 2 — scoring beliefs by dissimilarity-weighted agreement — remains deferred
 (SPEC.md §14). Its design evidence comes from these experiments: the ledger of every

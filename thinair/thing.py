@@ -78,7 +78,8 @@ class Contract:
     def __init__(self, template=Any, *, extracted_from=None, range=None,
                  enum=None, length=None, format=None, checksum=None,
                  sums_to=None, unique=False, elaborates=False,
-                 necessary=True, describe=None, beliefs=(), doc=None):
+                 necessary=True, describe=None, beliefs=(), doc=None,
+                 p=None, deviation=None, eager=False):
         self.template = template
         self.extracted_from = extracted_from
         self.range = range
@@ -91,10 +92,37 @@ class Contract:
         self.elaborates = elaborates
         self.necessary = necessary
         self.doc = doc
+        if p is None:
+            self.p_bounds = None
+        elif isinstance(p, (int, float)):
+            self.p_bounds = (float(p), 1.0)
+        else:
+            self.p_bounds = (float(p[0]), float(p[1]))
+        if self.p_bounds is not None and not (
+                0.0 <= self.p_bounds[0] <= self.p_bounds[1] <= 1.0):
+            raise ValueError("contract p bounds must satisfy 0 <= lo <= hi <= 1")
+        self.deviation = float(deviation) if deviation is not None else None
+        self.eager = bool(eager)
         self._describe = describe
         self._extra = list(beliefs)
         self.attr = None
         self.schema = None
+
+    @property
+    def expectations(self) -> dict | None:
+        """The declared Layer-2 expectations: ``p`` bounds and max deviation.
+
+        Deliberately *not* part of :meth:`describe`: a belief told "you must
+        be at least 0.6 sure" is a belief under pressure to inflate, and an
+        inflated p is worthless.  Expectations are stamped into the record at
+        settlement and judged there -- they mark, they never gate.
+        """
+        out = {}
+        if self.p_bounds is not None:
+            out["p"] = list(self.p_bounds)
+        if self.deviation is not None:
+            out["deviation"] = self.deviation
+        return out or None
 
     # -- what the prompt builder shows the model --------------------------
     def describe(self) -> str:
@@ -407,6 +435,11 @@ class Thing(metaclass=ThingMeta):
         # speaking
         for name, value in kwargs.items():
             setattr(self, name, value)
+        # eager contracts resolve now, while the constructor still owns the
+        # stack -- deterministic panels serve from the record at zero calls
+        for name, declared in type(self).__contracts__.items():
+            if getattr(declared, "eager", False):
+                getattr(self, name)
 
     # -- reading: the read pipeline (SPEC.md §5) -------------------------------------
     def __getattr__(self, name):
@@ -786,9 +819,13 @@ def _methods_of(thing) -> tuple:
         if name.startswith("_"):
             continue
         try:
-            out.append(f"def {name}{inspect.signature(member)}")
+            line = f"def {name}{inspect.signature(member)}"
         except (TypeError, ValueError):              # pragma: no cover - exotic
-            out.append(f"def {name}(...)")
+            line = f"def {name}(...)"
+        doc = inspect.getdoc(member)
+        if doc:
+            line += f"  # {doc.splitlines()[0]}"
+        out.append(line)
     return tuple(out)
 
 
@@ -884,6 +921,9 @@ def _read(thing, attr, contract=None, *, force=False):
 
     floor = active_floor()
     policy = active_policy()
+    # Declared expectations travel with every generative record for the cell,
+    # so the settlement layer can judge the reading it actually kept.
+    expect = contract.expectations if contract is not None else None
     objections: list[dict] = []
     recorded: list[Opinion] = []
     round_number = 0
@@ -917,10 +957,12 @@ def _read(thing, attr, contract=None, *, force=False):
             got = entry(e, attr)
             if got is None:
                 continue
+            stated = dict(getattr(got, "meta", None) or {}, round=round_number)
+            if expect and entry.proposes:
+                stated["expect"] = expect
             opinions.append(ledger.add(Opinion(
                 belief=entry.id, entity=entity, attr=attr,
-                value=_plain(+got), p=~got, frozen=False,
-                meta=dict(getattr(got, "meta", None) or {}, round=round_number))))
+                value=_plain(+got), p=~got, frozen=False, meta=stated)))
         recorded.extend(opinions)
 
         proposal = memo.get((route.name, attr))

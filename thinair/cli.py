@@ -5,13 +5,13 @@ whatever moved it, every entity is a branch with its own chain.  The
 commands are deliberate copies:
 
     thinair log [entity] [--oneline] [-n N]     the commits, newest first
-    thinair show <hash-prefix>                  one commit: diff, rounds,
-                                                vetoes, notes
+    thinair show [commit]                       one commit: diff, matrix,
+                                                rounds, vetoes, notes
     thinair status                              the store, summarized
-    thinair branch                              entities and their heads
+    thinair branch [-d name]                    entities and their heads
     thinair blame <entity>                      every cell: who set it, when
     thinair beliefs [commit]                    who spoke (or could) there
-    thinair evaluate [belief] [commit]          consult beliefs against a
+    thinair evaluate [commit] [belief]          consult beliefs against a
                                                 commit's state -- spends
                                                 calls, records corroborations
     thinair diff A...B | A B | A                two trees, cell by cell
@@ -19,6 +19,9 @@ commands are deliberate copies:
     thinair ground                              print the measurement
                                                 grounding (GROUNDING.md) --
                                                 pipe it to an agent
+
+A *commit* anywhere above is a hash prefix, a branch (entity) name, or
+``HEAD`` -- resolved the way git resolves names.
 
 ``--store`` points anywhere: the default ``.thinair/opinions.db``, any
 SQLite store, or a committed ``ledger.json`` archive -- the inspector is a
@@ -76,8 +79,42 @@ def red(text):
     return _paint("31", text)
 
 
+def cyan(text):
+    return _paint("1;36", text)
+
+
+def branch_green(text):
+    return _paint("1;32", text)
+
+
 def dim(text):
     return _paint("2", text)
+
+
+def _p_verdict(commit, attr, p):
+    """``("p 0.93 ±0.04", flag)`` -- the stated probability with the cell's
+    deviation, and how the record judges it: ``"violated"`` when a declared
+    expectation (p bounds, max deviation) is missed, ``"dissent"`` when a
+    recorded reading holds a different value, ``None`` when nothing objects.
+    """
+    view = (commit.get("consensus") or {}).get(attr) or {}
+    expect = (commit.get("expect") or {}).get(attr) or {}
+    dev = view.get("dev")
+    text = f"p {p:g}" + (f" ±{dev:.2f}" if dev is not None else "")
+    bounds = expect.get("p")
+    if bounds and not (bounds[0] <= p <= bounds[1]):
+        return text, "violated"
+    if expect.get("deviation") is not None and dev is not None \
+            and dev > expect["deviation"]:
+        return text, "violated"
+    if view.get("dissent"):
+        return text, "dissent"
+    return text, None
+
+
+def _paint_verdict(text, flag):
+    return red(text) if flag == "violated" else \
+        yellow(text) if flag == "dissent" else text
 
 
 def _message(commit) -> str:
@@ -87,7 +124,8 @@ def _message(commit) -> str:
     arrow = "=" if frozen else "⇒"
     stated = f"{attr} {arrow} {_value(value)}"
     if not frozen:
-        stated += f" (p {p:g})"
+        text, flag = _p_verdict(commit, attr, p)
+        stated += f" ({_paint_verdict(text, flag)})"
     return stated
 
 
@@ -100,16 +138,17 @@ def _label(commit) -> str:
 
 def _decorations(commits):
     """Branch tips, git-style: refs at their head commits; the newest commit
-    overall wears HEAD.  A collapsed chain shows every ref on one tip."""
+    overall wears HEAD.  A collapsed chain shows every ref on one tip.
+    Git's palette too: HEAD in cyan, branch names in green, parens yellow."""
     out: dict[str, str] = {}
     head_t = max((c["t"] for c in commits), default=None)
     for commit in commits:
         if not commit.get("heads"):
             continue
-        label = ", ".join(commit["heads"])
+        label = yellow(", ").join(branch_green(h) for h in commit["heads"])
         if commit["t"] == head_t:
-            label = "HEAD -> " + label
-        out[commit["hash"]] = f" ({label})"
+            label = cyan("HEAD -> ") + label
+        out[commit["hash"]] = yellow(" (") + label + yellow(")")
     return out
 
 
@@ -149,11 +188,11 @@ def cmd_log(ledger, args):
         body = f"{bar} " if args.graph else ""
         decor = decorations.get(commit["hash"], "")
         if args.oneline:
-            print(f"{head}{yellow(commit['hash'])}{yellow(decor)} "
+            print(f"{head}{yellow(commit['hash'])}{decor} "
                   f"{_label(commit):<12} "
                   f"[{commit['kind']}] {_message(commit)}")
             continue
-        print(f"{head}{yellow('commit ' + commit['hash'])}{yellow(decor)} "
+        print(f"{head}{yellow('commit ' + commit['hash'])}{decor} "
               f"({_label(commit)})")
         print(f"{body}Author: {commit['author']}")
         print(f"{body}Date:   t={commit['t']:g}")
@@ -219,41 +258,78 @@ def _readings(ledger, commit):
                 print(green(line) + (dim(f"   {tag}") if tag else ""))
 
 
+def _matrix(ledger, commit):
+    """Belief × attribute over the commit's cells: each cell is that
+    belief's latest stated p -- green where its value matches what the
+    commit holds, red where it differs, ``-`` where it is silent."""
+    attrs = sorted(commit["changes"])
+    rows: dict[str, dict] = {}
+    for entity in commit["entities"]:
+        for attr in attrs:
+            held = commit["changes"][attr][0]
+            for o in ledger.opinions(entity=entity, attr=attr):
+                if o.belief.startswith(("policy:", "changeset:")):
+                    continue
+                rows.setdefault(o.belief, {})[attr] = \
+                    (o.p, values_equal(o.value, held))
+    if len(rows) < 2:
+        return                       # a matrix of one voice says nothing
+    width = max(8, *(min(len(a), 14) for a in attrs)) + 2
+    print()
+    print("matrix:  " + dim("(rows beliefs, columns attributes; "
+                            "green agrees, red differs)"))
+    print(dim(" " * 46 + "".join(a[:14].rjust(width) for a in attrs)))
+    for belief_id, cells_ in rows.items():
+        line = f"  {belief_id[:44]:<44}"
+        for attr in attrs:
+            got = cells_.get(attr)
+            if got is None:
+                line += dim("-".rjust(width))
+                continue
+            p, agrees = got
+            cell = f"{p:.2f}".rjust(width)
+            line += green(cell) if agrees else red(cell)
+        print(line)
+
+
 def cmd_show(ledger, args):
     commits = history(ledger)
-    matches = [c for c in commits if c["hash"].startswith(args.commit)]
-    if not matches:
-        sys.exit(f"fatal: bad revision '{args.commit}'")
-    for commit in matches:
-        print(f"{yellow('commit ' + commit['hash'])} "
-              f"({', '.join(commit['entities'])})")
-        print(f"Author: {commit['author']}")
-        print(f"Date:   t={commit['t']:g}")
-        print(f"Parent: {commit['parent'] or '(root)'}")
-        if commit["kind"] == "episode":
-            verdict = "" if commit["parent_matches"] else "  -- MISMATCH"
-            print(f"Tree:   {commit['tree']} (parent tree "
-                  f"{commit['parent_tree']}, recorded "
-                  f"{commit['recorded_parent']}{verdict})")
-        print()
-        print(f"    {_message(commit)}")
-        print()
-        print(f"diff --thinair {_label(commit)}")
-        for attr, (value, p, frozen) in sorted(commit["changes"].items()):
-            mark = "frozen" if frozen else f"p={p:g}"
-            print(green(f"+ {attr} = {_value(value)}   ({mark})"))
-        if commit["kind"] == "episode":
-            value, p = commit["returned"]
-            print(f"return {_value(value)}   (p={p:g})")
-        for value, p in commit["vetoes"]:
-            print(red(f"- {_value(value)}   (vetoed at p={p:g})"))
-        for belief, attr, value, p in commit.get("notes", ()):
-            print(dim(f"note: {belief} read {attr} as {_value(value)} "
-                      f"(p={p:g})"))
-        for judge in commit.get("unknown_judges", ()):
-            print(f"?     {judge} judged this; necessity unknown here")
-        _readings(ledger, commit)
-        print()
+    commit = _commit_at(commits, args.commit)
+    print(f"{yellow('commit ' + commit['hash'])} "
+          f"({', '.join(commit['entities'])})")
+    print(f"Author: {commit['author']}")
+    print(f"Date:   t={commit['t']:g}")
+    print(f"Parent: {commit['parent'] or '(root)'}")
+    if commit["kind"] == "episode":
+        verdict = "" if commit["parent_matches"] else "  -- MISMATCH"
+        print(f"Tree:   {commit['tree']} (parent tree "
+              f"{commit['parent_tree']}, recorded "
+              f"{commit['recorded_parent']}{verdict})")
+    print()
+    print(f"    {_message(commit)}")
+    print()
+    print(f"diff --thinair {_label(commit)}")
+    for attr, (value, p, frozen) in sorted(commit["changes"].items()):
+        if frozen:
+            print(green(f"+ {attr} = {_value(value)}   (frozen)"))
+            continue
+        text, flag = _p_verdict(commit, attr, p)
+        line = f"+ {attr} = {_value(value)}   ({text})"
+        print(red(line) if flag == "violated" else
+              yellow(line) if flag == "dissent" else green(line))
+    if commit["kind"] == "episode":
+        value, p = commit["returned"]
+        print(f"return {_value(value)}   (p={p:g})")
+    for value, p in commit["vetoes"]:
+        print(red(f"- {_value(value)}   (vetoed at p={p:g})"))
+    for belief, attr, value, p in commit.get("notes", ()):
+        print(dim(f"note: {belief} read {attr} as {_value(value)} "
+                  f"(p={p:g})"))
+    for judge in commit.get("unknown_judges", ()):
+        print(f"?     {judge} judged this; necessity unknown here")
+    _matrix(ledger, commit)
+    _readings(ledger, commit)
+    print()
 
 
 def cmd_status(ledger, args):
@@ -271,6 +347,15 @@ def cmd_status(ledger, args):
 
 def cmd_branch(ledger, args):
     commits = history(ledger)
+    if args.delete:
+        name = args.delete
+        if not hasattr(ledger, "drop_entity"):
+            sys.exit("fatal: archives are read-only; branch -d needs a store")
+        if not any(name in c["entities"] for c in commits):
+            sys.exit(f"error: branch '{name}' not found")
+        dropped = ledger.drop_entity(name)
+        print(f"Deleted branch {name} ({dropped} opinions dropped).")
+        return
     heads: dict[str, dict] = {}
     for commit in commits:
         for entity in commit.get("heads", ()):
@@ -278,7 +363,8 @@ def cmd_branch(ledger, args):
     for entity in sorted(heads):
         head = heads[entity]
         count = sum(1 for c in commits if entity in c["entities"])
-        print(f"  {entity:<20} {head['hash']}  {count} commits")
+        print(f"  {branch_green(f'{entity:<20}')} {head['hash']}  "
+              f"{count} commits")
 
 
 def cmd_blame(ledger, args):
@@ -344,15 +430,28 @@ class _RecordSnapshot:
         return object.__getattribute__(self, "_cells").get(attr)
 
 
-def _commit_at(commits, prefix):
-    if prefix is None:
-        if not commits:
-            sys.exit("fatal: empty record")
-        return commits[-1]                                 # HEAD: the newest
-    matches = [c for c in commits if c["hash"].startswith(prefix)]
-    if not matches:
-        sys.exit(f"fatal: bad revision '{prefix}'")
-    return matches[-1]
+def _try_commit(commits, rev):
+    """Resolve a revision the way git names things, or ``None``:
+    ``HEAD`` -> the newest commit overall; a branch name (any entity) ->
+    that ref's tip; otherwise a hash prefix."""
+    if not commits:
+        return None
+    if rev is None or rev == "HEAD":
+        return commits[-1]
+    on_branch = [c for c in commits if rev in c["entities"]]
+    if on_branch:
+        return on_branch[-1]                               # the ref's tip
+    matches = [c for c in commits if c["hash"].startswith(rev)]
+    return matches[-1] if matches else None
+
+
+def _commit_at(commits, rev):
+    if not commits:
+        sys.exit("fatal: empty record")
+    commit = _try_commit(commits, rev)
+    if commit is None:
+        sys.exit(f"fatal: bad revision '{rev}'")
+    return commit
 
 
 def _tree_at(commits, commit):
@@ -418,43 +517,55 @@ def cmd_evaluate(ledger, args):
     from .beliefs import model
 
     commits = history(ledger)
-    commit = _commit_at(commits, args.commit)
+    rev, belief_arg = args.commit, args.belief
+    commit = _try_commit(commits, rev)
+    if commit is None and rev is not None and belief_arg == "*":
+        # `thinair evaluate qwen3-35b`: not a revision, so it's the belief
+        commit, belief_arg = _commit_at(commits, None), rev
+    if commit is None:
+        sys.exit(f"fatal: bad revision '{rev}'" if commits
+                 else "fatal: empty record")
     cells = _tree_at(commits, commit)
-    if args.belief == "*":
+    if belief_arg == "*":
         names = _model_names(ledger)
         if not names:
             sys.exit("fatal: no reconstructible belief has spoken here; "
-                     "name one: thinair evaluate <model-name>")
+                     "name one: thinair evaluate HEAD <model-name>")
     else:
-        raw = args.belief
-        names = [raw[len("model:"):].split("@T")[0]
-                 if raw.startswith("model:") else raw]
+        names = [belief_arg[len("model:"):].split("@T")[0]
+                 if belief_arg.startswith("model:") else belief_arg]
 
     print(f"evaluate {', '.join(names)} @ {commit['hash']} "
           f"({', '.join(commit['entities'])})")
-    for entity in commit["entities"]:       # a shared commit: every ref's
-        for name in names:                  # cells get the reading
-            belief = model(name)
-            for attr in sorted(cells):
-                e = _RecordSnapshot(entity, cells, deriving=attr)
-                stamp = belief.exposure(e, attr)
-                prior = ledger.opinions(entity=entity, attr=attr,
-                                        belief=belief.id)
-                if any((o.meta or {}).get("exposure") == stamp for o in prior):
-                    print(f"  {attr:<18} {belief.id}: asked and answered")
-                    continue
-                got = belief(e, attr)
-                if got is None:
-                    continue
-                ledger.add(Opinion(
-                    belief=belief.id, entity=entity, attr=attr,
-                    value=+got, p=~got, frozen=False,
-                    meta=dict(getattr(got, "meta", None) or {},
-                              corroboration=True, at=commit["hash"])))
-                held, _p, _frozen, _author = cells[attr]
-                verdict = "agrees" if values_equal(+got, held) else \
-                    f"DIFFERS from {_value(held)}"
-                print(f"  {attr:<18} ⇒ {_value(+got)} (p {~got:g})  {verdict}")
+    # One reading per (commit, belief, attribute): a shared commit IS the
+    # same content, so its refs share the evaluation -- the note lands on
+    # the one commit every ref points at.
+    entity = commit["entities"][0]
+    for name in names:
+        belief = model(name)
+        for attr in sorted(cells):
+            e = _RecordSnapshot(entity, cells, deriving=attr)
+            stamp = belief.exposure(e, attr)
+            prior = [o for ref in commit["entities"]
+                     for o in ledger.opinions(entity=ref, attr=attr,
+                                              belief=belief.id)]
+            if any((o.meta or {}).get("at") == commit["hash"]
+                   or (o.meta or {}).get("exposure") == stamp
+                   for o in prior):
+                print(f"  {attr:<18} {belief.id}: asked and answered")
+                continue
+            got = belief(e, attr)
+            if got is None:
+                continue
+            ledger.add(Opinion(
+                belief=belief.id, entity=entity, attr=attr,
+                value=+got, p=~got, frozen=False,
+                meta=dict(getattr(got, "meta", None) or {},
+                          corroboration=True, at=commit["hash"])))
+            held, _p, _frozen, _author = cells[attr]
+            verdict = "agrees" if values_equal(+got, held) else \
+                f"DIFFERS from {_value(held)}"
+            print(f"  {attr:<18} ⇒ {_value(+got)} (p {~got:g})  {verdict}")
 
 
 def cmd_diff(ledger, args):
@@ -511,15 +622,42 @@ def cmd_source(ledger, args):
         print(line)
 
 
+def _builtin_roster() -> str:
+    """The installed instruments, generated from the running package --
+    what a strategy can reach for without writing a validator itself."""
+    import inspect as _inspect
+    from . import validators as V
+    from .beliefs import Belief
+
+    lines = [
+        "", "---", "",
+        "## Appendix: built-in beliefs in this installation",
+        "",
+        "Generated from the running package.  Generative: `model(name, "
+        "think=, temperature=)` (an LLM), `human(name, interactive=)`, and "
+        "any function via `thinair.fn` (code; its results freeze).  "
+        "Validators (`from thinair.validators import <Name>`; most arrive "
+        "automatically via `contract(...)` options):", ""]
+    for name in getattr(V, "__all__", ()):
+        obj = getattr(V, name, None)
+        if not (_inspect.isclass(obj) and issubclass(obj, Belief)):
+            continue
+        doc = (obj.__doc__ or "").strip().splitlines()
+        first = doc[0].rstrip(".") if doc else ""
+        lines.append(f"- `{name}` -- {first}" if first else f"- `{name}`")
+    lines.append("")
+    return "\n".join(lines)
+
+
 def cmd_ground(_ledger, _args):
-    """The grounding, verbatim -- nothing else on stdout, so the output can
-    be piped straight into an agent's context.  The first command of an
-    agentic session: it teaches the four pillars, the strategy protocol,
-    and the framework mapping, exactly as the shipped GROUNDING.md states
-    them."""
+    """The grounding -- GROUNDING.md verbatim, then a generated roster of
+    the built-in beliefs this installation ships.  Nothing else on stdout,
+    so the output pipes straight into an agent's context; the first command
+    of an agentic session."""
     from importlib.resources import files
     sys.stdout.write(files("thinair").joinpath("GROUNDING.md").read_text(
         encoding="utf-8"))
+    sys.stdout.write(_builtin_roster())
 
 
 def main(argv=None) -> int:
@@ -542,13 +680,18 @@ def main(argv=None) -> int:
     log.set_defaults(run=cmd_log)
 
     show = sub.add_parser("show", help="one commit in full")
-    show.add_argument("commit")
+    show.add_argument("commit", nargs="?", default=None,
+                      help="a hash prefix, a branch (entity) name, or HEAD "
+                           "(the default)")
     show.set_defaults(run=cmd_show)
 
     sub.add_parser("status", help="the store, summarized").set_defaults(
         run=cmd_status)
-    sub.add_parser("branch", help="entities and their heads").set_defaults(
-        run=cmd_branch)
+    branch = sub.add_parser("branch", help="entities and their heads")
+    branch.add_argument("-d", "--delete", metavar="name", default=None,
+                        help="delete a branch: drop the ref's opinions from "
+                             "the store (archives are untouched)")
+    branch.set_defaults(run=cmd_branch)
 
     blame = sub.add_parser("blame", help="every cell: who set it, when")
     blame.add_argument("entity")
@@ -561,8 +704,11 @@ def main(argv=None) -> int:
     evaluate = sub.add_parser(
         "evaluate", help="consult beliefs against a commit's state "
                          "(spends calls, records corroborations)")
-    evaluate.add_argument("belief", nargs="?", default="*")
-    evaluate.add_argument("commit", nargs="?", default=None)
+    evaluate.add_argument("commit", nargs="?", default=None,
+                          help="hash prefix, branch name, or HEAD (default)")
+    evaluate.add_argument("belief", nargs="?", default="*",
+                          help="a model name, or * for every reconstructible "
+                               "belief on record (default)")
     evaluate.set_defaults(run=cmd_evaluate)
 
     diff = sub.add_parser("diff", help="two trees, cell by cell")
@@ -596,7 +742,16 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     ledger = open_store(args.store) if getattr(args, "needs_store", True) \
         else None
-    args.run(ledger, args)
+    try:
+        args.run(ledger, args)
+    except KeyboardInterrupt:
+        # Ctrl-C means *now*: flush what was already printed and recorded
+        # (every ledger append is its own transaction), then leave without
+        # giving any in-flight call a chance to keep the process alive.
+        sys.stdout.flush()
+        sys.stderr.write("\ninterrupted\n")
+        sys.stderr.flush()
+        os._exit(130)
     return 0
 
 

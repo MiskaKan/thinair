@@ -130,11 +130,23 @@ protocols delegate to the carried value; none of them trigger inference.
 ## 8. Contracts
 
 `contract(template, extracted_from=, range=, enum=, length=, format=,
-checksum=, sums_to=, unique=, elaborates=, necessary=, beliefs=)` appends
-scoped beliefs to `__beliefs__` and nothing else.  A bare annotation
+checksum=, sums_to=, unique=, elaborates=, necessary=, beliefs=, doc=)`
+appends scoped beliefs to `__beliefs__` and nothing else.  A bare annotation
 (`source_text: str`) is a contract too.  The `Schema` a contract builds is the
 same object that constrains the engine's structured output and performs the
-post-hoc check.
+post-hoc check.  Docstrings are prompt material: the class docstring is the
+snapshot's `purpose`, `doc=` joins the contract's description, and a real
+method's first docstring line rides along with its signature.
+
+Three more options never reach the prompt.  `p=` (a floor, or `(lo, hi)`
+bounds) and `deviation=` (a max spread) declare **expectations** — Layer 2
+statements about the cell, stamped into the record at settlement and judged
+there (`history` derives per-cell consensus; the CLI colors violations).  A
+belief by itself is never wrong, so expectations mark, they never gate — and
+they are deliberately invisible to the answering belief, whose p must stay
+honest rather than inflate to a declared bar.  `eager=True` resolves the
+attribute at construction instead of first read (replay and the frozen
+short-circuit make this free on a warm record).
 
 ## 9. Episodes
 
@@ -204,26 +216,40 @@ configuration); mechanism lives in code.  A fresh process can therefore
 settle any record without reconstructing the strategy's classes.
 
 The `thinair` command inspects any store or `ledger.json` archive
-git-style — `log`, `show`, `status`, `branch` (entities are branches),
-`blame`, `diff A...B` (two trees, cell by cell), `source [commit]` (the
-tree as annotated source), `beliefs [commit]` — a pure derivation over
-§12's `history`, spending nothing.  `show` ends with the readings panel:
-every proposer on record, per changed cell — its latest reading, or `-`
-where it never spoke — so what `evaluate` records is visible there from
-then on.  Commit identity is git's: sha1(parent | tree | author | kind |
-message | changes) — **the entity is not in the hash; entities are refs.**
-Anonymous runs with byte-identical histories collapse into one chain
-carrying every ref, and different histories fork exactly where they
-diverge; a commit's Date is the first time its state was reached.  The
-tree itself stays the bare state hash episodes point at.  Output colors
-only a terminal; `NO_COLOR` wins.  `thinair ground` prints the shipped GROUNDING.md
-verbatim, store-free and pipe-pure, so an agentic session's first command
-can be its own grounding.  The one exception is `evaluate [belief|*] [commit]`
-(HEAD by default): it rebuilds the commit's tree as a sealed snapshot,
-consults reconstructible beliefs (model ids parse back into configurations
-— invariant 6), and records the answers as corroborations on the same
-cells, idempotent by exposure; archives are refused, because evaluation
-writes.
+git-style — `log`, `show [commit]`, `status`, `branch [-d name]` (entities
+are branches), `blame`, `diff A...B` (two trees, cell by cell),
+`source [commit]` (the tree as annotated source), `beliefs [commit]` — a
+pure derivation over §12's `history`, spending nothing.  A *commit*
+argument resolves the way git resolves names: a hash prefix, a branch
+(entity) name meaning that ref's tip, or `HEAD` (the newest commit
+overall; the default).  A believed cell's stated p appears with the cell's
+consensus deviation beside it (`p 0.93 ±0.04`), red where a declared
+expectation (§8) is violated, yellow where a recorded reading dissents on
+the value — so `log --all --decorate --oneline --graph` shows at a glance
+where beliefs diverged.  `show` carries a belief × attribute matrix (each
+cell that belief's latest p, green agreeing / red differing) and ends with
+the readings panel: every proposer on record, per changed cell — its
+latest reading, or `-` where it never spoke — so what `evaluate` records
+is visible there from then on.  Commit identity is git's: sha1(parent |
+tree | author | kind | message | changes) — **the entity is not in the
+hash; entities are refs.**  Anonymous runs with byte-identical histories
+collapse into one chain carrying every ref, and different histories fork
+exactly where they diverge; a commit's Date is the first time its state
+was reached.  The tree itself stays the bare state hash episodes point at.
+Output colors only a terminal; `NO_COLOR` wins.  `thinair ground` prints
+the shipped GROUNDING.md plus a generated roster of the built-in beliefs,
+store-free and pipe-pure, so an agentic session's first command can be its
+own grounding.  Two commands write.  `evaluate [commit] [belief|*]`
+rebuilds the commit's tree as a sealed snapshot, consults reconstructible
+beliefs (model ids parse back into configurations — invariant 6), and
+records the answers as corroborations, idempotent per (commit, belief,
+cell) — a collapsed commit's refs share one evaluation, since the content
+is the same; archives are refused, because evaluation writes.  `branch -d`
+is the package's one deletion: it drops the ref's opinions from the
+*operational* store (episode sub-entities included), which invariant 2
+tolerates exactly because the store is derived structure, rebuildable from
+archives — commits shared with surviving refs are re-derived from those
+refs' opinions, untouched.
 
 ## 12. Settlement: `thinair.evaluate`
 
@@ -241,7 +267,7 @@ zero model calls — the import-graph assertion of invariant 7 covers
 | orders | `bradley_terry` — strengths with SEs, graph connectivity, consistency (the principled transitivity reading) |
 | instrument | `reliability` (+ bespoke `compare`), `drift`, `discrimination`, `grounded` → `concordance`, `calibration`, `separation`, `tiers` |
 | record structure | `graph` (typed edges: authored / ref / host / child; exposure groups), `lineage` (upstream: what a value rests on), `invalidated` (downstream: what a change calls into question) |
-| commits | `history` — the record as authored, atomic state transitions: the tree is the state hash; assignments, episode changesets (parent tree re-derived and checked against the recorded pointer) and settlements commit; deliberation lives inside its commit; corroborations are notes; replay commits nothing |
+| commits | `history` — the record as authored, atomic state transitions: the tree is the state hash; assignments, episode changesets (parent tree re-derived and checked against the recorded pointer) and settlements commit; deliberation lives inside its commit; corroborations are notes; replay commits nothing.  Each commit carries per-cell `consensus` (agreeing voices, their p-deviation, dissent count) and any declared `expect` (§8) — a belief is never wrong alone; the spread is the signal |
 | data | `LICENSED` (scale type → licensed statistics), `GRADES` (vibes → claim → finding → calibrated) |
 
 Ground has two homes, one gatherer: `grounded(ledger)` reads outcomes frozen
@@ -314,7 +340,11 @@ beliefs, dissimilarity-weighted pooling, credibility-driven routing,
 `Pooled` / `MostCredible`.  A `scoreboard` needs no surface: it is the §12
 instrument measurements grouped by durable belief id.  Also: nested imagined
 calls, handles for oversized episode values, async consultation,
-non-OpenAI-compatible transports.
+non-OpenAI-compatible transports.  And remotes (`fetch` / `push` / `pull`
+between stores): honest merging must reconcile two tapes whose `t` clocks
+never met — interleaving them re-times every negotiation and re-parents
+every derived commit — so it waits until it can be done without lying about
+order.
 
 **Permanently excluded:** model-served actuators; any freeze path reachable by
 a model; any narrative-memory runtime.  State plus the ledger is the whole

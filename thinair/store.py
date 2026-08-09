@@ -239,6 +239,26 @@ class SqliteLedger(Ledger):
     def __iter__(self) -> Iterator[Opinion]:
         return iter(self.opinions())
 
+    def drop_entity(self, entity: str) -> int:
+        """Delete a ref: every opinion this entity owns, episode sub-entities
+        included -- ``git branch -d``, with the gc built in.
+
+        The one deletion in the package, and it lives here rather than on the
+        base :class:`Ledger` deliberately: the operational store is derived
+        structure, rebuildable from archives (see the module docstring), so
+        dropping a branch from it loses nothing archived.  Commits shared
+        with other refs survive -- they are re-derived from those refs'
+        opinions.  Returns the number of opinions dropped.
+        """
+        db = self._db(create=False)
+        if db is None:
+            return 0
+        with db:
+            cursor = db.execute(
+                "DELETE FROM opinion WHERE entity = ? OR entity LIKE ?",
+                (entity, entity + ".%"))
+        return cursor.rowcount
+
     def close(self) -> None:
         if self._conn is not None:
             self._conn.close()

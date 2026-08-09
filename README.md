@@ -120,15 +120,15 @@ every ref, exactly like branches on one commit.
 $ thinair log --all --decorate --oneline --graph
 * 9c41f2ab77d1 (HEAD -> inv-1) inv-1  [episode] flag()
 | * fc28522f37 (memo-1) memo-1 [assign]  text = "pay this one first"
-* 5f0e88c1d24a inv-1  [settle]  total ⇒ 1249.5 (p 0.93)
+* 5f0e88c1d24a inv-1  [settle]  total ⇒ 1249.5 (p 0.93 ±0.04)
 * 1e07b3a9c655 inv-1  [assign]  source_text = "Widget 999.00 …"
 
-$ thinair show 5f0e88c1
-$ thinair blame inv-1
-$ thinair branch
+$ thinair show HEAD               # or a hash prefix, or a branch name —
+$ thinair blame inv-1             # revisions resolve like git's
+$ thinair branch                  # (and branch -d removes one)
 $ thinair status
 $ thinair beliefs 5f0e88c1        # who spoke (or could) at that commit
-$ thinair evaluate '*' 5f0e88c1   # consult beliefs against that commit's
+$ thinair evaluate 5f0e88c1       # consult beliefs against that commit's
                                   # state — agreements and DIFFERs, recorded
 $ thinair diff 1e07b3a9...9c41f2ab   # two trees, cell by cell, ± colored
 $ thinair source                     # HEAD's tree as annotated source:
@@ -136,6 +136,16 @@ $ thinair source                     # HEAD's tree as annotated source:
 $ thinair ground                  # print the measurement grounding, pipe-pure
                                   # — the first command of an agentic session
 ```
+
+The log carries the settlement's texture by default: beside each stated
+probability sits the cell's *deviation* — how far apart the beliefs that
+read it landed — painted red where a declared expectation
+(`contract(float, p=0.9, deviation=0.1)`) was missed and yellow where a
+recorded reading holds a different value.  Expectations mark, they never
+gate, and the answering belief never sees them — a belief by itself is
+never wrong; the spread between beliefs is the signal.  `show` adds a
+belief × attribute matrix of every probability, green agreeing, red
+differing.
 
 Rounds and vetoes live *inside* their commit (`show` expands them, like
 `-p`); corroborating second opinions appear as notes; a replayed run

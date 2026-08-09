@@ -422,3 +422,236 @@ def test_evaluate_refuses_a_read_only_archive(tmp_path):
     ledger.dump(path)
     with pytest.raises(SystemExit):
         main(["--store", str(path), "evaluate"])
+
+
+# --------------------------------------------------------------------------
+# revisions resolve like git's: HEAD, branch names, hash prefixes
+# --------------------------------------------------------------------------
+
+def test_show_resolves_head_and_branch_names(store, capsys):
+    main(["--store", store, "show"])                     # HEAD is the default
+    assert "flag(" in capsys.readouterr().out            # newest: the episode
+
+    main(["--store", store, "show", "HEAD"])
+    assert "flag(" in capsys.readouterr().out
+
+    main(["--store", store, "show", "memo-1"])           # a branch -> its tip
+    assert "pay this one first" in capsys.readouterr().out
+
+    with pytest.raises(SystemExit):
+        main(["--store", store, "show", "no-such-rev"])
+
+
+def test_evaluate_takes_commit_then_belief(store, capsys):
+    from thinair.beliefs import restore_config, set_config
+
+    main(["--store", store, "log", "--oneline", "inv-1"])
+    settle = [l for l in capsys.readouterr().out.splitlines()
+              if "[settle]" in l][0].split()[0]
+
+    engine = FakeEngine([{"value": 1249.5, "p": 0.66}])
+    previous = set_config(None, engine=engine)
+    try:
+        main(["--store", store, "evaluate", settle, "small-fast"])
+        out = capsys.readouterr().out
+        assert f"@ {settle}" in out                      # that commit, not HEAD
+        assert "small-fast" in out and "qwen3-35b" not in out
+    finally:
+        restore_config(None, previous)
+
+
+def test_evaluate_shares_the_reading_across_a_commits_refs(tmp_path, capsys):
+    """A collapsed commit IS the same content: its refs share one evaluation
+    instead of spending one per branch name."""
+    from thinair.beliefs import restore_config, set_config
+
+    ledger = SqliteLedger(tmp_path / "o.db")
+    engine = FakeEngine([{"value": "big", "p": 0.8}])
+
+    class Card(Thing):
+        __beliefs__ = [model("small-fast", engine=engine), human("jane")]
+        text: str
+        size = contract(str)
+
+    for name in ("card-a", "card-b", "card-c"):
+        +Card(__entity__=name, __ledger__=ledger, text="same words").size
+    assert len(history(ledger)) == 2                     # one shared chain
+
+    second = FakeEngine([{"value": "big", "p": 0.7}])
+    previous = set_config(None, engine=second)
+    try:
+        main(["--store", str(tmp_path / "o.db"), "evaluate"])
+        spent = second.call_count
+        assert spent == 2                                # size + text: once,
+                                                         # not once per ref
+        main(["--store", str(tmp_path / "o.db"), "evaluate"])
+        assert "asked and answered" in capsys.readouterr().out
+        assert second.call_count == spent
+    finally:
+        restore_config(None, previous)
+
+
+# --------------------------------------------------------------------------
+# branches delete like git's: the ref goes, shared commits survive
+# --------------------------------------------------------------------------
+
+def test_branch_delete_removes_the_ref(store, capsys):
+    main(["--store", store, "branch", "-d", "memo-1"])
+    assert "Deleted branch memo-1" in capsys.readouterr().out
+
+    main(["--store", store, "log", "--all", "--oneline"])
+    out = capsys.readouterr().out
+    assert "memo-1" not in out and "inv-1" in out        # the rest stands
+
+    with pytest.raises(SystemExit):
+        main(["--store", store, "branch", "-d", "memo-1"])   # already gone
+
+
+def test_branch_delete_refuses_archives(tmp_path):
+    ledger = Ledger()
+    scripted_run(ledger)
+    path = tmp_path / "ledger.json"
+    ledger.dump(path)
+    with pytest.raises(SystemExit):
+        main(["--store", str(path), "branch", "-d", "memo-1"])
+
+
+# --------------------------------------------------------------------------
+# expectations and deviation: declared on the contract, judged in the record
+# --------------------------------------------------------------------------
+
+def test_expectations_mark_the_log_and_never_gate(tmp_path, monkeypatch,
+                                                  capsys):
+    monkeypatch.setattr("thinair.cli._tty", lambda: True)
+    ledger = SqliteLedger(tmp_path / "o.db")
+    engine = FakeEngine([{"value": 42.0, "p": 0.4}])
+
+    class Reading(Thing):
+        __beliefs__ = [model("small-fast", engine=engine), human("jane")]
+        value = contract(float, p=0.9)
+
+    r = Reading(__entity__="r-1", __ledger__=ledger)
+    assert +r.value == 42.0                              # marks, never gates
+
+    commit = history(ledger, entity="r-1")[-1]
+    assert commit["expect"]["value"]["p"] == [0.9, 1.0]
+
+    main(["--store", str(tmp_path / "o.db"), "log", "--oneline"])
+    out = capsys.readouterr().out
+    assert "p 0.4" in out
+    assert "\x1b[31m" in out                             # below the bar: red
+
+
+def test_deviation_shows_beside_the_stated_p(store, monkeypatch, capsys):
+    """inv-1's total: resolved at 0.93, corroborated at 0.7 -- the spread
+    is the interesting part, so the log carries it by default."""
+    monkeypatch.setattr("thinair.cli._tty", lambda: True)
+    main(["--store", store, "log", "--oneline", "inv-1"])
+    settle = [l for l in capsys.readouterr().out.splitlines()
+              if "[settle]" in l][0]
+    assert "±0." in settle
+
+    commit = [c for c in history(SqliteLedger(store), entity="inv-1")
+              if c["kind"] == "settle"][0]
+    assert commit["consensus"]["total"]["n"] >= 2
+    assert commit["consensus"]["total"]["dev"] > 0
+
+
+def test_dissent_paints_the_stated_p_yellow(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr("thinair.cli._tty", lambda: True)
+    ledger = SqliteLedger(tmp_path / "o.db")
+    engine = FakeEngine([{"value": 10.0, "p": 0.9}])
+    other = FakeEngine([{"value": 99.0, "p": 0.8}])      # holds another value
+
+    class Box(Thing):
+        __beliefs__ = [model("small-fast", engine=engine),
+                       model("qwen3-35b", engine=other), human("jane")]
+        size = contract(float)
+
+    b = Box(__entity__="box-1", __ledger__=ledger)
+    +b.size
+    corroborate(b, attrs=["size"])                       # the dissenting note
+
+    main(["--store", str(tmp_path / "o.db"), "log", "--oneline"])
+    line = [l for l in capsys.readouterr().out.splitlines()
+            if "[settle]" in l][0]
+    assert "\x1b[33m" in line                            # dissent: yellow
+
+    commit = history(ledger, entity="box-1")[-1]
+    assert commit["consensus"]["size"]["dissent"] == 1
+
+
+def test_max_deviation_is_declarable_and_violations_paint_red(
+        tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr("thinair.cli._tty", lambda: True)
+    ledger = SqliteLedger(tmp_path / "o.db")
+    engine = FakeEngine([{"value": 5.0, "p": 0.95}])
+    other = FakeEngine([{"value": 5.0, "p": 0.5}])       # agrees, weakly
+
+    class Box(Thing):
+        __beliefs__ = [model("small-fast", engine=engine),
+                       model("qwen3-35b", engine=other), human("jane")]
+        size = contract(float, deviation=0.1)
+
+    b = Box(__entity__="box-2", __ledger__=ledger)
+    +b.size
+    corroborate(b, attrs=["size"])                       # spread: 0.95 vs 0.5
+
+    main(["--store", str(tmp_path / "o.db"), "log", "--oneline"])
+    line = [l for l in capsys.readouterr().out.splitlines()
+            if "[settle]" in l][0]
+    assert "\x1b[31m" in line                            # over the declared max
+
+
+def test_eager_contracts_resolve_at_construction():
+    engine = FakeEngine([{"value": 7.0, "p": 0.9}])
+
+    class Gauge(Thing):
+        __beliefs__ = [model("small-fast", engine=engine), human("jane")]
+        level = contract(float, eager=True)
+
+    g = Gauge(__entity__="g-1", __ledger__=Ledger())
+    assert engine.call_count == 1                        # spent in __init__
+    assert +g.level == 7.0
+    assert engine.call_count == 1                        # standing, not re-asked
+
+
+# --------------------------------------------------------------------------
+# the matrix, the roster, the docstrings
+# --------------------------------------------------------------------------
+
+def test_show_paints_the_belief_by_attribute_matrix(store, monkeypatch,
+                                                    capsys):
+    main(["--store", store, "log", "--oneline", "inv-1"])
+    settle = [l for l in capsys.readouterr().out.splitlines()
+              if "[settle]" in l][0].split()[0]
+    monkeypatch.setattr("thinair.cli._tty", lambda: True)
+    main(["--store", store, "show", settle])
+    out = capsys.readouterr().out
+    assert "matrix:" in out
+    assert "model:small-fast" in out and "model:qwen3-35b" in out
+    assert "\x1b[32m" in out                             # agreement in green
+
+
+def test_ground_appends_the_builtin_roster(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    main(["ground"])
+    out = capsys.readouterr().out
+    assert "built-in beliefs" in out
+    assert "`TokenSubset`" in out and "`Range`" in out
+    assert not (tmp_path / ".thinair").exists()
+
+
+def test_method_docstrings_reach_the_snapshot():
+    from thinair.thing import snapshot
+
+    class Doc(Thing):
+        __beliefs__ = [human("jane")]
+
+        def approve(self):
+            """Approve the invoice for payment."""
+
+    d = Doc(__entity__="doc-1", __ledger__=Ledger())
+    e = snapshot(d)
+    assert any("# Approve the invoice for payment" in line
+               for line in e.__methods__)
