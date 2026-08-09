@@ -329,7 +329,7 @@ def _can_fill(ledger, belief_id, custom):
 
 
 def _matrix_lines(ledger, commit, held, extra=(), active=None, always=False,
-                  custom=None, stats=None):
+                  custom=None, stats=None, frozen_by=None):
     """Belief × attribute over the commit's whole tree, as rendered lines:
     each cell is that belief's latest stated p, shaded by how much its
     value overlaps what the tree holds (``evaluate.similarity``): pure
@@ -370,11 +370,19 @@ def _matrix_lines(ledger, commit, held, extra=(), active=None, always=False,
         fillable = _can_fill(ledger, belief_id, custom)
         line = f"  {belief_id[:44]:<44}"
         for attr in attrs:
+            if active == (belief_id, attr) and attr not in cells_:
+                line += yellow("…".rjust(width))
+                continue
+            freezer = (frozen_by or {}).get(attr)
+            if freezer is not None \
+                    and belief_id != _base_id(ledger, freezer, bases):
+                # the cell is pinned: the freezer's row carries its number,
+                # every other row reads frozen -- earlier negotiation
+                # readings stay in the readings panel, out of the matrix
+                line += dim("frozen".rjust(width))
+                continue
             got = cells_.get(attr)
             if got is None:
-                if active == (belief_id, attr):
-                    line += yellow("…".rjust(width))
-                    continue
                 line += dim(("?" if fillable else "x").rjust(width))
                 continue
             p, overlap = got
@@ -397,9 +405,9 @@ def _matrix_lines(ledger, commit, held, extra=(), active=None, always=False,
     return lines
 
 
-def _matrix(ledger, commit, held, stats=None):
+def _matrix(ledger, commit, held, stats=None, frozen_by=None):
     lines = _matrix_lines(ledger, commit, held, custom=_load_custom(ledger),
-                          stats=stats)
+                          stats=stats, frozen_by=frozen_by)
     if lines:
         print()
         for line in lines:
@@ -458,7 +466,9 @@ def cmd_show(ledger, args):
     for judge in commit.get("unknown_judges", ()):
         print(f"?     {judge} judged this; necessity unknown here")
     _matrix(ledger, commit, {attr: cell[0] for attr, cell in tree.items()},
-            stats=stats)
+            stats=stats,
+            frozen_by={attr: cell[3] for attr, cell in tree.items()
+                       if cell[2]})
     _readings(ledger, commit)
     print()
 
@@ -836,6 +846,8 @@ def cmd_evaluate(ledger, args):
     # rebuilt from the record re-judge the held tree.
     entity = commit["entities"][0]
     held = {attr: spec[0] for attr, spec in cells.items()}
+    frozen_by = {attr: spec[3] for attr, spec in cells.items() if spec[2]}
+    include = getattr(args, "include_frozen", None)
     custom = _load_custom(ledger)
     instruments = [model(name) for name in names]
     if belief_arg == "*":
@@ -863,7 +875,7 @@ def cmd_evaluate(ledger, args):
             sys.stdout.write(f"\x1b[{block}A\x1b[J")
         lines = _matrix_lines(ledger, commit, held, extra=extra,
                               active=active, always=True, custom=custom,
-                              stats=freshly())
+                              stats=freshly(), frozen_by=frozen_by)
         for line in lines:
             print(line)
         block = len(lines)
@@ -876,10 +888,18 @@ def cmd_evaluate(ledger, args):
         print(line)
         redraw()
 
+    skipped = [attr for attr in sorted(frozen_by)
+               if include not in ("*", attr)]
+    if skipped:
+        print(dim(f"  frozen, not consulted: {', '.join(skipped)}   "
+                  "(--include-frozen consults them)"))
     redraw()
     for instrument in instruments:
         reads = hasattr(instrument, "exposure")     # a model re-reads;
         for attr in sorted(cells):                  # a judge re-judges
+            if attr in frozen_by and include not in ("*", attr):
+                continue                            # pinned by fiat: not a
+                                                    # question, by default
             scope = getattr(instrument, "scope", None)
             if scope is not None and scope != attr:
                 continue
@@ -917,7 +937,7 @@ def cmd_evaluate(ledger, args):
     if not live:
         for line in _matrix_lines(ledger, commit, held, extra=extra,
                                   always=True, custom=custom,
-                                  stats=freshly()):
+                                  stats=freshly(), frozen_by=frozen_by):
             print(line)
 
 
@@ -1051,6 +1071,10 @@ def main(argv=None) -> int:
     evaluate.add_argument("belief", nargs="?", default="*",
                           help="a model name, or * for every reconstructible "
                                "belief on record (default)")
+    evaluate.add_argument("--include-frozen", nargs="?", const="*",
+                          default=None, metavar="attr",
+                          help="consult frozen columns too -- every one, or "
+                               "just the named attribute")
     evaluate.set_defaults(run=cmd_evaluate)
 
     diff = sub.add_parser("diff", help="two trees, cell by cell")

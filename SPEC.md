@@ -246,9 +246,11 @@ exact, theme red none, faded/yellow between; one row per *mechanism*,
 scoped wrappers pooling into their inner belief's row since the column
 already names the attribute; an empty cell says why it is empty — `?`
 could be asked and never was, which is exactly what `evaluate` fills
-in, `x` this client has no way to call it — closing with a `(held)`
-footer row stating each cell's standing consensus, `p 0.95 ±0.02`,
-which updates live while `evaluate` fills the table), then
+in, `x` this client has no way to call it; a *frozen* column shows the
+freezer's own number and reads `frozen` on every other row, judged as
+of the commit shown — closing with a `(held)` footer row stating each
+cell's standing consensus, `p 0.95 ±0.02`, which updates live while
+`evaluate` fills the table), then
 the readings panel: every proposer, per changed cell — its latest
 reading, or `-` where it never spoke — so what `evaluate` records is
 visible there from then on.  Matrix and readings pool opinions across the commit's refs:
@@ -267,7 +269,9 @@ rebuilds the commit's tree as a sealed snapshot, consults reconstructible
 beliefs, and records the answers as corroborations, idempotent per
 (commit, belief, cell) — a collapsed commit's refs share one evaluation,
 since the content is the same; archives are refused, because evaluation
-writes.  Reconstructible means models (their ids parse back into
+writes.  Frozen columns are skipped by default — a cell pinned by fiat
+is not a question — and the skip is announced; `--include-frozen`
+(bare, or naming one attribute) turns the question back on.  Reconstructible means models (their ids parse back into
 configurations — invariant 6) *and* built-in validators: the belief
 table stores every described belief's constructor configuration (a
 `config` column; scoped wrappers also describe their inner mechanism),

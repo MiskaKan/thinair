@@ -261,7 +261,8 @@ def test_evaluate_consults_against_head_and_records(store, capsys):
         assert "agrees" in out                     # total re-read the same
         assert "DIFFERS" in out                    # note read as 1249.5
         spent = engine.call_count
-        assert spent >= 3                          # one consult per cell
+        assert spent >= 2                          # one consult per believed
+                                                   # cell; frozen ones skipped
 
         main(["--store", store, "evaluate", "small-fast"])
         again = capsys.readouterr().out
@@ -463,8 +464,8 @@ def test_evaluate_shares_the_reading_across_a_commits_refs(tmp_path, capsys):
     try:
         main(["--store", str(tmp_path / "o.db"), "evaluate"])
         spent = second.call_count
-        assert spent == 2                                # size + text: once,
-                                                         # not once per ref
+        assert spent == 1                                # size once, not per
+                                                         # ref; text is frozen
         main(["--store", str(tmp_path / "o.db"), "evaluate"])
         assert "asked and answered" in capsys.readouterr().out
         assert second.call_count == spent
@@ -959,3 +960,35 @@ def test_the_consensus_view_travels_everywhere(store, capsys):
     finally:
         restore_config(None, previous)
     assert "(held)" in evaluated                         # footer in evaluate
+
+
+def test_frozen_columns_are_skipped_unless_included(store, capsys):
+    """A pinned cell is not a question: evaluate passes it by, says so,
+    and the matrix shows 'frozen' on every row but the freezer's own.
+    --include-frozen turns the question back on."""
+    from thinair.beliefs import restore_config, set_config
+
+    engine = FakeEngine([{"value": 1249.5, "p": 0.66}])
+    previous = set_config(None, engine=engine)
+    try:
+        main(["--store", store, "evaluate", "HEAD", "small-fast"])
+        out = capsys.readouterr().out
+        assert "frozen, not consulted: source_text" in out
+        assert "source_text        ⇒" not in out         # never consulted
+        spent = engine.call_count
+
+        matrix = out[out.index("matrix:"):]
+        jane = [l for l in matrix.splitlines()
+                if l.strip().startswith("human:jane")][0]
+        assert "1.00" in jane                            # the freezer's number
+        model_row = [l for l in matrix.splitlines()
+                     if l.strip().startswith("model:small-fast")][0]
+        assert "frozen" in model_row                     # everyone else
+
+        main(["--store", store, "evaluate", "HEAD", "small-fast",
+              "--include-frozen"])
+        included = capsys.readouterr().out
+        assert "frozen, not consulted" not in included
+        assert "source_text" in included and engine.call_count > spent
+    finally:
+        restore_config(None, previous)
