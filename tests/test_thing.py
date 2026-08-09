@@ -662,3 +662,39 @@ def test_private_names_are_not_intercepted():
         inv._not_a_domain_name
     with pytest.raises(AttributeError):
         inv.__not_a_domain_name__
+
+
+def test_a_contract_is_a_reusable_template():
+    """One contract, declared once, used anywhere: each class creation
+    stamps fresh scoped validators for the attribute it lands on, and
+    identical configurations share identical belief ids across classes
+    (invariant 6) -- the record sees one instrument, not copies."""
+    from fakes import FakeEngine
+    from thinair import Thing, contract, human, model
+    from thinair.ledger import Ledger
+
+    LEVEL = contract(str, enum=["low", "high"])
+
+    class Ticket(Thing):
+        __beliefs__ = [model("small-fast",
+                             engine=FakeEngine([{"value": "high", "p": 0.8}])),
+                       human("jane")]
+        priority = LEVEL
+
+    class Incident(Thing):
+        __beliefs__ = [model("small-fast",
+                             engine=FakeEngine([{"value": "low", "p": 0.7}])),
+                       human("jane")]
+        severity = LEVEL                     # the same contract, twice,
+        priority = LEVEL                     # on a different class
+
+    ledger = Ledger()
+    assert +Ticket(__entity__="t-1", __ledger__=ledger).priority == "high"
+    assert +Incident(__entity__="i-1", __ledger__=ledger).severity == "low"
+
+    of = lambda cls, tag: sorted(b.id for b in cls.__beliefs__
+                                 if tag in getattr(b, "id", ""))
+    assert of(Ticket, "@priority") == of(Incident, "@priority")
+    assert of(Incident, "@severity") == \
+        [i.replace("@priority", "@severity") for i in of(Ticket, "@priority")]
+    assert "one of 'low', 'high'" in Incident.__contracts__["severity"].describe()
