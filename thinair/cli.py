@@ -110,12 +110,30 @@ def shade(overlap: float, text: str) -> str:
 
 
 def _signature_text(commit, attr, p) -> str:
-    """``p 0.95 ±0.02`` -- or ``p 0.95 ±?`` when fewer than two agreeing
-    voices have measured the cell: an unmeasured spread says so instead of
-    hiding, because ``(p 0.95)`` alone reads as more settled than it is."""
+    """``p 0.95 ±0.02`` -- always numeric; an unmeasured spread reads
+    ``±0.00``, and the parens' coverage color is what says nobody has
+    measured yet."""
     view = (commit.get("consensus") or {}).get(attr) or {}
     dev = view.get("dev")
-    return f"p {p:g} ±" + (f"{dev:.2f}" if dev is not None else "?")
+    return f"p {p:g} ±{dev if dev is not None else 0.0:.2f}"
+
+
+def _verdict(commit, attr, p):
+    """``(score, violated)``: the agreement score of the cell's recorded
+    readings (1.0 when nothing disagrees), and whether a declared
+    expectation is missed."""
+    view = (commit.get("consensus") or {}).get(attr) or {}
+    expect = (commit.get("expect") or {}).get(attr) or {}
+    dev = view.get("dev")
+    bounds = expect.get("p")
+    violated = (bool(bounds) and not (bounds[0] <= p <= bounds[1])) \
+        or (expect.get("deviation") is not None and dev is not None
+            and dev > expect["deviation"])
+    voices = view.get("n", 1) + view.get("dissent", 0)
+    score = 1.0 if voices <= 1 else \
+        (view.get("n", 1)
+         + view.get("dissent", 0) * view.get("similarity", 0.0)) / voices
+    return score, violated
 
 
 def _signature(commit, attr, p, pad=0) -> str:
@@ -124,43 +142,45 @@ def _signature(commit, attr, p, pad=0) -> str:
 
     The number is the resolving belief's honest p with the agreeing
     voices' spread beside it; the color is the record's verdict on the
-    *value* -- green when every recorded reading holds it, sliding toward
+    *value* -- green while nothing on record disagrees, sliding toward
     red as dissenting readings land farther away (their mean
-    ``similarity`` to the held value folds into the score).  A lone
-    unchecked voice stays unpainted: green must mean "the record agrees",
-    never "nobody looked".  A violated declared expectation is always the
-    theme's red.
+    ``similarity`` to the held value folds into the score).  Whether
+    anyone has actually looked is the parens' story, not this one.  A
+    violated declared expectation is always the theme's red.
     """
-    view = (commit.get("consensus") or {}).get(attr) or {}
-    expect = (commit.get("expect") or {}).get(attr) or {}
     text = _signature_text(commit, attr, p)
     if pad:
         text = text.rjust(pad)
-    dev = view.get("dev")
-    bounds = expect.get("p")
-    if (bounds and not (bounds[0] <= p <= bounds[1])) \
-            or (expect.get("deviation") is not None and dev is not None
-                and dev > expect["deviation"]):
-        return red(text)
-    voices = view.get("n", 1) + view.get("dissent", 0)
-    if voices <= 1:
-        return text
-    score = (view.get("n", 1)
-             + view.get("dissent", 0) * view.get("similarity", 0.0)) / voices
-    return shade(score, text)
+    score, violated = _verdict(commit, attr, p)
+    return red(text) if violated else shade(score, text)
 
 
 def _reach(ledger):
     """Coverage for the signature's parens: of the mechanisms this client
-    could hear on a cell, the fraction that have spoken -- judged by the
-    same rules as the matrix's ``?`` cells, so green parens mean "the
-    panel is complete" and red parens mean "almost nobody has been
-    asked".  ``None`` on archives, where askability is unknowable."""
+    could hear *on this cell*, how many have spoken -- green parens mean
+    the cell's panel is complete, red parens mean almost nobody has been
+    asked.  The pool is per attribute: every model, plus the mechanisms
+    whose scoped wrappers name the attribute, plus rebuildable mechanisms
+    no wrapper claims (directly attached, so they judge anywhere) --
+    priority's enum never counts against customer.  ``None`` on archives,
+    where askability is unknowable."""
     if not hasattr(ledger, "belief_rows"):
         return None
     custom = _load_custom(ledger)
-    askable = {row["id"] for row in ledger.belief_rows()
-               if _can_fill(ledger, row["id"], custom)}
+    rows = ledger.belief_rows()
+    models, claimed, by_attr = set(), set(), {}
+    for row in rows:
+        if row["kind"] == "ModelBelief" or row["id"].startswith("model:"):
+            models.add(row["id"])
+            continue
+        if row["kind"] == "Scoped" and "@" in row["id"]:
+            base, scoped_to = row["id"].rsplit("@", 1)
+            claimed.add(base)
+            if _can_fill(ledger, base, custom):
+                by_attr.setdefault(scoped_to, set()).add(base)
+    unclaimed = {row["id"] for row in rows
+                 if row["id"] not in claimed and row["id"] not in models
+                 and _can_fill(ledger, row["id"], custom)}
 
     def coverage(commit, attr):
         bases = set(commit["changes"])
@@ -172,19 +192,33 @@ def _reach(ledger):
                 if not _visible_at(o, commit):
                     continue
                 spoken.add(_base_id(ledger, o.belief, bases))
-        pool = spoken | askable
-        return len(spoken) / len(pool) if pool else 1.0
+        pool = spoken | models | by_attr.get(attr, set()) | unclaimed
+        return (len(spoken), len(pool)) if pool else (1, 1)
 
     return coverage
+
+
+#: --ai-readable: the signature's color channels, said in text -- for
+#: readers (pipes, models) that cannot see a terminal's palette.
+_AI_READABLE = False
 
 
 def _signed(commit, attr, p, reach=None) -> str:
     """The signature in its parens, parens shaded by coverage."""
     body = _signature(commit, attr, p)
-    if reach is None:
+    cov = reach(commit, attr) if reach is not None else None
+    if _AI_READABLE:
+        score, violated = _verdict(commit, attr, p)
+        parts = [f"agree={score:.2f}"]
+        if cov is not None:
+            parts.append(f"asked={cov[0]}/{cov[1]}")
+        if violated:
+            parts.append("expect-violated")
+        body += "  " + " ".join(parts)
+    if cov is None:
         return f"({body})"
-    cov = reach(commit, attr)
-    return shade(cov, "(") + body + shade(cov, ")")
+    fraction = cov[0] / cov[1]
+    return shade(fraction, "(") + body + shade(fraction, ")")
 
 
 def _message(commit, reach=None) -> str:
@@ -499,6 +533,7 @@ def _matrix(ledger, commit, held, stats=None, frozen_by=None):
 def cmd_show(ledger, args):
     commits = history(ledger)
     commit = _commit_at(commits, args.commit)
+    reach = _reach(ledger)
     print(f"{yellow('commit ' + commit['hash'])} "
           f"({', '.join(commit['entities'])})")
     print(f"Author: {commit['author']}")
@@ -510,13 +545,12 @@ def cmd_show(ledger, args):
               f"{commit['parent_tree']}, recorded "
               f"{commit['recorded_parent']}{verdict})")
     print()
-    print(f"    {_message(commit)}")
+    print(f"    {_message(commit, reach)}")
     print()
     # the whole tree as of this commit, source-style; what this commit
     # moved is highlighted, the rest is context
     tree = _tree_at(commits, commit)
     stats = _cell_stats(commits, commit)
-    reach = _reach(ledger)
     print(f"diff --thinair {_label(commit)}")
     for attr in sorted(set(tree) | set(commit["changes"])):
         if attr not in commit["changes"]:
@@ -1102,6 +1136,9 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         prog="thinair", description="inspect a thinair record, git-style")
     parser.add_argument("--store", help="path to opinions.db or a ledger.json")
+    parser.add_argument("--ai-readable", action="store_true",
+                        help="say the signature's color channels in text "
+                             "(agree=, asked=) for readers without a palette")
     sub = parser.add_subparsers(dest="command", required=True)
 
     log = sub.add_parser("log", help="the commits, newest first")
@@ -1184,6 +1221,8 @@ def main(argv=None) -> int:
     help_.set_defaults(run=run_help, needs_store=False)
 
     args = parser.parse_args(argv)
+    global _AI_READABLE
+    _AI_READABLE = bool(getattr(args, "ai_readable", False))
     ledger = open_store(args.store) if getattr(args, "needs_store", True) \
         else None
     try:

@@ -1065,9 +1065,9 @@ def test_the_panel_unwinds_to_the_commit(tmp_path, capsys):
     assert "99" in now                                   # but HEAD knows
 
 
-def test_unmeasured_spread_says_so(tmp_path, capsys):
-    """(p 0.7 ±?) not (p 0.7): a cell with fewer than two agreeing voices
-    admits its spread is unmeasured instead of looking settled."""
+def test_the_signature_is_always_numeric(tmp_path, capsys):
+    """(p 0.7 ±0.00), never a bare (p 0.7): the spread slot is always
+    stated -- coverage (the parens) is what says whether anyone measured."""
     ledger = SqliteLedger(tmp_path / "o.db")
     engine = FakeEngine([{"value": "calm", "p": 0.7}])
 
@@ -1080,7 +1080,7 @@ def test_unmeasured_spread_says_so(tmp_path, capsys):
     main(["--store", str(tmp_path / "o.db"), "log", "--oneline"])
     line = [l for l in capsys.readouterr().out.splitlines()
             if "[settle]" in l][0]
-    assert "±?" in line
+    assert "±0.00" in line and "±?" not in line
 
 
 def test_readings_shade_by_agreement_with_the_held_value(tmp_path,
@@ -1134,3 +1134,38 @@ def test_parens_shade_by_evaluation_coverage(store, monkeypatch, capsys):
     after = [l for l in capsys.readouterr().out.splitlines()
              if "[settle]" in l][0]
     assert "\x1b[32m(" in after                          # still complete
+
+
+def test_coverage_is_per_attribute(tmp_path, monkeypatch, capsys):
+    """priority's enum never counts against customer: a cell whose own
+    panel has fully spoken wears green parens, whatever other cells'
+    validators are still owed elsewhere."""
+    ledger = SqliteLedger(tmp_path / "o.db")
+    engine = FakeEngine([{"value": "Anna", "p": 0.9},
+                         {"value": "high", "p": 0.8}])
+
+    class Ticket(Thing):
+        __beliefs__ = [model("small-fast", engine=engine), human("jane")]
+        source_text: str
+        customer = contract(str, extracted_from="source_text")
+        priority = contract(str, enum=["low", "high"])
+
+    t = Ticket(__entity__="tick-1", __ledger__=ledger, source_text="From Anna")
+    +t.customer
+    +t.priority
+
+    monkeypatch.setattr("thinair.cli._tty", lambda: True)
+    main(["--store", str(tmp_path / "o.db"), "log", "--oneline"])
+    customer = [l for l in capsys.readouterr().out.splitlines()
+                if "customer" in l][0]
+    assert "\x1b[32m(" in customer                       # its panel is done
+
+
+def test_ai_readable_says_the_colors_in_text(store, capsys):
+    main(["--store", store, "--ai-readable", "log", "--oneline", "inv-1"])
+    settle = [l for l in capsys.readouterr().out.splitlines()
+              if "[settle]" in l][0]
+    assert "agree=1.00" in settle and "asked=" in settle
+
+    main(["--store", store, "log", "--oneline", "inv-1"])   # and off again
+    assert "agree=" not in capsys.readouterr().out
