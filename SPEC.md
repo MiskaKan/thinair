@@ -256,7 +256,11 @@ deviation measures how close the declared fact sits to what other
 beliefs have read — `±0.00` until someone has), then
 the readings panel: every proposer, per changed cell — its latest
 reading, or `-` where it never spoke — so what `evaluate` records is
-visible there from then on.  Matrix and readings pool opinions across the commit's refs:
+visible there from then on.  Matrix and readings *unwind to the
+commit*: only opinions on record by the end of its negotiation appear —
+a later override never haunts an earlier commit — plus corroborations
+later targeted at exactly this commit, which are measurements of this
+state and `evaluate`'s cache.  Matrix and readings pool opinions across the commit's refs:
 one commit is one content, so it gets one panel; branches are pointers,
 and per-ref detail stays reachable as notes and in the ledger itself.  Commit identity is git's: sha1(parent |
 tree | author | kind | message | changes) — **the entity is not in the
