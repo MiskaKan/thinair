@@ -330,7 +330,11 @@ of it:
 - **Resolution runs in rounds.** The routed head proposes; the panel judges; a
   `necessary` belief below the veto line kills the candidate and its objection feeds
   the next round; exhausted budgets escalate to the next proposer and end in
-  `Unresolvable`. Results change only through observable state change.
+  `Unresolvable`. The resolving opinion is **one belief's answer carrying its own
+  p** — validators gate, they never inflate, and nothing is ever blended.
+  Corroboration does not turn a 0.6 into a 0.9; comparing how differently built
+  beliefs measured a cell is settlement, later, from the ledger. Results change
+  only through observable state change.
 - **Method calls are episodes.** Calling an undeclared method runs an imagined
   episode: the model proposes actions against a sealed snapshot, the resulting
   changeset commits atomically as ordinary opinions, and the return value faces the
@@ -356,7 +360,7 @@ Every element of a strategy is a thinair construct:
 | Reading | Opinion in the ledger |
 | Axis with scale type | Contracted attribute cell (`contract(float, ...)`, `@`-coercion) |
 | Law / validator | Deterministic Belief subclass (form, grounding, consistency, reference, executable families) |
-| Dissimilar paths on one question | Panel of beliefs in `__beliefs__` on one cell |
+| Dissimilar paths on one question | Panel of beliefs on one cell — each records its *own* opinion; resolution selects one, never blends; `evaluate` compares them afterwards |
 | Instrument reliability / calibration | Meta-measurement over the ledger, keyed by durable belief ids (`thinair.evaluate`) |
 | The Ground | **Frozen opinions** (code results, human assignments) |
 | Persistent structure / index | Ledger + frozen opinions on derived cells |
