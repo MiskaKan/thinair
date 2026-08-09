@@ -431,6 +431,21 @@ class Thing(metaclass=ThingMeta):
         beliefs = kwargs.pop("__beliefs__", None)
         if beliefs is not None:
             set(self, "__beliefs__", list(beliefs))
+        # The declared panel is part of the record: adding or removing a
+        # belief changes what the strategy *is*, and the history should
+        # say so.  Recorded idempotently, like assignment -- the first
+        # declaration is the baseline, a changed one derives as a
+        # [belief] commit.  Members without durable ids are structural
+        # guests and stay out of the fingerprint.
+        panel = [belief_id for b in getattr(self, "__beliefs__", ())
+                 if (belief_id := getattr(b, "id", None))]
+        if panel:
+            declared = ledger.latest(self.__entity__, "__panel__")
+            if declared is None or not values_equal(declared.value, panel):
+                ledger.add(Opinion(
+                    belief="panel:declared", entity=self.__entity__,
+                    attr="__panel__", value=list(panel), p=1.0, frozen=True,
+                    meta={"panel": True}))
         # constructor kwargs are assignments, and assignment is the human
         # speaking
         for name, value in kwargs.items():
@@ -804,6 +819,9 @@ def _standing(owner, entity, deriving=None):
     for cell in ledger.cells(entity):
         if cell[1] == deriving:
             continue          # a cell under derivation is, by definition, open
+        if cell[1].startswith("__"):
+            continue          # framework records (the panel fingerprint) are
+                              # never state a belief is shown
         pinned = ledger.latest_frozen(*cell)
         if pinned is not None:
             cells[cell[1]] = pinned

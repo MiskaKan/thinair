@@ -1208,3 +1208,68 @@ def test_matrix_marks_follow_the_cells_panel(tmp_path, capsys):
     judged = [l for l in evaluated.splitlines()
               if "enum[" in l and "judges p" in l]
     assert all(l.strip().startswith("priority") for l in judged)
+
+
+def test_assign_and_freeze_carry_the_frozen_parens(store, capsys):
+    """Every commit line ends in parens: believed cells wear the
+    signature, frozen ones a dim (frozen)."""
+    main(["--store", store, "log", "--oneline"])
+    lines = capsys.readouterr().out.splitlines()
+    assign = [l for l in lines if "[assign]" in l][0]
+    assert assign.rstrip().endswith("(frozen)")
+
+
+def test_a_changed_panel_is_a_belief_commit(tmp_path, capsys):
+    """Adding or removing a belief changes what the strategy is, and the
+    hash chain says so: a [belief] commit, tree untouched.  The first
+    declaration is a silent baseline; restating it commits nothing."""
+    ledger = SqliteLedger(tmp_path / "o.db")
+    engine = FakeEngine([{"value": 5.0, "p": 0.9}])
+
+    def build(extra=()):
+        class Box(Thing):
+            __beliefs__ = [model("small-fast", engine=engine),
+                           human("jane"), *extra]
+            size = contract(float)
+        return Box
+
+    +build()(__entity__="box-p", __ledger__=ledger).size
+    first = history(ledger, entity="box-p")
+    assert [c["kind"] for c in first] == ["settle"]      # baseline invisible
+
+    build()(__entity__="box-p", __ledger__=ledger)       # same panel again
+    assert len(history(ledger, entity="box-p")) == len(first)
+
+    second = FakeEngine([{"value": 5.0, "p": 0.7}])
+    build((model("qwen3-35b", engine=second),))(
+        __entity__="box-p", __ledger__=ledger)           # the strategy moved
+    commits = history(ledger, entity="box-p")
+    assert commits[-1]["kind"] == "belief"
+    assert "+ model:qwen3-35b" in commits[-1]["message"]
+    assert commits[-1]["parent"] == first[-1]["hash"]    # chained: hash moved
+    assert commits[-1]["tree"] == first[-1]["tree"]      # the tree did not
+
+    main(["--store", str(tmp_path / "o.db"), "log", "--oneline"])
+    assert "[belief]" in capsys.readouterr().out
+
+
+def test_frozen_footer_colors_by_prior_estimates(tmp_path, monkeypatch,
+                                                 capsys):
+    """The (held) row of a frozen column paints by whether the fiat
+    landed where the other beliefs' readings did."""
+    ledger = SqliteLedger(tmp_path / "o.db")
+    engine = FakeEngine([{"value": 10.0, "p": 0.9}])
+
+    class Box(Thing):
+        __beliefs__ = [model("small-fast", engine=engine), human("jane")]
+        size = contract(float)
+
+    b = Box(__entity__="box-f", __ledger__=ledger)
+    +b.size
+    b.size = 99.0                                        # far from estimates
+
+    monkeypatch.setattr("thinair.cli._tty", lambda: True)
+    main(["--store", str(tmp_path / "o.db"), "show", "HEAD"])
+    footer = [l for l in capsys.readouterr().out.splitlines()
+              if "(held)" in l][0]
+    assert "\x1b[2;31m" in footer or "\x1b[31m" in footer

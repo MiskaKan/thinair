@@ -40,10 +40,6 @@ from .evaluate import history, similarity
 from .ledger import Ledger, Opinion, values_equal
 from .store import DEFAULT_PATH, SqliteLedger
 
-KINDS = {"assign": "assign", "settle": "settle", "episode": "episode",
-         "code": "code", "freeze": "freeze", "fixture": "fixture"}
-
-
 def open_store(path: str | None) -> Ledger:
     path = path or os.environ.get("THINAIR_STORE") or DEFAULT_PATH
     if not os.path.exists(path):
@@ -235,13 +231,13 @@ def _signed(commit, attr, p, reach=None) -> str:
 
 
 def _message(commit, reach=None) -> str:
-    if commit["kind"] == "episode":
+    if commit["kind"] in ("episode", "belief"):
         return commit["message"]
     attr, (value, p, frozen) = next(iter(commit["changes"].items()))
     arrow = "=" if frozen else "⇒"
     stated = f"{attr} {arrow} {_value(value)}"
-    if not frozen:
-        stated += f" {_signed(commit, attr, p, reach)}"
+    stated += f" {dim('(frozen)')}" if frozen \
+        else f" {_signed(commit, attr, p, reach)}"
     return stated
 
 
@@ -376,7 +372,7 @@ def _readings(ledger, commit):
     recorded by ``thinair evaluate`` live here from then on: the cache,
     made visible."""
     roster = _proposer_roster(ledger)
-    if not roster:
+    if not roster or not commit["changes"]:
         return
     print()
     print("readings:")
@@ -523,13 +519,17 @@ def _matrix_lines(ledger, commit, held, extra=(), active=None, always=False,
             if frozen:
                 view = (owner.get("consensus") or {}).get(attr) or {}
                 text = f"p 1.00 ±{view.get('dev') or 0.0:.2f}".rjust(width)
-                voices = view.get("n", 1) + view.get("dissent", 0)
-                if voices <= 1:
-                    line += dim(text)
+                # colored by the column above it: did the fiat land where
+                # the other beliefs' readings did, or somewhere else?
+                freezer = (frozen_by or {}).get(attr)
+                freezer_base = _base_id(ledger, freezer, bases) \
+                    if freezer else None
+                estimates = [cells_[attr][1] for base, cells_ in rows.items()
+                             if attr in cells_ and base != freezer_base]
+                if estimates:
+                    line += shade(sum(estimates) / len(estimates), text)
                 else:
-                    score = (view.get("n", 1) + view.get("dissent", 0)
-                             * view.get("similarity", 0.0)) / voices
-                    line += shade(score, text)
+                    line += dim(text)
                 continue
             line += _signature(owner, attr, p, pad=width)
         lines.append(line)

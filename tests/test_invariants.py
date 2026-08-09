@@ -145,7 +145,10 @@ def test_only_three_things_freeze():
 
     freeze(inv.total)                                  # the explicit verb
     inv.vendor = "ACME Oy"                             # assignment
-    assert [o.attr for o in ledger.opinions(frozen=True)] == \
+    # framework records (the __panel__ declaration) are bookkeeping, not
+    # cells: the invariant is about what can pin a *cell*
+    assert [o.attr for o in ledger.opinions(frozen=True)
+            if not o.attr.startswith("__")] == \
         ["source_text", "total", "vendor"]
 
 

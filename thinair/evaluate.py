@@ -923,11 +923,15 @@ def history(ledger: Ledger, entity: str | None = None) -> list[dict]:
     """Commits: the authored, atomic transitions of observable state.
 
     Git's mapping, made literal.  The *tree* is the state hash (frozen
-    attributes plus standing resolutions); a *commit* is whatever moved it,
-    and only three things do -- an assignment or freeze (one cell, human or
-    code), an episode changeset (atomic, the call expression as message,
-    the parent tree recorded at run time), and a settlement (a believed
-    cell resolving).  *Entities are refs, not commit identity*: the hash
+    attributes plus standing resolutions); a *commit* is whatever moved
+    either the state or the strategy, and only four things do -- an
+    assignment or freeze (one cell, human or code), an episode changeset
+    (atomic, the call expression as message, the parent tree recorded at
+    run time), a settlement (a believed cell resolving), and a *panel
+    change* (kind ``belief``: the declared ``__beliefs__`` fingerprint
+    moved; the tree stands still but the hash chain forks, because the
+    instrument is part of what the history is a history *of* -- the
+    first declaration per entity is a silent baseline).  *Entities are refs, not commit identity*: the hash
     covers parent, tree, author, kind, message and changes -- never the
     entity -- so anonymous runs with identical histories collapse into one
     chain carrying every ref (``entities`` per commit, ``heads`` at tips).  Deliberation -- rounds, vetoes -- lives *inside* its
@@ -947,6 +951,7 @@ def history(ledger: Ledger, entity: str | None = None) -> list[dict]:
     spans: dict[tuple, dict] = {}          # (entity, attr) -> open negotiation
     pending: dict[str, list] = {}          # host entity -> changeset writes
     notes: list = []
+    panels: dict[str, list] = {}           # entity -> declared panel so far
 
     def close(key):
         span = spans.pop(key, None)
@@ -991,6 +996,24 @@ def history(ledger: Ledger, entity: str | None = None) -> list[dict]:
         key = (o.entity, o.attr)
         if meta.get("corroboration"):
             notes.append(o)
+            continue
+        if meta.get("panel"):
+            # the declared panel: the first declaration is the baseline;
+            # a changed one is a [belief] commit -- the strategy itself
+            # moved, though the tree did not
+            previous = panels.get(o.entity)
+            panels[o.entity] = list(o.value or [])
+            if previous is None:
+                continue
+            added = [b for b in (o.value or []) if b not in previous]
+            removed = [b for b in previous if b not in (o.value or [])]
+            if not added and not removed:
+                continue
+            events.append(dict(
+                t=o.t, entity=o.entity, kind="belief", author=o.belief,
+                message="  ".join(["+ " + b for b in added]
+                                  + ["- " + b for b in removed]),
+                changes={}, rounds=0, vetoes=[], unknown_judges=[], end=o.t))
             continue
         if meta.get("from_changeset"):
             pending.setdefault(o.entity, []).append(o)
@@ -1077,7 +1100,7 @@ def history(ledger: Ledger, entity: str | None = None) -> list[dict]:
             if frozen or already is None or not already[2]:
                 cells_[attr] = (value, p, frozen)         # frozen wins
         tree = _state_hash(cells_)
-        if tree == parent_tree and ev["kind"] != "episode":
+        if tree == parent_tree and ev["kind"] not in ("episode", "belief"):
             continue        # a commit is whatever moved the state hash;
                             # an identical re-settlement moved nothing --
                             # the reading is on record, the tree stood still
