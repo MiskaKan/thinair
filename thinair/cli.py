@@ -322,7 +322,7 @@ def _can_fill(ledger, belief_id, custom):
 
 
 def _matrix_lines(ledger, commit, held, extra=(), active=None, always=False,
-                  custom=None):
+                  custom=None, stats=None):
     """Belief × attribute over the commit's whole tree, as rendered lines:
     each cell is that belief's latest stated p, shaded by how much its
     value overlaps what the tree holds (``evaluate.similarity``): pure
@@ -349,7 +349,11 @@ def _matrix_lines(ledger, commit, held, extra=(), active=None, always=False,
         rows.setdefault(_base_id(ledger, belief_id, bases), {})
     if not always and len(rows) < 2:
         return []                    # a matrix of one voice says nothing
-    width = max(8, *(min(len(a), 14) for a in attrs)) + 2
+    footer = {attr: (stats or {}).get(attr) for attr in attrs}
+    footer_texts = [text for cell in footer.values() if cell is not None
+                    for text in (cell[0],) if text is not None]
+    width = max(8, *(min(len(a), 14) for a in attrs),
+                *(len(text) for text in footer_texts)) + 2
     lines = ["matrix:  " + dim("(rows beliefs, columns attributes; shade = "
                                "value overlap, green exact ... red none; "
                                "? never asked, x unreachable from here)"),
@@ -368,11 +372,26 @@ def _matrix_lines(ledger, commit, held, extra=(), active=None, always=False,
             p, overlap = got
             line += shade(overlap, f"{p:.2f}".rjust(width))
         lines.append(line)
+    if stats is not None:
+        # the bottom row: what the tree holds, with the cell's consensus
+        line = dim(f"  {'(held)':<44}")
+        for attr in attrs:
+            got = footer.get(attr)
+            if got is None:
+                line += dim("-".rjust(width))
+                continue
+            text, flag = got
+            if text is None:
+                line += dim("frozen".rjust(width))
+                continue
+            line += _paint_verdict(text.rjust(width), flag)
+        lines.append(line)
     return lines
 
 
-def _matrix(ledger, commit, held):
-    lines = _matrix_lines(ledger, commit, held, custom=_load_custom(ledger))
+def _matrix(ledger, commit, held, stats=None):
+    lines = _matrix_lines(ledger, commit, held, custom=_load_custom(ledger),
+                          stats=stats)
     if lines:
         print()
         for line in lines:
@@ -398,11 +417,13 @@ def cmd_show(ledger, args):
     # the whole tree as of this commit, source-style; what this commit
     # moved is highlighted, the rest is context
     tree = _tree_at(commits, commit)
+    stats = _cell_stats(commits, commit)
     print(f"diff --thinair {_label(commit)}")
     for attr in sorted(set(tree) | set(commit["changes"])):
         if attr not in commit["changes"]:
             value, p, frozen, _author = tree[attr]
-            mark = "frozen" if frozen else f"p {p:g}"
+            text = (stats.get(attr) or (None, None))[0]
+            mark = "frozen" if frozen else (text or f"p {p:g}")
             print(dim(f"  {attr} = {_value(value)}   ({mark})"))
             continue
         value, p, frozen = commit["changes"][attr]
@@ -427,7 +448,8 @@ def cmd_show(ledger, args):
                   f"(p={p:g}{overlap})"))
     for judge in commit.get("unknown_judges", ()):
         print(f"?     {judge} judged this; necessity unknown here")
-    _matrix(ledger, commit, {attr: cell[0] for attr, cell in tree.items()})
+    _matrix(ledger, commit, {attr: cell[0] for attr, cell in tree.items()},
+            stats=stats)
     _readings(ledger, commit)
     print()
 
@@ -478,7 +500,11 @@ def cmd_blame(ledger, args):
     for attr in sorted(latest):
         commit = latest[attr]
         value, p, frozen = commit["changes"][attr]
-        mark = "frozen" if frozen else f"p={p:g}"
+        if frozen:
+            mark = "frozen"
+        else:
+            text, flag = _p_verdict(commit, attr, p)
+            mark = _paint_verdict(text, flag)
         print(f"{commit['hash']} ({commit['author'][:34]:<34} t={commit['t']:g}) "
               f"{attr} = {_value(value)}   ({mark})")
 
@@ -553,6 +579,25 @@ def _commit_at(commits, rev):
     if commit is None:
         sys.exit(f"fatal: bad revision '{rev}'")
     return commit
+
+
+def _cell_stats(commits, commit):
+    """Per attribute of the commit's tree: the held p with its consensus
+    view (``p 0.95 ±0.02 ~0.13``) and verdict flag, taken from the commit
+    that last moved the cell -- ``(None, None)`` for frozen cells."""
+    index = {c["hash"]: c for c in commits}
+    chain, cursor = [], commit
+    while cursor is not None:
+        chain.append(cursor)
+        cursor = index.get(cursor["parent"]) if cursor["parent"] else None
+    held: dict[str, tuple] = {}
+    for owner in reversed(chain):
+        for attr, (_value, p, frozen) in owner["changes"].items():
+            already = held.get(attr)
+            if frozen or already is None or not already[0]:
+                held[attr] = (frozen, owner, p)
+    return {attr: ((None, None) if frozen else _p_verdict(owner, attr, p))
+            for attr, (frozen, owner, p) in held.items()}
 
 
 def _tree_at(commits, commit):
@@ -799,6 +844,13 @@ def cmd_evaluate(ledger, args):
     live = _tty()
     block = 0
 
+    def freshly():
+        """Consensus for the footer, re-derived so each landed reading
+        moves the (held) row while the table fills."""
+        fresh = history(ledger)
+        now = next((c for c in fresh if c["hash"] == commit["hash"]), commit)
+        return _cell_stats(fresh, now)
+
     def redraw(active=None):
         nonlocal block
         if not live:
@@ -806,7 +858,8 @@ def cmd_evaluate(ledger, args):
         if block:
             sys.stdout.write(f"\x1b[{block}A\x1b[J")
         lines = _matrix_lines(ledger, commit, held, extra=extra,
-                              active=active, always=True, custom=custom)
+                              active=active, always=True, custom=custom,
+                              stats=freshly())
         for line in lines:
             print(line)
         block = len(lines)
@@ -859,7 +912,8 @@ def cmd_evaluate(ledger, args):
                 emit(f"  {attr:<18} {instrument.id[:40]} judges p {~got:g}")
     if not live:
         for line in _matrix_lines(ledger, commit, held, extra=extra,
-                                  always=True, custom=custom):
+                                  always=True, custom=custom,
+                                  stats=freshly()):
             print(line)
 
 

@@ -234,7 +234,9 @@ Jaccard for strings, relative closeness for numbers, token Jaccard for
 containers — classical, model-free) — as `p 0.93 ±0.04 ~0.13`, red where
 a declared expectation (§8) is violated, yellow where a recorded reading
 dissents on the value: `log --all --decorate --oneline --graph` shows at
-a glance where beliefs diverged, and how far.  `show` renders the *whole
+a glance where beliefs diverged, and how far.  This consensus view is
+the standard rendering of a believed cell wherever one appears — the
+log, `show`'s context lines, `blame`, the matrix footer.  `show` renders the *whole
 tree* as of the commit with what moved highlighted and the rest as dim
 context, then a belief × attribute matrix over the tree (each cell that
 belief's latest p, shaded by its value's overlap with the held one via
@@ -243,7 +245,9 @@ exact, theme red none, faded/yellow between; one row per *mechanism*,
 scoped wrappers pooling into their inner belief's row since the column
 already names the attribute; an empty cell says why it is empty — `?`
 could be asked and never was, which is exactly what `evaluate` fills
-in, `x` this client has no way to call it), then
+in, `x` this client has no way to call it — closing with a `(held)`
+footer row stating each cell's standing consensus, `p 0.95 ±0.02`,
+which updates live while `evaluate` fills the table), then
 the readings panel: every proposer, per changed cell — its latest
 reading, or `-` where it never spoke — so what `evaluate` records is
 visible there from then on.  Matrix and readings pool opinions across the commit's refs:

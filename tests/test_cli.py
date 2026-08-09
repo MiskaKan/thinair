@@ -199,7 +199,7 @@ def test_show_status_branch_blame(store, capsys):
     main(["--store", store, "blame", "inv-1"])
     blame = capsys.readouterr().out
     assert "source_text" in blame and "(frozen)" in blame
-    assert "total" in blame and "p=0.93" in blame
+    assert "total" in blame and "p 0.93 ±" in blame     # consensus view
 
 
 def test_cli_reads_a_json_archive(tmp_path, capsys):
@@ -931,3 +931,28 @@ def test_judges_rebuild_cold_from_config(store, monkeypatch):
     monkeypatch.setattr(B, "_REGISTRY", {})
     judges = _reconstructible_judges(SqliteLedger(store), custom={})
     assert any(j.id.startswith("tokenSubset") for j in judges)
+
+
+def test_the_consensus_view_travels_everywhere(store, capsys):
+    """(p 0.95 ±0.02) is the standard rendering of a believed cell: show's
+    context lines carry it, and the matrix ends with a (held) footer row
+    stating each cell's standing consensus."""
+    main(["--store", store, "show", "HEAD"])             # the episode commit
+    out = capsys.readouterr().out
+    context = [l for l in out.splitlines()
+               if l.strip().startswith("total =")][0]
+    assert "±" in context                                # not just (p 0.93)
+
+    matrix = out[out.index("matrix:"):out.index("readings:")]
+    footer = [l for l in matrix.splitlines() if "(held)" in l]
+    assert footer and "±" in footer[0] and "frozen" in footer[0]
+
+    from thinair.beliefs import restore_config, set_config
+    previous = set_config(None, engine=FakeEngine([{"value": 1249.5,
+                                                    "p": 0.8}]))
+    try:
+        main(["--store", store, "evaluate", "HEAD", "small-fast"])
+        evaluated = capsys.readouterr().out
+    finally:
+        restore_config(None, previous)
+    assert "(held)" in evaluated                         # footer in evaluate
