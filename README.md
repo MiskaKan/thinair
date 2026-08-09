@@ -19,7 +19,7 @@ class Invoice(Thing):
 inv = Invoice(source_text=open("invoice.txt").read())
 
 +inv.total     # 1249.5 — the value
-~inv.total     # 0.93   — how sure the panel is
+~inv.total     # 0.93   — how sure the answering belief is, its own honest p
 ```
 
 **Code the certain, believe the rest.**
@@ -32,9 +32,12 @@ What you write yourself is certain, and the model can never touch it:
 inv.total = 1249.50      # your assignment: probability 1.0, final
 ```
 
-What you left blank is believed. The panel is consulted in order, validators
-get a veto (`TokenSubset` above refuses any number that isn't actually in
-the text), and the answer that survives arrives priced:
+What you left blank is believed. The first belief in the panel answers;
+the validators judge its candidate and can veto it (`TokenSubset` above
+refuses any number that isn't actually in the text) — but they only ever
+gate, never inflate: the probability you get is the answering belief's own.
+Corroboration doesn't turn a 0.6 into a 0.9; it turns it into a 0.6 that
+nothing objected to. Even attributes nobody declared work this way:
 
 ```python
 inv.due_date             # never declared — imagined on first read,
@@ -58,7 +61,7 @@ flowing onward.
 
 ```python
 guess = inv.total @ 0.9
-if guess:                # gate whole branches on how sure the panel is
+if guess:                # gate whole branches on how sure the answer is
     pay(+guess)
 ```
 
