@@ -221,7 +221,13 @@ def _signature(commit, attr, p, pad=0) -> str:
     score, violated = _verdict(commit, attr, p)
     if violated:
         return lead + red(head + tail)
-    head = dim(head) if score is None else shade(score, head)
+    if score is None:
+        # unopposed: no independent reader has spoken, so neither the value
+        # match nor the spread is evidence yet -- the whole signature waits
+        # dim.  (Coloring the ± off the judges' ps here would contradict the
+        # p beside it; the parens still say whether anyone could be asked.)
+        return lead + dim(head + tail)
+    head = shade(score, head)
     tail = dim(tail) if spread is None else shade(1.0 - spread, tail)
     return lead + head + tail
 
@@ -669,11 +675,16 @@ def _matrix_lines(ledger, commit, held, extra=(), active=None, always=False,
                     if freezer else None
                 estimates = [cells_[attr][1] for base, cells_ in rows.items()
                              if attr in cells_ and base != freezer_base]
-                head = shade(sum(estimates) / len(estimates), head) \
-                    if estimates else dim(head)
-                spread = view.get("range")
-                tail = dim(tail) if spread is None else shade(1.0 - spread, tail)
-                line += lead + head + tail
+                if estimates:
+                    head = shade(sum(estimates) / len(estimates), head)
+                    spread = view.get("range")
+                    tail = dim(tail) if spread is None \
+                        else shade(1.0 - spread, tail)
+                    line += lead + head + tail
+                else:
+                    # an unmeasured fiat waits dim whole, like any
+                    # unopposed signature
+                    line += lead + dim(head + tail)
                 continue
             line += _signature(owner, attr, p, pad=width)
         lines.append(line)

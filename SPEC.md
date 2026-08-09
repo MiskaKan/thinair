@@ -281,7 +281,9 @@ value (trigram Jaccard for strings, relative closeness for numbers, token
 Jaccard for containers — classical, model-free) — green for earned
 agreement, mid-ramp for dissent, distance as color rather than text.  An
 **unopposed** cell — one reading, which nothing could have contradicted —
-renders dim: no color is earned either way.  The `±` wears its own color,
+renders dim whole, `±` included: no channel has earned a color, and a
+spread computed over judges' ps would contradict the dim p beside it.
+Once readers exist, the `±` wears its own color,
 from the *min-max range* of the recorded ps rather than their deviation
 (one voice far from the rest barely moves a deviation; the range refuses
 to average it away) — the printed number stays the deviation.  A violated
