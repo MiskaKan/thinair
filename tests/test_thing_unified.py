@@ -205,3 +205,31 @@ def test_assigning_a_thing_records_its_entity_as_a_reference():
     recorded = ledger.latest("whole-1", "engine_block")
     assert recorded.value == "part-7"
     assert "part-7" in (recorded.meta or {}).get("refs", [])
+
+
+# --------------------------------------------------------------------------
+# beliefs=[...] is the declarative spelling, fully equal to the kwargs
+# --------------------------------------------------------------------------
+
+def test_a_beliefs_list_is_first_class_declaration():
+    """Import the validator, put it in the list, done: auto-scoped to the
+    attribute, veto rights honored, and described to the model exactly as
+    the named options would be -- `enum=` / `range=` are shorthand for
+    this, never more."""
+    from thinair.validators import Enum, Range
+
+    class Ticket(Thing):
+        __beliefs__ = [ScriptedBelief({"amount": (20_000.0, 0.9),
+                                       "priority": ("low", 0.9)},
+                                      "scripted:lists")]
+        amount = Thing(float, beliefs=[Range(0, 10_000)])
+        priority = Thing(str, beliefs=[Enum(["low", "high"])])
+
+    # the law reaches the prompt: the model is told what will be enforced
+    assert "10000" in Ticket.__contracts__["amount"].describe()
+    assert "one of 'low', 'high'" in Ticket.__contracts__["priority"].describe()
+
+    t = Ticket(__ledger__=Ledger())
+    assert +t.priority == "low"                  # Range is scoped off priority
+    with pytest.raises(Unresolvable):
+        +t.amount                                # 20_000 vetoed, never served

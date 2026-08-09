@@ -152,7 +152,12 @@ checksum=, sums_to=, unique=, elaborates=, necessary=, beliefs=, doc=)` in
 a class body declares an attribute: it appends scoped beliefs to
 `__beliefs__` and nothing else.  A bare annotation (`source_text: str`) is
 a declaration too, and `contract(...)` is the compatibility spelling of the
-same object.  (A Thing constructed with a positional shape is a
+same object.  `beliefs=` entries are first-class declarations, not
+second-class attachments: each is auto-scoped to the attribute, keeps its
+veto terms, and its `describe()` joins the prompt description — the named
+options are shorthand over the same validator library
+(`enum=[...]` ≡ `beliefs=[Enum([...])]`), and the two spellings must not
+diverge.  (A Thing constructed with a positional shape is a
 *declaration*: no entity, no ledger, no record — the metaclass consumes it
 at class creation.)  The `Schema` a contract builds is the
 same object that constrains the engine's structured output and performs the

@@ -152,6 +152,13 @@ class Contract:
             parts.append(f"a valid {self.format}")
         if self.sums_to:
             parts.append(f"summing to {self.sums_to}")
+        # beliefs handed in as a list are first-class declarations: a law the
+        # panel will enforce is a law the model is told about, exactly as the
+        # named options are -- the two spellings must not diverge
+        for extra in self._extra:
+            told = getattr(extra, "describe", None)
+            if told is not None:
+                parts.append(told())
         if self.doc:
             parts.append(self.doc)
         return "; ".join(parts)

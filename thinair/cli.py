@@ -1445,6 +1445,9 @@ registered-only beliefs corroborate -- they never gate.
 Docstrings are prompt material: the class docstring is the entity's
 purpose, `Thing(..., doc=...)` joins the attribute's description, and a
 method's first docstring line rides along with its signature.
+Instruments attach declaratively -- `Thing(float,
+beliefs=[Range(0, 10_000)])`: auto-scoped, veto terms kept, described
+to the model; `enum=`, `range=`, ... are shorthand for this.
 `Thing(str, p=0.9, deviation=0.1)` declares expectations -- stamped
 into the record and judged there, never shown to the answering belief,
 never a gate.  `eager=True` resolves at construction.  The panel is
