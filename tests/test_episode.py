@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from thinair import Thing, contract, freeze, human
+from thinair import Thing, human
 from thinair.beliefs import model
 from thinair.episode import ACTION_BUDGET, CORRECTIONS, call_expression
 from thinair.ledger import Ledger
@@ -28,10 +28,10 @@ def invoice(script, *, extra=(), source=SOURCE):
 
         __beliefs__ = [model("small-fast", engine=engine), human("jane"), *extra]
         source_text: str
-        total = contract(float, extracted_from="source_text", range=(0, 1e6))
-        vat = contract(float, range=(0, 1))
-        status = contract(str, enum=["paid", "pending", "overdue"])
-        note = contract(str)
+        total = Thing(float, extracted_from="source_text", range=(0, 1e6))
+        vat = Thing(float, range=(0, 1))
+        status = Thing(str, enum=["paid", "pending", "overdue"])
+        note = Thing(str)
 
         def recheck(self) -> bool:
             """A real method: real code, and its writes freeze."""
@@ -397,18 +397,10 @@ def test_nothing_an_episode_commits_is_frozen():
     assert unfrozen and not any(o.frozen for o in unfrozen)
 
 
-def test_an_episode_result_can_be_pinned_by_code():
-    inv, engine, _ = invoice([ret("a summary")])
-    result = inv.summarize()
-    pinned = freeze(result)
-    assert (+pinned, ~pinned) == ("a summary", 0.8)
-    assert pinned.__opinion__.frozen is True
-
-
 def test_a_thing_without_a_generative_belief_cannot_imagine():
     class Plain(Thing):
         __beliefs__ = [human("jane")]
-        note = contract(str)
+        note = Thing(str)
 
     thing = Plain(note="hello", __ledger__=Ledger())
     with pytest.raises(Unresolvable, match="imagine"):

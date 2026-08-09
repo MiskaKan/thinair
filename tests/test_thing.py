@@ -20,7 +20,7 @@ from thinair.policy import (
     Unanimous,
     Unresolvable,
 )
-from thinair.thing import Cell, Snapshot, Thing, contract, freeze, snapshot
+from thinair.thing import Cell, Snapshot, Thing, snapshot
 from thinair.validators import RangeBelief, SchemaBelief, TokenSubsetBelief
 
 from fakes import FakeEngine
@@ -40,8 +40,8 @@ def invoice_class(engine, *, escalation=None, extra=()):
 
         __beliefs__ = panel
         source_text: str
-        total = contract(float, extracted_from="source_text", range=(0, 1e6))
-        vendor = contract(str, extracted_from="source_text")
+        total = Thing(float, extracted_from="source_text", range=(0, 1e6))
+        vendor = Thing(str, extracted_from="source_text")
 
     return Invoice
 
@@ -115,23 +115,22 @@ def test_constructor_kwargs_are_assignments():
     assert inv.source_text.__opinion__.frozen is True
 
 
-def test_freeze_pins_a_model_opinion_keeping_author_and_p():
+def test_adopting_a_reading_pins_it_as_the_humans():
+    """There is no freeze verb: adopting an answer is assignment, and the
+    pin is the human's own voice at p 1.0 -- the model's honest 0.93
+    stays in the record as the reading it was."""
     inv, _, _ = make([{"value": 1249.5, "p": 0.93}])
-    pinned = freeze(inv.total)
-    assert (+pinned, ~pinned) == (1249.5, 0.93)     # an honest 0.93, still
-    assert pinned.__opinion__.belief.startswith("model:small-fast")
+    inv.total = +inv.total
+    pinned = inv.total
+    assert (+pinned, ~pinned) == (1249.5, 1.0)
+    assert pinned.__opinion__.belief.startswith("human:")
     assert pinned.__opinion__.frozen is True
-
-
-def test_freeze_accepts_both_spellings():
-    inv, _, _ = make([{"value": 1249.5, "p": 0.93}])
-    assert ~freeze(inv, "total") == 0.93
 
 
 def test_a_frozen_cell_makes_zero_engine_calls():
     """Frozen short-circuit: no consultation, no model call, ever."""
     inv, engine, _ = make([{"value": 1249.5, "p": 0.93}])
-    freeze(inv.total)
+    inv.total = +inv.total
     before = engine.call_count
     for _ in range(5):
         assert +inv.total == 1249.5
@@ -246,7 +245,7 @@ def test_escalation_fires_when_the_veto_gate_exhausts_its_budget():
 def test_a_thing_with_no_generative_belief_serves_frozen_cells_and_nothing_else():
     class Ledgered(Thing):
         __beliefs__ = [human("jane")]
-        note = contract(str)
+        note = Thing(str)
 
     thing = Ledgered(note="written by hand", __ledger__=Ledger())
     assert +thing.note == "written by hand"
@@ -298,7 +297,7 @@ def test_a_re_derivations_e0_is_byte_identical_to_the_first_ones():
     class Invoice(Thing):
         __beliefs__ = [Recorder(id="recorder:1"), human("jane")]
         source_text: str
-        total = contract(float)
+        total = Thing(float)
 
     inv = Invoice(source_text=SOURCE, __ledger__=Ledger())
     +inv.total
@@ -407,11 +406,13 @@ def test_a_frozen_human_value_extracts_at_p_one():
 
 def loose(script):
     """An Invoice whose ``note`` is declared but unconstrained."""
+    from typing import Any
+
     engine = FakeEngine(script)
 
     class Note(Thing):
         __beliefs__ = [model("small-fast", engine=engine), human("jane")]
-        note = contract()
+        note = Thing(Any)                     # declared, no shape
 
     return Note(__ledger__=Ledger()), engine
 
@@ -485,7 +486,7 @@ def test_recast_swaps_the_belief_list_and_invalidates_caches():
         """A receipt, which is an invoice seen differently."""
 
         __beliefs__ = [model("other", engine=other_engine), human("jane")]
-        total = contract(float, range=(0, 10))
+        total = Thing(float, range=(0, 10))
 
     recast = inv @ Receipt
     assert isinstance(recast, Receipt)
@@ -502,7 +503,7 @@ def test_recast_lets_the_new_classes_contracts_govern():
 
     class Small(Thing):
         __beliefs__ = [model("tight", engine=tight), human("jane")]
-        total = contract(float, range=(0, 10))
+        total = Thing(float, range=(0, 10))
 
     recast = inv @ Small
     assert +recast.total == 5.0                      # re-derived under Small
@@ -646,9 +647,9 @@ def test_a_domain_attribute_may_shadow_nothing_the_framework_needs():
 
     class Awkward(Thing):
         __beliefs__ = [model("small-fast", engine=engine), human("jane")]
-        value = contract(str)
-        ledger = contract(str)
-        beliefs = contract(str)
+        value = Thing(str)
+        ledger = Thing(str)
+        beliefs = Thing(str)
 
     thing = Awkward(ledger="the accounting kind", __ledger__=Ledger())
     assert +thing.ledger == "the accounting kind"
@@ -670,10 +671,10 @@ def test_a_contract_is_a_reusable_template():
     identical configurations share identical belief ids across classes
     (invariant 6) -- the record sees one instrument, not copies."""
     from fakes import FakeEngine
-    from thinair import Thing, contract, human, model
+    from thinair import Thing, human, model
     from thinair.ledger import Ledger
 
-    LEVEL = contract(str, enum=["low", "high"])
+    LEVEL = Thing(str, enum=["low", "high"])
 
     class Ticket(Thing):
         __beliefs__ = [model("small-fast",

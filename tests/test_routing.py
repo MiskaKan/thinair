@@ -23,7 +23,7 @@ from thinair.engine.openai_compat import OpenAICompatEngine, engine_for
 from thinair.ledger import Ledger
 from thinair.models import ModelDef, resolve
 from thinair.policy import Unresolvable
-from thinair.thing import Thing, contract
+from thinair.thing import Thing
 
 from fakes import FakeEngine, FlakyFakeEngine
 
@@ -39,7 +39,7 @@ def invoice(*models_, ledger=None):
 
         __beliefs__ = [*models_, human("jane")]
         source_text: str
-        total = contract(float, extracted_from="source_text", range=(0, 1e6))
+        total = Thing(float, extracted_from="source_text", range=(0, 1e6))
 
     return Invoice(source_text=SOURCE, __ledger__=ledger)
 
@@ -109,7 +109,7 @@ def test_no_belief_ever_reads_past_negotiations_from_the_ledger():
     class Invoice(Thing):
         __beliefs__ = [model("a", engine=a), human("jane"), Watcher()]
         source_text: str
-        total = contract(float, extracted_from="source_text", range=(0, 1e6))
+        total = Thing(float, extracted_from="source_text", range=(0, 1e6))
 
     +Invoice(source_text=SOURCE, __ledger__=ledger).total
     # the snapshot's slice grows by this derivation's own rounds, and by
@@ -137,7 +137,7 @@ def test_the_routed_head_leads_the_snapshot_panel():
         __beliefs__ = [model("a", engine=a), model("b", engine=b),
                        human("jane"), Peeker()]
         source_text: str
-        total = contract(float, extracted_from="source_text", range=(0, 1e6))
+        total = Thing(float, extracted_from="source_text", range=(0, 1e6))
 
     +Invoice(source_text=SOURCE, __ledger__=Ledger()).total
     assert heads[0].startswith("model:a") and heads[-1].startswith("model:b")

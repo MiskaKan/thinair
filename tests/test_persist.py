@@ -8,7 +8,7 @@ import pickle
 
 import pytest
 
-from thinair import Thing, contract, freeze, human
+from thinair import Thing, human
 from thinair.beliefs import model
 from thinair.ledger import Ledger, Opinion, values_equal
 from thinair.persist import VERSION, PersistError
@@ -27,8 +27,8 @@ def invoice(script=None, ledger=None):
 
         __beliefs__ = [model("small-fast", engine=engine), human("jane")]
         source_text: str
-        total = contract(float, extracted_from="source_text", range=(0, 1e6))
-        vendor = contract(str, extracted_from="source_text")
+        total = Thing(float, extracted_from="source_text", range=(0, 1e6))
+        vendor = Thing(str, extracted_from="source_text")
 
     ledger = Ledger() if ledger is None else ledger
     return Invoice, Invoice(source_text=SOURCE, __ledger__=ledger), engine, ledger
@@ -93,10 +93,10 @@ def test_a_resolution_is_restored_with_its_author_not_the_last_voice(scoped):
 
 def test_frozen_state_survives_a_round_trip(scoped):
     cls, inv, _, _ = invoice()
-    freeze(inv.total)
+    inv.total = +inv.total
     revived = inv.__getstate__() @ cls
     assert revived.total.__opinion__.frozen is True
-    assert ~revived.total == 0.93                    # pinning keeps the p
+    assert ~revived.total == 1.0                     # adopted: the human's p
 
 
 def test_restoring_twice_does_not_duplicate_opinions(scoped):
@@ -138,7 +138,7 @@ def test_a_blob_may_be_revived_into_another_class(scoped):
 
         __beliefs__ = [model("strict", engine=strict_engine), human("jane")]
         source_text: str
-        total = contract(float, range=(0, 10))
+        total = Thing(float, range=(0, 10))
 
     receipt = blob @ Receipt
     assert isinstance(receipt, Receipt)
@@ -201,7 +201,7 @@ def test_persist_restore_is_the_identity_on_public_state(scoped):
     cls, inv, _, _ = invoice()
     +inv.total
     inv.vendor = "ACME Oy"
-    freeze(inv.total)
+    inv.total = +inv.total
 
     before = {attr: (+getattr(inv, attr), ~getattr(inv, attr))
               for attr in ("total", "vendor", "source_text")}
@@ -220,9 +220,9 @@ def test_values_equal_is_symmetric_and_reflexive(a, b):
     assert values_equal(a, a) and values_equal(b, b)
 
 
-def test_after_any_freeze_reads_of_that_cell_make_zero_engine_calls():
+def test_after_any_pin_reads_of_that_cell_make_zero_engine_calls():
     _, inv, engine, _ = invoice()
-    freeze(inv.total)
+    inv.total = +inv.total
     calls = engine.call_count
     for _ in range(10):
         +inv.total
@@ -262,7 +262,7 @@ def test_the_debug_trace_shows_episode_actions_and_the_commit():
 
         __beliefs__ = [model("m", engine=engine), human("jane")]
         source_text: str
-        vendor = contract(str, extracted_from="source_text")
+        vendor = Thing(str, extracted_from="source_text")
 
     inv = Invoice(source_text=SOURCE + "\nACME Oy", __ledger__=Ledger())
     with Thing.debug(stream):

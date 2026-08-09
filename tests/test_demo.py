@@ -93,11 +93,13 @@ def test_assignment_makes_the_human_the_resolver(ran):
     assert inv.vendor.__opinion__.frozen is True
 
 
-def test_freeze_pins_the_models_answer_keeping_p(ran):
-    """``freeze(inv.total)  # pin the model's answer -- keeps p = 0.93``."""
+def test_the_believed_total_stays_the_models_honest_reading(ran):
+    """Adoption (``inv.total = +inv.total``) would pin it as the human's;
+    the demo leaves total believed, so the resolving opinion stays the
+    model's own 0.93 -- nothing inflated it, nothing froze it."""
     inv, _, _ = ran
     opinion = inv.total.__opinion__
-    assert opinion.frozen is True and opinion.p == 0.93
+    assert opinion.frozen is False and opinion.p == 0.93
     assert opinion.belief.startswith("model:small-fast")
 
 
@@ -109,7 +111,7 @@ def test_the_ledger_holds_every_voice_and_every_author(ran):
     assert any(a.startswith("model:") for a in authors)
     assert any(a.startswith("tokenSubset") for a in authors)
     assert any(a.startswith("range") for a in authors)
-    assert sum(1 for o in voices if o.frozen) == 1       # only the pin
+    assert not any(o.frozen for o in voices)             # believed throughout
 
 
 def test_source_renders_frozen_plain_and_believed_annotated(ran):

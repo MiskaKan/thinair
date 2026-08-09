@@ -12,7 +12,7 @@ from __future__ import annotations
 import pytest
 
 from fakes import FakeEngine
-from thinair import Consulted, Thing, contract, corroborate, human, model
+from thinair import Consulted, Thing, corroborate, human, model
 from thinair.beliefs import Discriminative
 from thinair.ledger import Ledger, Opinion
 from thinair.policy import Unresolvable
@@ -27,7 +27,7 @@ def invoice_class(engine, extra=()):
         __beliefs__ = [model("small-fast", engine=engine), human("jane"),
                        *extra]
         source_text: str
-        total = contract(float, extracted_from="source_text")
+        total = Thing(float, extracted_from="source_text")
     return Invoice
 
 
@@ -128,7 +128,7 @@ def test_consulted_records_the_spread_and_resolves_the_head():
                        model("qwen3-35b", engine=other_engine),
                        human("jane")]
         source_text: str
-        total = contract(float, extracted_from="source_text")
+        total = Thing(float, extracted_from="source_text")
 
     ledger = Ledger()
     inv = Invoice(__entity__="inv-1", __ledger__=ledger, source_text=SOURCE)
@@ -156,7 +156,7 @@ def corroborable():
                        model("qwen3-35b", engine=other_engine),
                        human("jane")]
         source_text: str
-        total = contract(float, extracted_from="source_text")
+        total = Thing(float, extracted_from="source_text")
 
     ledger = Ledger()
     inv = Invoice(__entity__="inv-1", __ledger__=ledger, source_text=SOURCE)

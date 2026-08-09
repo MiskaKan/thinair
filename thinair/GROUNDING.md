@@ -345,7 +345,7 @@ of it:
   `model`, `human`, `corroborate` (consult the beliefs the read never asked, recording
   second opinions into the same cells for settlement) and `fn` — functions as cells: a
   call is a read of a `(call_id, "result")` cell; pure code freezes it (memoization),
-  model-served calls stay opinions. `contract`, `freeze`, `snapshot` remain as compatibility spellings.
+  model-served calls stay opinions.
 - **Settlement ships with the framework**: `thinair.evaluate` reads the
   ledger back — veto-aware readings, scale-licensed agreement, chance-corrected
   kappa, Bradley–Terry, reliability, drift, discrimination, concordance with the
@@ -368,14 +368,14 @@ Every element of a strategy is a thinair construct:
 | Persistent structure / index | Ledger + frozen opinions on derived cells |
 | Budget tiers | Rounds / escalation, runtime-owned policy; recounted by `evaluate.tiers` |
 | Exposed weights | Human belief / frozen assignments — never a model output |
-| Declared expectations | `contract(p=, deviation=)` — stamped into the record and judged there, **never shown to the answering belief** (a belief told what to be sure of inflates) and never a gate: a reading is not wrong alone; the spread between readings is the signal |
+| Declared expectations | `Thing(..., p=, deviation=)` — stamped into the record and judged there, **never shown to the answering belief** (a belief told what to be sure of inflates) and never a gate: a reading is not wrong alone; the spread between readings is the signal |
 
 Four structural facts the machinery expects, stated so nobody rediscovers them the
 expensive way:
 
 - **Write the ground by assignment.** A pre-pass with an exact value records it as
   `t.axis = value` — frozen, free, no panel consulted. Never route a code-known value
-  through a model read (Pillar II), and never `freeze` what you can assign.
+  through a model read (Pillar II).
 - **Designed-in ground lives on a parallel entity.** `evaluate.grounded(ground=fn)`
   wants the truth frozen on a *separate entity carrying the same axis names* — `fn`
   maps measured entity id → ground entity id (`lambda e: f"gold-{e}"`) — never on a

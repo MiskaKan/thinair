@@ -16,9 +16,7 @@ import sys
 
 from thinair import (
     Thing,
-    contract,
     fn,
-    freeze,
     freeze_call,
     human,
     model,
@@ -42,9 +40,9 @@ def build(engine=None, escalation=None):
             TokenSubsetBelief("source_text"),
         ]
         source_text: str
-        total = contract(float, extracted_from="source_text", range=(0, 1e6))
-        vendor = contract(str, extracted_from="source_text")
-        line_items = contract([{"desc": str, "amount": float}],
+        total = Thing(float, extracted_from="source_text", range=(0, 1e6))
+        vendor = Thing(str, extracted_from="source_text")
+        line_items = Thing([{"desc": str, "amount": float}],
                               extracted_from="source_text", sums_to="total")
 
     return Invoice
@@ -77,7 +75,8 @@ def demo(Invoice, net_total, out=sys.stdout):
     show("exit ramp:", total)
 
     inv.vendor = "ACME Oy"                            # human speaks: frozen, p = 1.0
-    freeze(inv.total)                                 # pin the model's answer, keeping p
+                                                      # (adopting a reading is the same
+                                                      # move: inv.total = +inv.total)
 
     show(inv.__ledger__.opinions(attr="total"))       # every voice, every author
     show(inv.__source__)

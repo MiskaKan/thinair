@@ -360,7 +360,7 @@ def test_an_interactive_human_may_decline(monkeypatch):
 
 
 def test_a_prompted_human_corroborates_but_does_not_freeze(monkeypatch):
-    """Only assignment and freeze freeze (invariant 4)."""
+    """Only assignment and frozen beliefs freeze (invariant 4)."""
     answers = iter(["yes", ""])
     monkeypatch.setattr("builtins.input", lambda *a: next(answers))
     got = human("dave", interactive=True)(head(None), "note")

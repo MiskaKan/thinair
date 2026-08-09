@@ -15,7 +15,7 @@ import pytest
 import thinair
 from thinair.beliefs import Belief, human, model
 from thinair.ledger import Ledger, Opinion
-from thinair.thing import Thing, contract, freeze, snapshot
+from thinair.thing import Thing, snapshot
 
 from fakes import FakeEngine
 
@@ -56,7 +56,7 @@ def test_every_kind_of_belief_lands_the_same_shape():
     class Invoice(Thing):
         __beliefs__ = [model("small-fast", engine=engine), human("jane")]
         source_text: str
-        total = contract(float, extracted_from="source_text")
+        total = Thing(float, extracted_from="source_text")
 
     ledger = Ledger()
     inv = Invoice(source_text="Total 1249.50 EUR", __ledger__=ledger)
@@ -99,7 +99,7 @@ def test_a_snapshot_cannot_be_mutated():
 
     class Simple(Thing):
         __beliefs__ = [model("m", engine=engine), human("jane")]
-        note = contract(str)
+        note = Thing(str)
 
     e = snapshot(Simple(note="hello", __ledger__=Ledger()))
     with pytest.raises(AttributeError):
@@ -129,21 +129,22 @@ def test_the_episode_grammar_has_no_freeze_action():
         or "cannot freeze" in grammar.lower()
 
 
-def test_only_three_things_freeze():
-    """Assignment, code execution, and the explicit verb."""
+def test_only_code_and_the_human_freeze():
+    """Assignment and code execution -- a model never, and there is no
+    freeze verb to reach for."""
     engine = FakeEngine([{"value": 1249.5, "p": 0.93}])
 
     class Invoice(Thing):
         __beliefs__ = [model("small-fast", engine=engine), human("jane")]
         source_text: str
-        total = contract(float, extracted_from="source_text")
+        total = Thing(float, extracted_from="source_text")
 
     ledger = Ledger()
     inv = Invoice(source_text="Total 1249.50 EUR", __ledger__=ledger)
     +inv.total
     assert not any(o.frozen for o in ledger.opinions(attr="total"))
 
-    freeze(inv.total)                                  # the explicit verb
+    inv.total = +inv.total                             # adoption is assignment
     inv.vendor = "ACME Oy"                             # assignment
     # framework records (the __panel__ declaration) are bookkeeping, not
     # cells: the invariant is about what can pin a *cell*
@@ -235,11 +236,11 @@ def test_a_deterministic_thing_needs_no_engine(monkeypatch):
 
     class Ledgered(Thing):
         __beliefs__ = [human("jane")]
-        total = contract(float, range=(0, 100))
+        total = Thing(float, range=(0, 100))
 
     thing = Ledgered(total=42.0, __ledger__=Ledger())
     assert (+thing.total, ~thing.total) == (42.0, 1.0)
-    assert +freeze(thing.total) == 42.0
+    assert +thing.total == 42.0                        # already pinned
 
 
 # --------------------------------------------------------------------------

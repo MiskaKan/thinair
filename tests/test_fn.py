@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from thinair import Thing, contract, human
+from thinair import Thing, human
 from thinair.beliefs import model
 from thinair.fn import Fn, call_id, fn, freeze_call
 from thinair.ledger import Ledger
@@ -46,7 +46,7 @@ def test_a_non_json_able_argument_is_a_type_error():
 def test_a_thing_argument_contributes_its_entity_and_state():
     class Doc(Thing):
         __beliefs__ = [human("jane")]
-        text = contract(str)
+        text = Thing(str)
 
     doc = Doc(text="hello", __ledger__=Ledger())
     identity = call_id("summarize", (doc,))
@@ -332,7 +332,7 @@ def test_an_episode_can_call_a_pure_fn_through_the_same_cell(ledger):
         """An invoice."""
 
         __beliefs__ = [model("m", engine=engine), human("jane")]
-        total = contract(float)
+        total = Thing(float)
 
         def net(self, gross, vat):
             """A real method that consults a pure @fn."""
@@ -385,7 +385,7 @@ def test_an_episode_may_call_a_pure_fn_by_name(ledger):
         """An invoice."""
 
         __beliefs__ = [model("m", engine=engine), human("jane")]
-        total = contract(float)
+        total = Thing(float)
         net_total = the_fn                           # offered to the episode
 
     inv = Invoice(total=1249.50, __ledger__=ledger)

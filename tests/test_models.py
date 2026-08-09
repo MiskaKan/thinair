@@ -237,7 +237,7 @@ def test_a_malformed_def_raises_at_import(kwargs):
 @pytest.mark.skipif(not os.environ.get("THINAIR_LIVE"),
                     reason="set THINAIR_LIVE=1 (and THINAIR_BASE_URL/MODEL) to smoke a real endpoint")
 def test_live_smoke():
-    from thinair import Thing, contract, human
+    from thinair import Thing, human
     from thinair.beliefs import model
     from thinair.ledger import Ledger
 
@@ -248,7 +248,7 @@ def test_live_smoke():
 
         __beliefs__ = [model(name), human("smoke")]
         source_text: str
-        total = contract(float, extracted_from="source_text")
+        total = Thing(float, extracted_from="source_text")
 
     note = Note(source_text="The bill came to 1249.50 euros.", __ledger__=Ledger())
     assert +note.total == pytest.approx(1249.5, abs=0.01)

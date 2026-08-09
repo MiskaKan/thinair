@@ -716,8 +716,8 @@ def grounded(ledger: Ledger, axes: Iterable[str] | None = None,
     Two places ground lives, one gatherer:
 
     * ``ground=None`` -- the natural flow: the cell was measured, and the
-      outcome was later frozen *on the same cell* (assignment, code, an
-      explicit ``freeze``).  Calibration accrues from the ledger alone.
+      outcome was later frozen *on the same cell* (assignment, or a
+      frozen belief settling).  Calibration accrues from the ledger alone.
     * ``ground=fn`` -- designed-in ground on **parallel entities**: the
       truth lives on a separate entity carrying the *same axis names* as
       the measured one (so the instrument can never see it), and ``fn``
@@ -951,7 +951,7 @@ def history(ledger: Ledger, entity: str | None = None) -> list[dict]:
     Git's mapping, made literal.  The *tree* is the state hash (frozen
     attributes plus standing resolutions); a *commit* is whatever moved
     either the state or the strategy, and only four things do -- an
-    assignment or freeze (one cell, human or code), an episode changeset
+    assignment or a frozen settlement (one cell, human or code), an episode changeset
     (atomic, the call expression as message, the parent tree recorded at
     run time), a settlement (a believed cell resolving), and a *panel
     change* (kind ``belief``: the declared ``__beliefs__`` fingerprint

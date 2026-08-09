@@ -3,9 +3,8 @@
 One class carries the whole of it: ``Thing(shape, ...)`` in a class body is
 a declaration, a Thing assigned to an attribute is a reference, the panel
 changes through operators, freezing is a property of the belief, and
-``Thing.__default__`` is the fallback proposer.  The old module verbs
-(``contract``, ``freeze``) remain as compatibility spellings of the same
-moves -- both spellings are exercised here against each other.
+``Thing.__default__`` is the fallback proposer.  There are no module verbs
+for any of these moves -- the surface is the whole spelling.
 """
 
 from __future__ import annotations
@@ -13,7 +12,7 @@ from __future__ import annotations
 import pytest
 
 from fakes import ScriptedBelief
-from thinair import Thing, contract, freeze, human, model
+from thinair import Thing, human, model
 from thinair.ledger import Ledger
 from thinair.policy import Unresolvable
 
@@ -22,7 +21,7 @@ from thinair.policy import Unresolvable
 # declarations: Thing(shape, ...) in a class body
 # --------------------------------------------------------------------------
 
-def test_a_thing_with_a_shape_declares_like_contract():
+def test_a_thing_with_a_shape_declares_the_attribute():
     class Ticket(Thing):
         __beliefs__ = [ScriptedBelief({"priority": ("high", 0.9)},
                                       "scripted:declares")]
@@ -50,11 +49,10 @@ def test_declaring_touches_no_ledger_and_mints_no_entity():
     assert declared.__declaration__.enum == ["a", "b"]
 
 
-def test_declaration_and_contract_build_the_same_thing():
-    a = Thing(float, extracted_from="src", range=(0, 10)).__declaration__
-    b = contract(float, extracted_from="src", range=(0, 10))
-    assert (a.template, a.extracted_from, a.range) \
-        == (b.template, b.extracted_from, b.range)
+def test_a_declaration_carries_its_full_spec():
+    spec = Thing(float, extracted_from="src", range=(0, 10)).__declaration__
+    assert (spec.template, spec.extracted_from, spec.range) \
+        == (float, "src", (0, 10))
 
 
 # --------------------------------------------------------------------------
@@ -173,10 +171,10 @@ def test_without_a_default_a_bare_panel_is_unresolvable():
 
 
 # --------------------------------------------------------------------------
-# freeze(value=) is a pure write -- the 026 trap, closed
+# writing a known value is assignment -- the 026 trap has no verb to spring
 # --------------------------------------------------------------------------
 
-def test_freeze_with_a_value_never_consults_the_panel():
+def test_assignment_never_consults_the_panel():
     counting = ScriptedBelief({"total": (999.0, 0.9)}, "scripted:counting")
 
     class Invoice(Thing):
@@ -185,7 +183,7 @@ def test_freeze_with_a_value_never_consults_the_panel():
 
     ledger = Ledger()
     inv = Invoice(__ledger__=ledger, __entity__="inv-9")
-    freeze(inv, "total", value=1249.5)
+    inv.total = 1249.5
     assert counting.calls == []                   # nothing resolved, nothing spent
     pinned = ledger.latest_frozen("inv-9", "total")
     assert pinned.value == 1249.5 and pinned.belief.startswith("human:")

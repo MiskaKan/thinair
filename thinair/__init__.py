@@ -34,8 +34,7 @@ declared ``frozen=True`` (code, notably) pins what it settles.
 
 A ``Thing(shape, ...)`` in a class body *declares* an attribute and attaches
 the validators the shape implies; ``Thing.__default__ = model("...")`` names
-the generative belief any panel without one falls back to; ``contract`` and
-``freeze`` remain as compatibility spellings.
+the generative belief any panel without one falls back to.
 
 **What this package is for.**  A large language model is not an oracle; it
 is a **measurement instrument**: it projects things onto axes you name.
@@ -111,7 +110,7 @@ from .policy import (
     Unanimous,
     Unresolvable,
 )
-from .thing import Cell, Snapshot, Thing, contract, corroborate, freeze, snapshot
+from .thing import Cell, Snapshot, Thing, corroborate, snapshot
 from .validators import (
     CalculatorBelief,
     CalendarFactBelief,
@@ -153,8 +152,7 @@ __version__ = "2.2.0"
 
 __all__ = [
     # the object surface
-    "Thing", "Cell", "Snapshot", "contract", "snapshot", "freeze", "source",
-    "corroborate",
+    "Thing", "Cell", "Snapshot", "snapshot", "source", "corroborate",
     # settlement over the record, and where the record lives
     "evaluate", "store",
     # the one contract

@@ -15,7 +15,7 @@ import pytest
 
 import thinair
 from fakes import FakeEngine, FakeSnapshot, ScriptedBelief
-from thinair import Thing, contract, human, model
+from thinair import Thing, human, model
 from thinair.beliefs import Belief
 from thinair.evaluate import (
     GRADES, LICENSED, agree, adjacent, bradley_terry, calibration,
@@ -59,8 +59,8 @@ def _thing(script, **kwargs):
     class Item(Thing):
         __beliefs__ = [ScriptedBelief(script, belief_id="scripted:eval"),
                        human("tester")]
-        colour = contract(str)
-        size = contract(int)
+        colour = Thing(str)
+        size = Thing(int)
     return Item(__ledger__=Ledger(), **kwargs)
 
 
@@ -85,7 +85,7 @@ def test_evaluate_records_gaps_instead_of_raising():
     """A cell that cannot resolve is a coverage gap, not a crash."""
     class Bare(Thing):
         __beliefs__ = [human("tester")]
-        name = contract(str)
+        name = Thing(str)
     profile = evaluate(Bare(__ledger__=Ledger()))
     assert profile["name"]["status"] == "gap"
     assert "Unresolvable" in profile["name"]["reason"]

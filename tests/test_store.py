@@ -16,7 +16,7 @@ import pathlib
 import pytest
 
 from fakes import FakeEngine
-from thinair import Thing, contract, human, model, store
+from thinair import Thing, human, model, store
 from thinair.ledger import Ledger, Opinion
 from thinair.store import DEFAULT_PATH, SqliteLedger
 
@@ -107,7 +107,7 @@ def test_frozen_state_survives_relaunch_at_zero_calls(tmp_path):
 
     class Item(Thing):
         __beliefs__ = [model("small-fast", engine=engine), human("jane")]
-        total = contract(float)
+        total = Thing(float)
 
     run1 = Item(__entity__="item-1", __ledger__=SqliteLedger(path))
     run1.kind = "invoice"                                # frozen assignment

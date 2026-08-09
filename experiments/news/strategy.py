@@ -12,7 +12,7 @@ from __future__ import annotations
 # thinair 2.2 *Belief names (Calculator -> CalculatorBelief, IsoCountry ->
 # IsoCountryBelief).  No behavioral change.  The pre-registered original --
 # the bytes the runlog.json hash stamps -- is preserved in git history.
-from thinair import Thing, contract, human, model
+from thinair import Thing, human, model
 from thinair.beliefs import Discriminative, value_at
 from thinair.ledger import values_equal
 from thinair.validators import CalculatorBelief, IsoCountryBelief
@@ -116,20 +116,20 @@ def story_class(proposer, name="Story"):
         __doc__=STORY_PURPOSE,
         __beliefs__=[proposer, human("desk")],
         __annotations__={"text": str},
-        country=contract(
+        country=Thing(
             str, length=(2, 2), beliefs=[IsoCountryBelief(necessary=False)],
             doc="the ISO 3166-1 alpha-2 code of the country in the dateline"),
-        people_affected=contract(
+        people_affected=Thing(
             int, extracted_from="text", range=(0, 10_000_000),
             doc=MEASURAND),
-        certainty=contract(
+        certainty=Thing(
             int, enum=[1, 2, 3, 4],
             doc="how the central claim is sourced: " + _RUBRIC(CERTAINTY)),
-        horizon=contract(
+        horizon=Thing(
             int, enum=[1, 2, 3, 4],
             doc="when the central claim becomes checkable against a public "
                 "record: " + _RUBRIC(HORIZON)),
-        ratio_claim=contract(
+        ratio_claim=Thing(
             {"expression": str, "result": float},
             beliefs=[CalculatorBelief(necessary=False)],
             doc="the item's own arithmetic about itself, transcribed and not "
@@ -137,10 +137,10 @@ def story_class(proposer, name="Story"):
                 "only from numbers the item states, result is the figure the "
                 "item asserts for it. If the item asserts no arithmetic, "
                 'return {"expression": "0", "result": 0}'),
-        severity=contract(
+        severity=Thing(
             int, enum=[1, 2, 3, 4, 5],
             doc="harm already done, 1 negligible to 5 catastrophic"),
-        follow_up=contract(
+        follow_up=Thing(
             int, enum=[1, 2, 3, 4, 5],
             doc="how strongly a small newsroom should staff this for "
                 "follow-up this week, 1 not at all to 5 first priority"),
@@ -169,7 +169,7 @@ def corpus_class(item_ids, proposer):
                 "not any single item.",
         __beliefs__=[proposer, human("desk")],
         __annotations__={"briefs": str},
-        order=contract(
+        order=Thing(
             [str], beliefs=[PermutationOf(item_ids)],
             doc=f"all {len(item_ids)} item ids, ordered by how strongly a "
                 "small newsroom should staff each for follow-up this week, "
@@ -186,7 +186,7 @@ def pair_class(proposer):
         __beliefs__=[proposer, human("desk")],
         __annotations__={"left_id": str, "left": str,
                          "right_id": str, "right": str},
-        winner=contract(
+        winner=Thing(
             str, beliefs=[AmongAttributes("left_id", "right_id")],
             doc="the id of the one item a small newsroom should staff for "
                 "follow-up first; exactly one of left_id and right_id"),

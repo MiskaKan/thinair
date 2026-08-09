@@ -106,10 +106,6 @@ class SqliteLedger(Ledger):
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("PRAGMA busy_timeout=5000")
             conn.executescript(_SCHEMA)
-            try:                       # stores from before the config column
-                conn.execute("ALTER TABLE belief ADD COLUMN config TEXT")
-            except sqlite3.OperationalError:
-                pass
             conn.commit()
             self._conn = conn
         return self._conn
@@ -185,10 +181,6 @@ class SqliteLedger(Ledger):
              float(getattr(belief, "veto_line", 0.5)),
              int(bool(getattr(belief, "proposes", False))),
              str(description), config))
-        if config is not None:                # backfill pre-config rows
-            db.execute("UPDATE belief SET config = ? "
-                       "WHERE id = ? AND config IS NULL",
-                       (config, belief_id))
         # a scoped wrapper's mechanism is its inner belief; describe it too,
         # even if it never speaks under its own id, so the instrument is
         # rebuildable from the record

@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 
 from fakes import FakeEngine
-from thinair import Thing, contract, corroborate, human, model
+from thinair import Thing, corroborate, human, model
 from thinair.cli import main
 from thinair.evaluate import history
 from thinair.ledger import Ledger
@@ -33,8 +33,8 @@ def scripted_run(ledger):
         __beliefs__ = [model("small-fast", engine=engine),
                        model("qwen3-35b", engine=second), human("jane")]
         source_text: str
-        total = contract(float, extracted_from="source_text")
-        note = contract(str)
+        total = Thing(float, extracted_from="source_text")
+        note = Thing(str)
 
     class Memo(Thing):
         __beliefs__ = [human("jane")]
@@ -122,17 +122,15 @@ def test_a_pinned_cell_shows_as_freeze_not_code():
     assert history(ledger, entity="e1")[0]["kind"] == "freeze"
 
 
-def test_freeze_is_idempotent_like_assignment():
+def test_adoption_is_idempotent_like_any_assignment():
     from test_second_opinions import corroborable
-    from thinair import freeze
 
     inv, ledger, engine, _other = corroborable()
-    +inv.total
-    freeze(inv.total)
+    inv.total = +inv.total                               # adopt: frozen
     pinned = len(ledger)
-    frozen_again = freeze(inv.total)                     # the replayed program
+    inv.total = +inv.total                               # the replayed program
     assert len(ledger) == pinned
-    assert +frozen_again == 1249.5
+    assert +inv.total == 1249.5
     assert engine.call_count == 1
 
 
@@ -150,7 +148,7 @@ def test_a_vetoed_negotiation_is_not_a_commit():
         __beliefs__ = [model("small-fast",
                              engine=FakeEngine([{"value": 1, "p": 0.9}])),
                        human("jane"), Never(id="law:never-cli")]
-        size = contract(int)
+        size = Thing(int)
 
     ledger = Ledger()
     thing = Doomed(__entity__="doomed-1", __ledger__=ledger)
@@ -455,7 +453,7 @@ def test_evaluate_shares_the_reading_across_a_commits_refs(tmp_path, capsys):
     class Card(Thing):
         __beliefs__ = [model("small-fast", engine=engine), human("jane")]
         text: str
-        size = contract(str)
+        size = Thing(str)
 
     for name in ("card-a", "card-b", "card-c"):
         +Card(__entity__=name, __ledger__=ledger, text="same words").size
@@ -512,7 +510,7 @@ def test_expectations_mark_the_log_and_never_gate(tmp_path, monkeypatch,
 
     class Reading(Thing):
         __beliefs__ = [model("small-fast", engine=engine), human("jane")]
-        value = contract(float, p=0.9)
+        value = Thing(float, p=0.9)
 
     r = Reading(__entity__="r-1", __ledger__=ledger)
     assert +r.value == 42.0                              # marks, never gates
@@ -550,7 +548,7 @@ def test_dissent_paints_the_stated_p_yellow(tmp_path, monkeypatch, capsys):
     class Box(Thing):
         __beliefs__ = [model("small-fast", engine=engine),
                        model("qwen3-35b", engine=other), human("jane")]
-        size = contract(float)
+        size = Thing(float)
 
     b = Box(__entity__="box-1", __ledger__=ledger)
     +b.size
@@ -577,7 +575,7 @@ def test_max_deviation_is_declarable_and_violations_paint_red(
     class Box(Thing):
         __beliefs__ = [model("small-fast", engine=engine),
                        model("qwen3-35b", engine=other), human("jane")]
-        size = contract(float, deviation=0.1)
+        size = Thing(float, deviation=0.1)
 
     b = Box(__entity__="box-2", __ledger__=ledger)
     +b.size
@@ -594,7 +592,7 @@ def test_eager_contracts_resolve_at_construction():
 
     class Gauge(Thing):
         __beliefs__ = [model("small-fast", engine=engine), human("jane")]
-        level = contract(float, eager=True)
+        level = Thing(float, eager=True)
 
     g = Gauge(__entity__="g-1", __ledger__=Ledger())
     assert engine.call_count == 1                        # spent in __init__
@@ -669,7 +667,7 @@ def test_dissent_shows_the_value_overlap_in_the_log(tmp_path, monkeypatch,
     class Box(Thing):
         __beliefs__ = [model("small-fast", engine=engine),
                        model("qwen3-35b", engine=other), human("jane")]
-        size = contract(float)
+        size = Thing(float)
 
     b = Box(__entity__="box-3", __ledger__=ledger)
     +b.size
@@ -712,7 +710,7 @@ def test_show_pools_readings_across_a_commits_refs(tmp_path, capsys):
     class Card(Thing):
         __beliefs__ = [model("small-fast", engine=engine), human("jane")]
         text: str
-        size = contract(str)
+        size = Thing(str)
 
     for name in ("card-x", "card-y"):
         +Card(__entity__=name, __ledger__=ledger, text="same words").size
@@ -833,7 +831,7 @@ def test_matrix_shades_by_value_overlap(tmp_path, monkeypatch, capsys):
     class Report(Thing):
         __beliefs__ = [model("small-fast", engine=engine),
                        model("qwen3-35b", engine=other), human("jane")]
-        summary = contract(str)
+        summary = Thing(str)
 
     r = Report(__entity__="rep-1", __ledger__=ledger)
     +r.summary
@@ -913,7 +911,7 @@ def test_evaluate_consults_registered_custom_beliefs(store, tmp_path,
     class Report(Thing):
         __beliefs__ = [model("small-fast", engine=engine), human("jane"),
                        cls(necessary=False)]
-        text = contract(str)
+        text = Thing(str)
 
     +Report(__entity__="rep-7", __ledger__=SqliteLedger(store)).text
 
@@ -1001,7 +999,6 @@ def test_frozen_columns_are_skipped_unless_included(store, capsys):
 def test_a_frozen_fact_is_measurable_in_the_footer(tmp_path, capsys):
     """Readings show through frozen columns, and the footer prices the
     fact: p 1.00 with its deviation against what other beliefs read."""
-    from thinair import freeze
     from thinair.beliefs import restore_config, set_config
 
     ledger = SqliteLedger(tmp_path / "o.db")
@@ -1009,11 +1006,10 @@ def test_a_frozen_fact_is_measurable_in_the_footer(tmp_path, capsys):
 
     class Box(Thing):
         __beliefs__ = [model("small-fast", engine=engine), human("jane")]
-        size = contract(float)
+        size = Thing(float)
 
     b = Box(__entity__="box-9", __ledger__=ledger)
-    +b.size
-    freeze(b.size)
+    b.size = +b.size
 
     main(["--store", str(tmp_path / "o.db"), "show", "HEAD"])
     out = capsys.readouterr().out
@@ -1047,7 +1043,7 @@ def test_the_panel_unwinds_to_the_commit(tmp_path, capsys):
 
     class Box(Thing):
         __beliefs__ = [model("small-fast", engine=engine), human("jane")]
-        size = contract(float)
+        size = Thing(float)
 
     b = Box(__entity__="box-t", __ledger__=ledger)
     +b.size                                              # settles at 10.0
@@ -1093,7 +1089,7 @@ def test_readings_shade_by_agreement_with_the_held_value(tmp_path,
 
     class Box(Thing):
         __beliefs__ = [model("small-fast", engine=engine), human("jane")]
-        size = contract(float)
+        size = Thing(float)
 
     b = Box(__entity__="box-r", __ledger__=ledger)
     +b.size
@@ -1151,8 +1147,8 @@ def test_coverage_is_per_attribute(tmp_path, monkeypatch, capsys):
     class Ticket(Thing):
         __beliefs__ = [model("small-fast", engine=engine), human("jane")]
         source_text: str
-        customer = contract(str, extracted_from="source_text")
-        priority = contract(str, enum=["low", "high"])
+        customer = Thing(str, extracted_from="source_text")
+        priority = Thing(str, enum=["low", "high"])
 
     t = Ticket(__entity__="tick-1", __ledger__=ledger, source_text="From Anna")
     +t.customer
@@ -1188,8 +1184,8 @@ def test_matrix_marks_follow_the_cells_panel(tmp_path, capsys):
     class Ticket(Thing):
         __beliefs__ = [model("small-fast", engine=engine), human("jane")]
         source_text: str
-        customer = contract(str, extracted_from="source_text")
-        priority = contract(str, enum=["low", "high"])
+        customer = Thing(str, extracted_from="source_text")
+        priority = Thing(str, enum=["low", "high"])
 
     t = Ticket(__entity__="tick-2", __ledger__=ledger, source_text="From Anna")
     +t.customer
@@ -1234,7 +1230,7 @@ def test_a_changed_panel_is_a_belief_commit(tmp_path, capsys):
         class Box(Thing):
             __beliefs__ = [model("small-fast", engine=engine),
                            human("jane"), *extra]
-            size = contract(float)
+            size = Thing(float)
         return Box
 
     +build()(__entity__="box-p", __ledger__=ledger).size
@@ -1266,7 +1262,7 @@ def test_frozen_footer_colors_by_prior_estimates(tmp_path, monkeypatch,
 
     class Box(Thing):
         __beliefs__ = [model("small-fast", engine=engine), human("jane")]
-        size = contract(float)
+        size = Thing(float)
 
     b = Box(__entity__="box-f", __ledger__=ledger)
     +b.size
@@ -1375,7 +1371,7 @@ def test_ai_readable_refuses_to_flatter_the_unopposed(tmp_path, capsys):
     class Ticket(Thing):
         __beliefs__ = [model("small-fast", engine=engine), human("jane")]
         source_text: str
-        customer = contract(str, extracted_from="source_text")
+        customer = Thing(str, extracted_from="source_text")
 
     t = Ticket(__entity__="tick-9", __ledger__=ledger,
                source_text="From Anna")

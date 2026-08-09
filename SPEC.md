@@ -112,13 +112,9 @@ paths:
 | `thing.attr = x` (and constructor kwargs) | the resident `HumanBelief` | 1.0 |
 | `@fn` bodies, real method writes | `code:<qualname>@<source-hash>` | 1.0 |
 | a panel member with `frozen=True` settling (§5 step 4) | that belief | its own |
-| `freeze(thing.attr)` — compatibility spelling | unchanged | unchanged |
 
-`freeze(thing, "attr", value=x)` is a **pure write**: nothing resolves, no
-panel is consulted — it is assignment with a chosen author.  The ordinary
-spelling for a value code already knows is plain assignment.
-
-Latest frozen wins; every predecessor stays in the ledger.  Freezing bypasses
+There is no freeze *verb*: a value code already knows is assigned, and a
+belief entitled to pin declares `frozen=True`.  Latest frozen wins; every predecessor stays in the ledger.  Freezing bypasses
 the veto gate deliberately: validators gate proposals, not authority.
 Assignment is idempotent: re-stating the latest frozen value from the same
 author records nothing, so a replayed program leaves no diary of identical
@@ -151,18 +147,17 @@ same address.
 checksum=, sums_to=, unique=, elaborates=, necessary=, beliefs=, doc=)` in
 a class body declares an attribute: it appends scoped beliefs to
 `__beliefs__` and nothing else.  A bare annotation (`source_text: str`) is
-a declaration too, and `contract(...)` is the compatibility spelling of the
-same object.  `beliefs=` entries are first-class declarations, not
+a declaration too.  `beliefs=` entries are first-class declarations, not
 second-class attachments: each is auto-scoped to the attribute, keeps its
 veto terms, and its `describe()` joins the prompt description — the named
 options are shorthand over the same validator library
 (`enum=[...]` ≡ `beliefs=[EnumBelief([...])]`), and the two spellings must not
 diverge.  (A Thing constructed with a positional shape is a
 *declaration*: no entity, no ledger, no record — the metaclass consumes it
-at class creation.)  The `SchemaBelief` a contract builds is the
+at class creation.)  The `SchemaBelief` a declaration builds is the
 same object that constrains the engine's structured output and performs the
 post-hoc check.  Docstrings are prompt material: the class docstring is the
-snapshot's `purpose`, `doc=` joins the contract's description, and a real
+snapshot's `purpose`, `doc=` joins the declaration's description, and a real
 method's first docstring line rides along with its signature.
 
 Three more options never reach the prompt.  `p=` (a floor, or `(lo, hi)`

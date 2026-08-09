@@ -8,15 +8,16 @@ classmethod context managers (``require``, ``policy``, ``debug``,
 
 **The Thing has all of it.**  A Thing with a positional template is a
 *declaration* -- ``priority = Thing(str, enum=[...])`` in a class body
-declares the attribute the way ``contract(...)`` used to; a Thing assigned
-to an attribute is a *reference* (the record keeps its entity id); the
-panel changes through the operators (``t += belief``, ``t -= belief``
-in place; ``t + belief``, ``t - belief`` for a fresh handle on the same
-entity); and pinning is a property of the *belief* (``frozen=True`` --
-code's results freeze, assignment freezes) rather than a verb on the
-Thing.  ``Thing.__default__`` names the generative belief a panel falls
-back to when it declares none.  The old module-level verbs (``freeze``,
-``contract``, ``snapshot``) remain as compatibility spellings.
+declares the attribute; a Thing assigned to an attribute is a *reference*
+(the record keeps its entity id); the panel changes through the operators
+(``t += belief``, ``t -= belief`` in place; ``t + belief``,
+``t - belief`` for a fresh handle on the same entity); and pinning is a
+property of the *belief* (``frozen=True`` -- code's results freeze,
+assignment freezes), never a verb.  ``Thing.__default__`` names the
+generative belief a panel falls back to when it declares none.  The
+module keeps two verbs that are not moves the surface makes:
+``snapshot`` (the sealed, inert view a belief is shown) and
+``corroborate`` (spend calls on the beliefs a read never asked).
 
 This module imports ``beliefs``, ``ledger`` and ``policy``.  It must never
 import ``engine`` or ``models`` (invariant 7) -- the model reaches the
@@ -45,9 +46,9 @@ from .policy import (
     Unresolvable,
 )
 
-__all__ = ["Thing", "Cell", "Snapshot", "ThingMeta", "Contract", "contract",
-           "corroborate", "freeze", "snapshot", "LowConfidence", "Unresolvable",
-           "Disagreement", "resident_human"]
+__all__ = ["Thing", "Cell", "Snapshot", "ThingMeta", "corroborate",
+           "snapshot", "LowConfidence", "Unresolvable", "Disagreement",
+           "resident_human"]
 
 #: how the framework spells itself on a Thing.  Anything matching this is the
 #: framework's; everything else is the user's domain.
@@ -238,14 +239,6 @@ def _single_numeric_field(template) -> str | None:
         return None
     numeric = [k for k, v in template.items() if v in (int, float)]
     return numeric[0] if len(numeric) == 1 else None
-
-
-def contract(template=Any, **options) -> Contract:
-    """Declare an attribute: its shape, and the checks that shape implies.
-
-    ``total = contract(float, extracted_from="source_text", range=(0, 1e6))``
-    """
-    return Contract(template, **options)
 
 
 # --------------------------------------------------------------------------
@@ -1370,69 +1363,6 @@ def state_hash(thing) -> str:
     if isinstance(thing, Cell):
         material += repr(normal_form(thing.__value__))
     return hashlib.sha1(material.encode("utf-8")).hexdigest()[:12]
-
-
-# --------------------------------------------------------------------------
-# freezing
-# --------------------------------------------------------------------------
-
-def freeze(target, attr=None, *, value=_MISSING, belief=None, p=None):
-    """Pin a cell: re-record its resolving opinion with ``frozen=True``.
-
-    Same author, same p -- pinning a model's 0.93 keeps it an honest 0.93.
-    ``freeze(inv.total)`` and ``freeze(inv, "total")`` are the same verb.
-
-    With ``value=`` this is a **pure write**: nothing resolves and no panel
-    is consulted -- the pin is recorded directly, exactly like assignment,
-    with an author of your choosing.  (Plain assignment, ``inv.total = x``,
-    is the ordinary spelling of the same move and is usually what you
-    want.)
-    """
-    if attr is not None and value is not _MISSING:
-        # writing a known value needs no consultation, so the cell is never
-        # resolved on the way to the pin
-        if not isinstance(target, Thing):
-            raise TypeError("freeze() wants a Thing, e.g. freeze(inv, 'total', value=...)")
-        entity = target.__entity__
-        pinned = target.__ledger__.add(Opinion(
-            belief=belief or resident_human(target).id, entity=entity,
-            attr=attr, value=_plain(value),
-            p=float(p) if p is not None else 1.0,
-            frozen=True, meta={"pinned": True}))
-        target.__root__.__resolved__.pop((entity, attr), None)
-        from .debug import trace
-
-        trace("frozen", (entity, attr), pinned)
-        return Cell(target, attr, opinion=pinned,
-                    contract=type(target).__contracts__.get(attr))
-    if attr is not None:
-        cell = getattr(target, attr)
-    else:
-        cell = target
-    if not isinstance(cell, Cell):
-        raise TypeError("freeze() wants a Thing's attribute, e.g. freeze(inv.total)")
-    opinion = cell.__opinion__ if value is not _MISSING else cell.__resolve__()
-    if opinion is None and value is _MISSING:
-        raise Unresolvable(cell.__cell__, reason="nothing to freeze")
-    entity, name = cell.__cell__
-    if opinion is not None and opinion.frozen \
-            and value is _MISSING and p is None and belief is None:
-        # Already pinned, nothing overridden: re-freezing is the replayed
-        # program re-stating itself, and records nothing (like assignment).
-        return Cell(cell.__parent__, name, opinion=opinion,
-                    contract=cell.__contract__)
-    pinned = cell.__ledger__.add(Opinion(
-        belief=belief or (opinion.belief if opinion else resident_human(cell).id),
-        entity=entity, attr=name,
-        value=_plain(value) if value is not _MISSING else opinion.value,
-        p=float(p) if p is not None else (opinion.p if opinion else 1.0),
-        frozen=True,
-        meta=dict((opinion.meta if opinion else {}), pinned=True)))
-    cell.__root__.__resolved__.pop((entity, name), None)
-    from .debug import trace
-
-    trace("frozen", (entity, name), pinned)
-    return Cell(cell.__parent__, name, opinion=pinned, contract=cell.__contract__)
 
 
 # --------------------------------------------------------------------------

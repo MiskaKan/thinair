@@ -179,15 +179,7 @@ def _verdict(commit, attr, p):
     violated = (bool(bounds) and not (bounds[0] <= p <= bounds[1])) \
         or (expect.get("deviation") is not None and dev is not None
             and dev > expect["deviation"])
-    readers = view.get("readers")
-    if readers is None:
-        # an archive from before readers were tallied: all voices, the
-        # old flattering math -- better than pretending to know
-        voices = view.get("n", 1) + view.get("dissent", 0)
-        score = 1.0 if voices <= 1 else \
-            (view.get("n", 1)
-             + view.get("dissent", 0) * view.get("similarity", 0.0)) / voices
-        return score, violated
+    readers = view.get("readers", 1)
     if readers <= 1:
         return None, violated
     dissenting = view.get("readers_dissent", 0)
@@ -1409,7 +1401,7 @@ store already holds what every belief saw and said.  After each run:
   over judges -- and no `expect-violated` anywhere.  Low `agree=`
   is a *located* disagreement, never a reason to blindly rerun: `show`
   the readings, `blame` the cell, then either improve the prompt
-  material (docstrings, `Thing(..., doc=...)`), tighten the contract, or
+  material (docstrings, `Thing(..., doc=...)`), tighten the declaration, or
   report the divergence as a finding -- disagreement between dissimilar
   instruments is information, not failure.
 
