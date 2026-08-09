@@ -392,6 +392,12 @@ When a strategy graduates from document to code, build it on the thinair package
    its reading is recorded and caps reported confidence downstream. If the instrument
    can't read an axis reliably, the axis is redesigned or dropped before money is
    spent on it.
+7. **Fold, then archive.** An experiment is finished only when its *general* lessons
+   are folded into the grounding documents (this file; SPEC.md when the contract
+   moved) and its record — pre-registered strategy, code, ledger — is committed
+   whole. The record is evidence, not documentation: a finding severed from its
+   ledger degrades to a claim, and no one should ever need an experiment's report
+   to use the framework.
 
 The settlement half of every strategy — veto-aware reading of the record,
 scale-licensed agreement, reliability/drift/discrimination, concordance with the

@@ -1,0 +1,716 @@
+{
+  "budget": {
+    "preregistration": {
+      "STRATEGY.md": "88f9462f6f95",
+      "corpus.py": "fc8a300642c9",
+      "strategy.py": "41dbf5a3f126",
+      "run.py": "647640640c1c"
+    },
+    "tiers": {
+      "reliability": {
+        "calls": 0,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "seconds": 0.0
+      },
+      "base": {
+        "calls": 55,
+        "prompt_tokens": 51296,
+        "completion_tokens": 34951,
+        "seconds": 2227.7
+      },
+      "ordering": {
+        "calls": 14,
+        "prompt_tokens": 11263,
+        "completion_tokens": 10501,
+        "seconds": 545.5
+      },
+      "transitivity": {
+        "calls": 16,
+        "prompt_tokens": 8362,
+        "completion_tokens": 9793,
+        "seconds": 501.4
+      }
+    },
+    "findings": {
+      "calls": 69,
+      "prompt_tokens": 62559,
+      "completion_tokens": 45452,
+      "seconds": 2773.2
+    },
+    "validation": {
+      "calls": 16,
+      "prompt_tokens": 8362,
+      "completion_tokens": 9793,
+      "seconds": 501.4
+    },
+    "flash": {
+      "calls": 71,
+      "prompt_tokens": 59658,
+      "completion_tokens": 44744,
+      "seconds": 2729.1
+    },
+    "pro": {
+      "calls": 14,
+      "prompt_tokens": 11263,
+      "completion_tokens": 10501,
+      "seconds": 545.5
+    },
+    "wall_seconds": 3274.8
+  },
+  "readings": [
+    {
+      "entity": "n03",
+      "attr": "country",
+      "outcome": "resolved",
+      "value": "JP",
+      "p": 1.0,
+      "seconds": 331.9
+    },
+    {
+      "entity": "n03",
+      "attr": "people_affected",
+      "outcome": "resolved",
+      "value": 14,
+      "p": 0.1,
+      "seconds": 248.3
+    },
+    {
+      "entity": "n03",
+      "attr": "certainty",
+      "outcome": "resolved",
+      "value": 4,
+      "p": 0.95,
+      "seconds": 36.1
+    },
+    {
+      "entity": "n03",
+      "attr": "horizon",
+      "outcome": "resolved",
+      "value": 1,
+      "p": 0.99,
+      "seconds": 16.5
+    },
+    {
+      "entity": "n03",
+      "attr": "ratio_claim",
+      "outcome": "resolved",
+      "value": {
+        "expression": "0",
+        "result": 0
+      },
+      "p": 1.0,
+      "seconds": 39.2
+    },
+    {
+      "entity": "n03",
+      "attr": "severity",
+      "outcome": "resolved",
+      "value": 4,
+      "p": 0.9,
+      "seconds": 21.3
+    },
+    {
+      "entity": "n03",
+      "attr": "follow_up",
+      "outcome": "resolved",
+      "value": 4,
+      "p": 0.9,
+      "seconds": 39.6
+    },
+    {
+      "entity": "n04",
+      "attr": "country",
+      "outcome": "resolved",
+      "value": "BR",
+      "p": 1.0,
+      "seconds": 8.9
+    },
+    {
+      "entity": "n04",
+      "attr": "people_affected",
+      "outcome": "resolved",
+      "value": 8500,
+      "p": 1.0,
+      "seconds": 13.6
+    },
+    {
+      "entity": "n04",
+      "attr": "certainty",
+      "outcome": "resolved",
+      "value": 3,
+      "p": 0.95,
+      "seconds": 13.2
+    },
+    {
+      "entity": "n04",
+      "attr": "horizon",
+      "outcome": "resolved",
+      "value": 2,
+      "p": 0.95,
+      "seconds": 15.5
+    },
+    {
+      "entity": "n04",
+      "attr": "ratio_claim",
+      "outcome": "resolved",
+      "value": {
+        "expression": "8500/34000",
+        "result": 0.25
+      },
+      "p": 1.0,
+      "seconds": 75.8
+    },
+    {
+      "entity": "n04",
+      "attr": "severity",
+      "outcome": "resolved",
+      "value": 2,
+      "p": 0.7,
+      "seconds": 23.2
+    },
+    {
+      "entity": "n04",
+      "attr": "follow_up",
+      "outcome": "resolved",
+      "value": 3,
+      "p": 0.8,
+      "seconds": 36.9
+    },
+    {
+      "entity": "n05",
+      "attr": "country",
+      "outcome": "resolved",
+      "value": "DE",
+      "p": 1.0,
+      "seconds": 8.5
+    },
+    {
+      "entity": "n05",
+      "attr": "people_affected",
+      "outcome": "resolved",
+      "value": 60000,
+      "p": 1.0,
+      "seconds": 11.7
+    },
+    {
+      "entity": "n05",
+      "attr": "certainty",
+      "outcome": "resolved",
+      "value": 3,
+      "p": 1.0,
+      "seconds": 8.9
+    },
+    {
+      "entity": "n05",
+      "attr": "horizon",
+      "outcome": "resolved",
+      "value": 1,
+      "p": 1.0,
+      "seconds": 15.4
+    },
+    {
+      "entity": "n05",
+      "attr": "ratio_claim",
+      "outcome": "unresolvable",
+      "why": "n05.ratio_claim could not be resolved: the veto budget was exhausted\n  attempt 1 (model:deepseek-v4-flash@T0.2/extract-v3/deepseek_v4/v1): None rejected by schema[{expression:str,result:float}]@ratio_claim (p=0.00): value: expected an object, got NoneType\n  attempt 2 (model:deepseek-v4-flash@T0.2/extract-v3/deepseek_v4/v1): None rejected by schema[{expression:str,result:float}]@ratio_claim (p=0.00"
+    },
+    {
+      "entity": "n05",
+      "attr": "severity",
+      "outcome": "resolved",
+      "value": 3,
+      "p": 0.8,
+      "seconds": 14.7
+    },
+    {
+      "entity": "n05",
+      "attr": "follow_up",
+      "outcome": "resolved",
+      "value": 3,
+      "p": 0.8,
+      "seconds": 26.3
+    },
+    {
+      "entity": "n07",
+      "attr": "country",
+      "outcome": "resolved",
+      "value": "US",
+      "p": 1.0,
+      "seconds": 8.7
+    },
+    {
+      "entity": "n07",
+      "attr": "people_affected",
+      "outcome": "resolved",
+      "value": 4200,
+      "p": 0.99,
+      "seconds": 79.5
+    },
+    {
+      "entity": "n07",
+      "attr": "certainty",
+      "outcome": "resolved",
+      "value": 1,
+      "p": 0.99,
+      "seconds": 12.8
+    },
+    {
+      "entity": "n07",
+      "attr": "horizon",
+      "outcome": "resolved",
+      "value": 2,
+      "p": 0.95,
+      "seconds": 13.4
+    },
+    {
+      "entity": "n07",
+      "attr": "ratio_claim",
+      "outcome": "resolved",
+      "value": {
+        "expression": "4200 / 11",
+        "result": 420.0
+      },
+      "p": 0.99,
+      "seconds": 78.0
+    },
+    {
+      "entity": "n07",
+      "attr": "severity",
+      "outcome": "resolved",
+      "value": 3,
+      "p": 0.8,
+      "seconds": 15.4
+    },
+    {
+      "entity": "n07",
+      "attr": "follow_up",
+      "outcome": "resolved",
+      "value": 3,
+      "p": 0.8,
+      "seconds": 34.0
+    },
+    {
+      "entity": "n08",
+      "attr": "country",
+      "outcome": "resolved",
+      "value": "NG",
+      "p": 1.0,
+      "seconds": 8.4
+    },
+    {
+      "entity": "n08",
+      "attr": "people_affected",
+      "outcome": "resolved",
+      "value": 2100,
+      "p": 1.0,
+      "seconds": 23.8
+    },
+    {
+      "entity": "n08",
+      "attr": "certainty",
+      "outcome": "resolved",
+      "value": 2,
+      "p": 0.95,
+      "seconds": 10.6
+    },
+    {
+      "entity": "n08",
+      "attr": "horizon",
+      "outcome": "resolved",
+      "value": 2,
+      "p": 0.9,
+      "seconds": 39.3
+    },
+    {
+      "entity": "n08",
+      "attr": "ratio_claim",
+      "outcome": "resolved",
+      "value": {
+        "expression": "3/10 * 7000",
+        "result": 2100.0
+      },
+      "p": 0.95,
+      "seconds": 90.0
+    },
+    {
+      "entity": "n08",
+      "attr": "severity",
+      "outcome": "resolved",
+      "value": 3,
+      "p": 0.7,
+      "seconds": 29.4
+    },
+    {
+      "entity": "n08",
+      "attr": "follow_up",
+      "outcome": "resolved",
+      "value": 3,
+      "p": 0.8,
+      "seconds": 48.7
+    },
+    {
+      "entity": "n11",
+      "attr": "country",
+      "outcome": "resolved",
+      "value": "PH",
+      "p": 1.0,
+      "seconds": 18.2
+    },
+    {
+      "entity": "n11",
+      "attr": "people_affected",
+      "outcome": "resolved",
+      "value": 74000,
+      "p": 1.0,
+      "seconds": 10.5
+    },
+    {
+      "entity": "n11",
+      "attr": "certainty",
+      "outcome": "resolved",
+      "value": 3,
+      "p": 0.95,
+      "seconds": 9.9
+    },
+    {
+      "entity": "n11",
+      "attr": "horizon",
+      "outcome": "resolved",
+      "value": 2,
+      "p": 0.99,
+      "seconds": 16.0
+    },
+    {
+      "entity": "n11",
+      "attr": "ratio_claim",
+      "outcome": "resolved",
+      "value": {
+        "expression": "0",
+        "result": 0
+      },
+      "p": 1.0,
+      "seconds": 24.6
+    },
+    {
+      "entity": "n11",
+      "attr": "severity",
+      "outcome": "resolved",
+      "value": 4,
+      "p": 0.7,
+      "seconds": 12.7
+    },
+    {
+      "entity": "n11",
+      "attr": "follow_up",
+      "outcome": "resolved",
+      "value": 4,
+      "p": 0.8,
+      "seconds": 21.9
+    },
+    {
+      "entity": "n12",
+      "attr": "country",
+      "outcome": "resolved",
+      "value": "PH",
+      "p": 1.0,
+      "seconds": 8.3
+    },
+    {
+      "entity": "n12",
+      "attr": "people_affected",
+      "outcome": "resolved",
+      "value": 74000,
+      "p": 1.0,
+      "seconds": 11.9
+    },
+    {
+      "entity": "n12",
+      "attr": "certainty",
+      "outcome": "resolved",
+      "value": 3,
+      "p": 1.0,
+      "seconds": 11.1
+    },
+    {
+      "entity": "n12",
+      "attr": "horizon",
+      "outcome": "resolved",
+      "value": 2,
+      "p": 1.0,
+      "seconds": 15.0
+    },
+    {
+      "entity": "n12",
+      "attr": "ratio_claim",
+      "outcome": "resolved",
+      "value": {
+        "expression": "0",
+        "result": 0
+      },
+      "p": 1.0,
+      "seconds": 19.5
+    },
+    {
+      "entity": "n12",
+      "attr": "severity",
+      "outcome": "resolved",
+      "value": 4,
+      "p": 0.9,
+      "seconds": 21.8
+    },
+    {
+      "entity": "n12",
+      "attr": "follow_up",
+      "outcome": "resolved",
+      "value": 3,
+      "p": 0.7,
+      "seconds": 25.2
+    },
+    {
+      "entity": "n01#pro",
+      "attr": "follow_up",
+      "outcome": "resolved",
+      "value": 2,
+      "p": 0.7,
+      "seconds": 29.2
+    },
+    {
+      "entity": "n02#pro",
+      "attr": "follow_up",
+      "outcome": "resolved",
+      "value": 3,
+      "p": 0.8,
+      "seconds": 31.5
+    },
+    {
+      "entity": "n03#pro",
+      "attr": "follow_up",
+      "outcome": "resolved",
+      "value": 4,
+      "p": 0.8,
+      "seconds": 19.7
+    },
+    {
+      "entity": "n04#pro",
+      "attr": "follow_up",
+      "outcome": "resolved",
+      "value": 4,
+      "p": 0.7,
+      "seconds": 27.7
+    },
+    {
+      "entity": "n05#pro",
+      "attr": "follow_up",
+      "outcome": "resolved",
+      "value": 3,
+      "p": 0.7,
+      "seconds": 41.7
+    },
+    {
+      "entity": "n06#pro",
+      "attr": "follow_up",
+      "outcome": "resolved",
+      "value": 3,
+      "p": 0.7,
+      "seconds": 66.6
+    },
+    {
+      "entity": "n07#pro",
+      "attr": "follow_up",
+      "outcome": "resolved",
+      "value": 4,
+      "p": 0.8,
+      "seconds": 27.7
+    },
+    {
+      "entity": "n08#pro",
+      "attr": "follow_up",
+      "outcome": "resolved",
+      "value": 2,
+      "p": 0.7,
+      "seconds": 46.0
+    },
+    {
+      "entity": "n09#pro",
+      "attr": "follow_up",
+      "outcome": "resolved",
+      "value": 3,
+      "p": 0.8,
+      "seconds": 42.7
+    },
+    {
+      "entity": "n10#pro",
+      "attr": "follow_up",
+      "outcome": "resolved",
+      "value": 1,
+      "p": 0.7,
+      "seconds": 22.4
+    },
+    {
+      "entity": "n11#pro",
+      "attr": "follow_up",
+      "outcome": "resolved",
+      "value": 3,
+      "p": 0.7,
+      "seconds": 30.3
+    },
+    {
+      "entity": "n12#pro",
+      "attr": "follow_up",
+      "outcome": "resolved",
+      "value": 3,
+      "p": 0.7,
+      "seconds": 44.0
+    },
+    {
+      "entity": "corpus",
+      "attr": "order",
+      "outcome": "resolved",
+      "value": [
+        "n01",
+        "n03",
+        "n04",
+        "n02",
+        "n05",
+        "n06",
+        "n07",
+        "n08",
+        "n09",
+        "n10",
+        "n11",
+        "n12"
+      ],
+      "p": 0.1,
+      "seconds": 116.1
+    },
+    {
+      "entity": "pair:n01>n04",
+      "attr": "winner",
+      "outcome": "resolved",
+      "value": "n04",
+      "p": 0.7,
+      "seconds": 35.8
+    },
+    {
+      "entity": "pair:n04>n11",
+      "attr": "winner",
+      "outcome": "resolved",
+      "value": "n11",
+      "p": 0.9,
+      "seconds": 31.9
+    },
+    {
+      "entity": "pair:n01>n11",
+      "attr": "winner",
+      "outcome": "resolved",
+      "value": "n01",
+      "p": 0.75,
+      "seconds": 39.8
+    },
+    {
+      "entity": "pair:n03>n06",
+      "attr": "winner",
+      "outcome": "resolved",
+      "value": "n03",
+      "p": 0.7,
+      "seconds": 51.1
+    },
+    {
+      "entity": "pair:n06>n09",
+      "attr": "winner",
+      "outcome": "resolved",
+      "value": "n06",
+      "p": 0.9,
+      "seconds": 19.7
+    },
+    {
+      "entity": "pair:n03>n09",
+      "attr": "winner",
+      "outcome": "resolved",
+      "value": "n03",
+      "p": 0.9,
+      "seconds": 13.1
+    },
+    {
+      "entity": "pair:n05>n07",
+      "attr": "winner",
+      "outcome": "resolved",
+      "value": "n07",
+      "p": 0.8,
+      "seconds": 25.7
+    },
+    {
+      "entity": "pair:n07>n10",
+      "attr": "winner",
+      "outcome": "resolved",
+      "value": "n07",
+      "p": 0.9,
+      "seconds": 17.3
+    },
+    {
+      "entity": "pair:n05>n10",
+      "attr": "winner",
+      "outcome": "resolved",
+      "value": "n05",
+      "p": 0.8,
+      "seconds": 42.4
+    },
+    {
+      "entity": "pair:n02>n08",
+      "attr": "winner",
+      "outcome": "resolved",
+      "value": "n02",
+      "p": 0.8,
+      "seconds": 31.6
+    },
+    {
+      "entity": "pair:n08>n12",
+      "attr": "winner",
+      "outcome": "resolved",
+      "value": "n12",
+      "p": 0.7,
+      "seconds": 19.1
+    },
+    {
+      "entity": "pair:n02>n12",
+      "attr": "winner",
+      "outcome": "resolved",
+      "value": "n12",
+      "p": 0.7,
+      "seconds": 17.6
+    },
+    {
+      "entity": "pair:n11>n01",
+      "attr": "winner",
+      "outcome": "resolved",
+      "value": "n01",
+      "p": 0.85,
+      "seconds": 46.9
+    },
+    {
+      "entity": "pair:n09>n03",
+      "attr": "winner",
+      "outcome": "resolved",
+      "value": "n03",
+      "p": 0.6,
+      "seconds": 33.2
+    },
+    {
+      "entity": "pair:n10>n05",
+      "attr": "winner",
+      "outcome": "resolved",
+      "value": "n10",
+      "p": 0.6,
+      "seconds": 47.7
+    },
+    {
+      "entity": "pair:n12>n02",
+      "attr": "winner",
+      "outcome": "resolved",
+      "value": "n12",
+      "p": 0.7,
+      "seconds": 28.3
+    }
+  ]
+}
