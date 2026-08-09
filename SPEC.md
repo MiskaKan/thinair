@@ -256,7 +256,11 @@ rebuilds the commit's tree as a sealed snapshot, consults reconstructible
 beliefs (model ids parse back into configurations — invariant 6), and
 records the answers as corroborations, idempotent per (commit, belief,
 cell) — a collapsed commit's refs share one evaluation, since the content
-is the same; archives are refused, because evaluation writes.  `branch -d`
+is the same; archives are refused, because evaluation writes.  On a
+terminal it is the matrix answering itself: the table sits below the log
+and fills in one cell at a time (`…` marks the consultation in flight,
+`?` becomes a colored p as each reading lands); piped output stays plain
+log lines with the finished table at the end.  `branch -d`
 is the package's one deletion: it drops the ref's opinions from the
 *operational* store (episode sub-entities included), which invariant 2
 tolerates exactly because the store is derived structure, rebuildable from

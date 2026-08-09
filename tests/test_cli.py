@@ -454,8 +454,9 @@ def test_evaluate_takes_commit_then_belief(store, capsys):
     try:
         main(["--store", store, "evaluate", settle, "small-fast"])
         out = capsys.readouterr().out
-        assert f"@ {settle}" in out                      # that commit, not HEAD
-        assert "small-fast" in out and "qwen3-35b" not in out
+        header = out.splitlines()[0]                     # that commit, not HEAD,
+        assert header == f"evaluate small-fast @ {settle} (inv-1)"
+        assert "qwen3-35b" not in header                 # and only that belief
     finally:
         restore_config(None, previous)
 
@@ -772,3 +773,38 @@ def test_matrix_separates_out_of_scope_from_never_asked(store, capsys):
     jane = [l for l in out.splitlines()
             if l.strip().startswith("human:jane")][0]
     assert "?" in jane                                   # askable, unasked
+
+
+def test_evaluate_ends_with_the_filled_matrix_when_piped(store, capsys):
+    """Piped evaluate: plain log lines, then the finished table -- with a
+    row guaranteed for the consulted belief."""
+    from thinair.beliefs import restore_config, set_config
+
+    engine = FakeEngine([{"value": 1249.5, "p": 0.66}])
+    previous = set_config(None, engine=engine)
+    try:
+        main(["--store", store, "evaluate", "HEAD", "deepseek-v4-flash"])
+        out = capsys.readouterr().out
+    finally:
+        restore_config(None, previous)
+    assert "matrix:" in out
+    assert "model:deepseek-v4-flash" in out               # its row exists
+    assert out.index("agrees") < out.index("matrix:")     # logs, then table
+
+
+def test_evaluate_redraws_the_matrix_live_on_a_tty(store, monkeypatch,
+                                                   capsys):
+    """On a terminal the matrix fills itself in: cursor-up erase sequences
+    between readings, the table redrawn after each."""
+    from thinair.beliefs import restore_config, set_config
+
+    monkeypatch.setattr("thinair.cli._tty", lambda: True)
+    engine = FakeEngine([{"value": 1249.5, "p": 0.66}])
+    previous = set_config(None, engine=engine)
+    try:
+        main(["--store", store, "evaluate", "HEAD", "deepseek-v4-flash"])
+        out = capsys.readouterr().out
+    finally:
+        restore_config(None, previous)
+    assert "A\x1b[J" in out                               # erase-and-redraw
+    assert out.count("matrix:") > 2                       # one per update

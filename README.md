@@ -129,7 +129,8 @@ $ thinair branch                  # (and branch -d removes one)
 $ thinair status
 $ thinair beliefs 5f0e88c1        # who spoke (or could) at that commit
 $ thinair evaluate 5f0e88c1       # consult beliefs against that commit's
-                                  # state — agreements and DIFFERs, recorded
+                                  # state — the matrix fills itself in,
+                                  # one cell at a time, and it's recorded
 $ thinair diff 1e07b3a9...9c41f2ab   # two trees, cell by cell, ± colored
 $ thinair source                     # HEAD's tree as annotated source:
                                      #   total = 1249.5   # p=0.93 ← model:small-fast

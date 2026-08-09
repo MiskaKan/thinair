@@ -279,13 +279,15 @@ def _scope_of(ledger, belief_id, attrs):
     return tail if tail in attrs else None
 
 
-def _matrix(ledger, commit, held):
-    """Belief × attribute over the commit's whole tree: each cell is that
-    belief's latest stated p -- green where its value matches what the
-    tree holds, red where it differs.  An empty cell says why it is empty:
-    ``-`` where the belief is scoped elsewhere and cannot speak, ``?``
-    where it could be asked and never was (``thinair evaluate`` fills
-    those in).  Opinions pool across the commit's refs: one commit, one
+def _matrix_lines(ledger, commit, held, extra=(), active=None, always=False):
+    """Belief × attribute over the commit's whole tree, as rendered lines:
+    each cell is that belief's latest stated p -- green where its value
+    matches what the tree holds, red where it differs.  An empty cell says
+    why it is empty: ``-`` where the belief is scoped elsewhere and cannot
+    speak, ``?`` where it could be asked and never was (``thinair
+    evaluate`` fills those in; ``active`` marks the cell being consulted
+    right now with ``…``).  ``extra`` guarantees a row for beliefs about
+    to speak.  Opinions pool across the commit's refs: one commit, one
     panel."""
     attrs = sorted(held)
     rows: dict[str, dict] = {}
@@ -296,27 +298,40 @@ def _matrix(ledger, commit, held):
                     continue
                 rows.setdefault(o.belief, {})[attr] = \
                     (o.p, values_equal(o.value, held[attr]))
-    if len(rows) < 2:
-        return                       # a matrix of one voice says nothing
+    for belief_id in extra:
+        rows.setdefault(belief_id, {})
+    if not always and len(rows) < 2:
+        return []                    # a matrix of one voice says nothing
     width = max(8, *(min(len(a), 14) for a in attrs)) + 2
-    print()
-    print("matrix:  " + dim("(rows beliefs, columns attributes; green "
-                            "agrees, red differs; - out of scope, "
-                            "? never asked)"))
-    print(dim(" " * 46 + "".join(a[:14].rjust(width) for a in attrs)))
+    lines = ["matrix:  " + dim("(rows beliefs, columns attributes; green "
+                               "agrees, red differs; - out of scope, "
+                               "? never asked)"),
+             dim(" " * 46 + "".join(a[:14].rjust(width) for a in attrs))]
     for belief_id, cells_ in rows.items():
         scope = _scope_of(ledger, belief_id, set(attrs))
         line = f"  {belief_id[:44]:<44}"
         for attr in attrs:
             got = cells_.get(attr)
             if got is None:
+                if active == (belief_id, attr):
+                    line += yellow("…".rjust(width))
+                    continue
                 mark = "-" if scope is not None and scope != attr else "?"
                 line += dim(mark.rjust(width))
                 continue
             p, agrees = got
             cell = f"{p:.2f}".rjust(width)
             line += green(cell) if agrees else red(cell)
-        print(line)
+        lines.append(line)
+    return lines
+
+
+def _matrix(ledger, commit, held):
+    lines = _matrix_lines(ledger, commit, held)
+    if lines:
+        print()
+        for line in lines:
+            print(line)
 
 
 def cmd_show(ledger, args):
@@ -579,10 +594,39 @@ def cmd_evaluate(ledger, args):
           f"({', '.join(commit['entities'])})")
     # One reading per (commit, belief, attribute): a shared commit IS the
     # same content, so its refs share the evaluation -- the note lands on
-    # the one commit every ref points at.
+    # the one commit every ref points at.  On a terminal the commit's
+    # matrix sits below the log and fills itself in, one cell at a time
+    # (``…`` marks the consultation in flight); piped output stays plain
+    # lines with the finished table at the end.
     entity = commit["entities"][0]
-    for name in names:
-        belief = model(name)
+    held = {attr: spec[0] for attr, spec in cells.items()}
+    beliefs = [model(name) for name in names]
+    extra = [b.id for b in beliefs]
+    live = _tty()
+    block = 0
+
+    def redraw(active=None):
+        nonlocal block
+        if not live:
+            return
+        if block:
+            sys.stdout.write(f"\x1b[{block}A\x1b[J")
+        lines = _matrix_lines(ledger, commit, held, extra=extra,
+                              active=active, always=True)
+        for line in lines:
+            print(line)
+        block = len(lines)
+
+    def emit(line):
+        nonlocal block
+        if live and block:
+            sys.stdout.write(f"\x1b[{block}A\x1b[J")
+            block = 0
+        print(line)
+        redraw()
+
+    redraw()
+    for belief in beliefs:
         for attr in sorted(cells):
             e = _RecordSnapshot(entity, cells, deriving=attr)
             stamp = belief.exposure(e, attr)
@@ -592,20 +636,25 @@ def cmd_evaluate(ledger, args):
             if any((o.meta or {}).get("at") == commit["hash"]
                    or (o.meta or {}).get("exposure") == stamp
                    for o in prior):
-                print(f"  {attr:<18} {belief.id}: asked and answered")
+                emit(f"  {attr:<18} {belief.id}: asked and answered")
                 continue
+            redraw(active=(belief.id, attr))
             got = belief(e, attr)
             if got is None:
+                redraw()
                 continue
             ledger.add(Opinion(
                 belief=belief.id, entity=entity, attr=attr,
                 value=+got, p=~got, frozen=False,
                 meta=dict(getattr(got, "meta", None) or {},
                           corroboration=True, at=commit["hash"])))
-            held, _p, _frozen, _author = cells[attr]
-            verdict = "agrees" if values_equal(+got, held) else \
-                f"DIFFERS from {_value(held)}"
-            print(f"  {attr:<18} ⇒ {_value(+got)} (p {~got:g})  {verdict}")
+            verdict = "agrees" if values_equal(+got, held[attr]) else \
+                f"DIFFERS from {_value(held[attr])}"
+            emit(f"  {attr:<18} ⇒ {_value(+got)} (p {~got:g})  {verdict}")
+    if not live:
+        for line in _matrix_lines(ledger, commit, held, extra=extra,
+                                  always=True):
+            print(line)
 
 
 def cmd_diff(ledger, args):
