@@ -231,8 +231,8 @@ consequences:
 When handed sample data and asked to create value from it, produce a **measurement
 strategy** — a document *first*, so the plan can be judged before a single call is
 spent — with exactly these sections. The document is the plan, not the deliverable:
-wherever thinair is installed, the strategy graduates to a program (Part 3; build
-rules in SPEC.md §13) and runs, and the record it leaves is its evidence.
+wherever thinair is installed, the strategy graduates to a program (Part 3) and
+runs, and the record it leaves is its evidence.
 
 1. **Inventory.** What things, collections, sequences exist. What observable state is
    there. What frozen ground exists or could exist (outcomes, code-checkable facts,
@@ -347,7 +347,7 @@ of it:
   call is a read of a `(call_id, "result")` cell; pure code freezes it (memoization),
   model-served calls stay opinions. `contract`, `freeze`, `snapshot` survive as
   compatibility spellings of moves the surface above already makes.
-- **Settlement ships with the framework**: `thinair.evaluate` (SPEC.md §12) reads the
+- **Settlement ships with the framework**: `thinair.evaluate` reads the
   ledger back — veto-aware readings, scale-licensed agreement, chance-corrected
   kappa, Bradley–Terry, reliability, drift, discrimination, concordance with the
   frozen ground, calibration, budget tiers. Never re-implement it in a strategy, and

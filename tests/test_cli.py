@@ -232,10 +232,12 @@ def test_a_dog(store, capsys):
     main(["--store", store, "log", "--all", "--decorate", "--oneline",
           "--graph"])
     lines = capsys.readouterr().out.strip().splitlines()
-    assert all("*" in line for line in lines)          # every commit a star
+    # every commit gets a mark: '*' along a chain, '+' at a chain's root
+    assert all("*" in line or "+" in line for line in lines)
     assert sum("HEAD -> " in line for line in lines) == 1
     assert any("(memo-1)" in line for line in lines)   # every tip decorated
     assert any(line.startswith("| *") or line.startswith("* |")
+               or line.startswith("| +") or line.startswith("+ |")
                for line in lines)                      # parallel lanes drawn
 
 
@@ -1314,7 +1316,9 @@ def test_ground_demands_a_running_program(tmp_path, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "class Ticket(Thing):" in out                 # runnable skeleton
     assert "__entity__=" in out                          # named branches
-    assert "the plan, not the deliverable" in " ".join(out.split())
+    assert "measures nothing until it executes" in " ".join(out.split())
+    # grounding demands nothing of the project: no repo files named
+    assert "SPEC.md" not in out
     # the verify loop: debug through the record, finish on consensus
     assert "not done until the record agrees" in out
     assert "`agree=` near 1.00" in out
@@ -1404,4 +1408,5 @@ def test_forked_chains_collapse_with_a_slash(tmp_path, capsys):
     lines = capsys.readouterr().out.splitlines()
     assert any(line.startswith("|/") for line in lines)     # the collapse
     assert any(line.startswith("| *") for line in lines)    # parallel lanes
-    assert lines[-1].startswith("* ")                       # the shared root
+    assert lines[-1].startswith("+ ")                       # the shared root
+                                                            # is a birth

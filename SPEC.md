@@ -344,10 +344,11 @@ the pillars, the moves, and the framework land whole in an agent
 harness's inline tool output; `--full` restores the cuts.  Both close with two generated
 appendices — the built-in
 belief roster, and a client manual for agents (a runnable program
-skeleton — the strategy document is the plan, never the deliverable —
-the command set, `--ai-readable`, the verify loop: debug through the
-record and finish only when `agree=` is high with the matrix asked
-full, how to add beliefs, what the marks mean) — store-free
+skeleton — the deliverable is a running program, and the manual demands
+nothing of the project's structure: no file is required reading and
+none has to exist — the command set, `--ai-readable`, the verify loop:
+debug through the record and finish only when `agree=` is high with the
+matrix asked full, how to add beliefs, what the marks mean) — store-free
 and pipe-pure, so an agentic session's first command can be its own
 grounding *and* its own tool manual.  Two commands write.  `evaluate [commit] [belief|*]`
 rebuilds the commit's tree as a sealed snapshot, consults reconstructible

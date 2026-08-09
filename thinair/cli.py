@@ -159,7 +159,7 @@ def _signature_text(commit, attr, p) -> str:
     measured yet."""
     view = (commit.get("consensus") or {}).get(attr) or {}
     dev = view.get("dev")
-    return f"p {p:g} ±{dev if dev is not None else 0.0:.2f}"
+    return f"p {p:.2f} ±{dev if dev is not None else 0.0:.2f}"
 
 
 def _verdict(commit, attr, p):
@@ -215,7 +215,7 @@ def _signature(commit, attr, p, pad=0) -> str:
     view = (commit.get("consensus") or {}).get(attr) or {}
     dev = view.get("dev")
     spread = view.get("range")
-    head = f"p {p:g} "
+    head = f"p {p:.2f} "
     tail = f"±{dev if dev is not None else 0.0:.2f}"
     lead = " " * max(0, pad - len(head) - len(tail)) if pad else ""
     score, violated = _verdict(commit, attr, p)
@@ -355,6 +355,12 @@ def _lanes(commits_newest_first):
     parent (``|/``, ``|/ /`` for a wider collapse).  No merges exist in
     the record, so ``\\`` never appears -- there is nothing it would say.
 
+    A chain's *root* -- the commit that brought a new Thing into the
+    record -- marks itself ``+`` in the lane's color instead of ``*``:
+    lanes are reused once a chain ends, so without the mark two chains
+    sharing a column read as one.  The birth of an object should look
+    like one.
+
     Yields ``(pre, star, bar, commit)``: an optional connector row to
     print *before* the commit, the commit row prefix, and the
     continuation prefix for its body lines.
@@ -396,8 +402,9 @@ def _lanes(commits_newest_first):
             pre = "".join(row).rstrip()
             for i in extras:
                 lanes[i] = None
+        mark = "*" if commit["parent"] else paint(column, "+")
         star = " ".join(
-            "*" if i == column else
+            mark if i == column else
             (paint(i, "|") if lanes[i] is not None else " ")
             for i in range(len(lanes))).rstrip()
         lanes[column] = commit["parent"]           # may be None: the root
@@ -648,19 +655,25 @@ def _matrix_lines(ledger, commit, held, extra=(), active=None, always=False,
                 continue
             owner, p, frozen = got
             if frozen:
+                # the fiat speaks by the same three channels as every other
+                # signature: `p 1.00` colored by whether the declared fact
+                # landed where the other beliefs' recorded readings did
+                # (dim while nobody else has read the cell), `±` by the
+                # p range of the agreeing voices
                 view = (owner.get("consensus") or {}).get(attr) or {}
-                text = f"p 1.00 ±{view.get('dev') or 0.0:.2f}".rjust(width)
-                # colored by the column above it: did the fiat land where
-                # the other beliefs' readings did, or somewhere else?
+                head = "p 1.00 "
+                tail = f"±{view.get('dev') or 0.0:.2f}"
+                lead = " " * max(0, width - len(head) - len(tail))
                 freezer = (frozen_by or {}).get(attr)
                 freezer_base = _base_id(ledger, freezer, bases) \
                     if freezer else None
                 estimates = [cells_[attr][1] for base, cells_ in rows.items()
                              if attr in cells_ and base != freezer_base]
-                # no other readings -> nothing disagrees -> green, like
-                # every other unopposed cell; no gray exceptions here
-                line += shade(sum(estimates) / len(estimates)
-                              if estimates else 1.0, text)
+                head = shade(sum(estimates) / len(estimates), head) \
+                    if estimates else dim(head)
+                spread = view.get("range")
+                tail = dim(tail) if spread is None else shade(1.0 - spread, tail)
+                line += lead + head + tail
                 continue
             line += _signature(owner, attr, p, pad=width)
         lines.append(line)
@@ -1291,10 +1304,12 @@ are blind to the most load-bearing part of the output.
 
 ### Build -- the deliverable is a running program
 
-A measurement strategy (Part 2 of the theory, `ground --full`) is a
-*document* -- the plan, not the deliverable: where thinair is
-installed, a strategy that never executes measures nothing.  Graduate
-it to code (SPEC.md §13).  The whole skeleton:
+Whatever plan you hold, it measures nothing until it executes: build
+it as an ordinary thinair program and run it.  Everything needed is in
+this output -- no other file is required reading, and none has to
+exist.  (The experiment-design protocol, for when a measurement
+strategy must be designed from raw data, is Part 2: `ground --full`.)
+The whole skeleton:
 
     from thinair import Thing, model
     from thinair.validators import TokenSubset
@@ -1423,8 +1438,7 @@ method's first docstring line rides along with its signature.
 into the record and judged there, never shown to the answering belief,
 never a gate.  `eager=True` resolves at construction.  The panel is
 part of the history: `t += belief` / `t -= belief` land as `[belief]`
-commits.  The theory is above; the contract of every guarantee is
-SPEC.md.
+commits.  The theory is above; this output is the whole grounding.
 '''
 
 
