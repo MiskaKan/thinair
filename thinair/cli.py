@@ -151,7 +151,7 @@ def yellow(text):
 
 
 def green(text):
-    return _paint("2;32", text)          # the one green: always the soft one
+    return _paint("92", text)            # the one green: bright, never bold
 
 
 def red(text):
@@ -163,7 +163,7 @@ def cyan(text):
 
 
 def branch_green(text):
-    return _paint("1;32", text)
+    return _paint("1;32", text)          # branch names: git's bold green
 
 
 def dim(text):
@@ -172,7 +172,8 @@ def dim(text):
 
 def shade(overlap: float, text: str, resolving: bool = False) -> str:
     """Paint by similarity, in the terminal's own palette: agreement is
-    the *soft* green -- the gradient's one and only green -- no overlap
+    the bright green -- the branch hue without the bold, the gradient's
+    one and only green -- no overlap
     the theme's red, and partial text or numeric overlap lands between
     as yellow and faded red -- typed matching via
     ``evaluate.similarity``, so "how green" means the same thing a
@@ -180,7 +181,7 @@ def shade(overlap: float, text: str, resolving: bool = False) -> str:
     reading in use: emphasis by line, never by a second shade of the
     color."""
     if overlap >= 0.66:
-        code = "2;32"
+        code = "92"
     elif overlap >= 0.33:
         code = "33"
     elif overlap > 0.0:

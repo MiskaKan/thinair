@@ -310,8 +310,9 @@ reading by reading.  `show` renders the *whole
 tree* as of the commit with what moved highlighted and the rest as dim
 context, then a belief × attribute matrix over the tree (each cell that
 belief's latest p, shaded by its value's overlap with the held one via
-`evaluate.similarity`, in the terminal's own palette — the *soft*
-(faint) green for agreement, the gradient's one and only green, theme
+`evaluate.similarity`, in the terminal's own palette — the *bright*
+green for agreement (the branch hue without the bold), the gradient's
+one and only green, theme
 red for none, faded red/yellow between; the *resolving* reading —
 the value the program actually served, its owning commit's author —
 renders underlined (emphasis by line, never a second shade of the

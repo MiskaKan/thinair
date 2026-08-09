@@ -559,7 +559,7 @@ def test_dissent_paints_the_stated_p_yellow(tmp_path, monkeypatch, capsys):
             if "[settle]" in l][0]
     signature = line.split("[settle] ")[1]               # past the yellow hash
     assert any(code in signature for code in
-               ("\x1b[2;32m", "\x1b[33m", "\x1b[2;31m"))  # dissent: mid-ramp
+               ("\x1b[92m", "\x1b[33m", "\x1b[2;31m"))  # dissent: mid-ramp
 
     commit = history(ledger, entity="box-1")[-1]
     assert commit["consensus"]["size"]["dissent"] == 1
@@ -614,8 +614,8 @@ def test_show_paints_the_belief_by_attribute_matrix(store, monkeypatch,
     out = capsys.readouterr().out
     assert "matrix:" in out
     assert "model:small-fast" in out and "model:qwen3-35b" in out
-    assert "\x1b[2;32m" in out                           # agreement in the
-                                                         # one soft green
+    assert "\x1b[92m" in out                           # agreement in the
+                                                         # one green
 
 
 def test_ground_appends_the_builtin_roster(tmp_path, monkeypatch, capsys):
@@ -842,7 +842,7 @@ def test_matrix_shades_by_value_overlap(tmp_path, monkeypatch, capsys):
     main(["--store", str(tmp_path / "o.db"), "show", "HEAD"])
     out = capsys.readouterr().out
     matrix = out[out.index("matrix:"):out.index("readings:")]
-    assert "\x1b[2;32m" in matrix                        # exact: soft green
+    assert "\x1b[92m" in matrix                        # exact: the one green
     assert "\x1b[33m" in matrix \
         or "\x1b[2;31m" in matrix                        # partial: between
 
@@ -1100,7 +1100,7 @@ def test_readings_shade_by_agreement_with_the_held_value(tmp_path,
     main(["--store", str(tmp_path / "o.db"), "show", "HEAD"])
     readings = capsys.readouterr().out.split("readings:")[1]
     jane = [l for l in readings.splitlines() if "human:jane" in l][0]
-    assert "\x1b[4;2;32m" in jane                        # holds it -- under-
+    assert "\x1b[4;92m" in jane                        # holds it -- under-
                                                          # lined, the one in use
     model_line = [l for l in readings.splitlines()
                   if "model:small-fast" in l][0]
@@ -1118,7 +1118,7 @@ def test_parens_shade_by_evaluation_coverage(store, monkeypatch, capsys):
     main(["--store", store, "log", "--oneline", "inv-1"])
     lines = capsys.readouterr().out.splitlines()
     settle = [l for l in lines if "[settle]" in l][0]
-    assert "\x1b[2;32m(" in settle                         # total: both models
+    assert "\x1b[92m(" in settle                         # total: both models
                                                          # + tokenSubset spoke
     episode = [l for l in lines if "[episode]" in l]
     assert episode                                       # (episodes carry no
@@ -1134,7 +1134,7 @@ def test_parens_shade_by_evaluation_coverage(store, monkeypatch, capsys):
     main(["--store", store, "log", "--oneline", "inv-1"])
     after = [l for l in capsys.readouterr().out.splitlines()
              if "[settle]" in l][0]
-    assert "\x1b[2;32m(" in after                          # still complete
+    assert "\x1b[92m(" in after                          # still complete
 
 
 def test_coverage_is_per_attribute(tmp_path, monkeypatch, capsys):
@@ -1159,7 +1159,7 @@ def test_coverage_is_per_attribute(tmp_path, monkeypatch, capsys):
     main(["--store", str(tmp_path / "o.db"), "log", "--oneline"])
     customer = [l for l in capsys.readouterr().out.splitlines()
                 if "customer" in l][0]
-    assert "\x1b[2;32m(" in customer                       # its panel is done
+    assert "\x1b[92m(" in customer                       # its panel is done
 
 
 def test_ai_readable_says_the_colors_in_text(store, capsys):
@@ -1279,7 +1279,7 @@ def test_frozen_footer_colors_by_prior_estimates(tmp_path, monkeypatch,
 def test_the_resolving_reading_renders_underlined(store, monkeypatch, capsys):
     """The value the program actually served: its author's cell is the
     underlined one in its column -- emphasis by line, so the gradient
-    keeps its one soft green."""
+    keeps its one green, the branch green."""
     main(["--store", store, "log", "--oneline", "inv-1"])
     settle = [l for l in capsys.readouterr().out.splitlines()
               if "[settle]" in l][0].split()[0]
@@ -1288,12 +1288,13 @@ def test_the_resolving_reading_renders_underlined(store, monkeypatch, capsys):
     matrix = capsys.readouterr().out.split("matrix:")[1].split("readings:")[0]
     model_row = [l for l in matrix.splitlines()
                  if l.strip().startswith("model:small-fast")][0]
-    assert "\x1b[4;2;32m" in model_row                   # underlined: resolved
+    assert "\x1b[4;92m" in model_row                   # underlined: resolved
     judge_row = [l for l in matrix.splitlines()
                  if l.strip().startswith("tokenSubset")][0]
     assert "\x1b[4;" not in judge_row                    # judges stay plain
-    assert "\x1b[1;3" not in matrix and "\x1b[32m" not in matrix
-                                                         # no second green
+    assert not any(second in matrix                      # no second green:
+                   for second in ("\x1b[2;32m", "\x1b[32m", "\x1b[1;32m"))
+                                                         # dim, plain, bold
 
 
 def test_ground_teaches_the_client_to_agents(tmp_path, monkeypatch, capsys):
@@ -1362,7 +1363,7 @@ def test_the_held_row_colors_earned_agreement_and_dims_unopposed(
     footer = [l for l in capsys.readouterr().out.splitlines()
               if "(held)" in l][0]
     cells = footer.split("(held)")[1]
-    assert "\x1b[2;32m" in cells               # corroborated: earned green
+    assert "\x1b[92m" in cells               # corroborated: earned green
     assert "\x1b[2m" in cells                  # unopposed: dim, unearned
 
 
@@ -1377,8 +1378,8 @@ def test_each_signature_channel_earns_its_own_color(monkeypatch):
     commit = {"consensus": {"size": {"n": 2, "dissent": 0, "dev": 0.02,
                                      "range": 0.05}}, "expect": {}}
     out = _signature(commit, "size", 0.95)
-    assert "\x1b[2;32mp 0.95" in out           # two voices agree: green
-    assert "\x1b[2;32m±0.02" in out            # spread: tight, soft green
+    assert "\x1b[92mp 0.95" in out           # two voices agree: green
+    assert "\x1b[92m±0.02" in out            # spread: tight, green
 
     far = {"consensus": {"size": {"n": 1, "dissent": 1, "similarity": 0.2,
                                   "dev": 0.3, "range": 0.6}}, "expect": {}}
