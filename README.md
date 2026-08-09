@@ -81,14 +81,31 @@ summary = inv.summarize()
 
 The model is one belief among several. So is your code, so is every
 validator, so are you (`human("jane")`). The framework records who said
-what and never referees: when *differently built* beliefs agree, that is
-your best evidence you're onto something. Disagreement is signal too — it
-tells you exactly where to look.
+what and never referees. It works in two strictly separated layers:
 
-Every opinion lands in a durable ledger (`.thinair/opinions.db`, on by
-default — `THINAIR_STORE=off` to opt out). Relaunch your program and
-everything certain is served from the record; nothing you or your code
-established is ever asked twice.
+**Layer 1 — answering.** A read is a negotiation, not an aggregation. The
+first belief answers, validators judge the candidate and can veto it into
+another round, and what survives is *one belief's* answer carrying its own
+honest probability. Nothing is ever blended, so the number you get always
+means something: this belief said this, and nothing objected.
+
+**Layer 2 — settlement.** Every proposal, verdict and veto — who said it,
+what it saw — lands in a durable ledger (`.thinair/opinions.db`, on by
+default; `THINAIR_STORE=off` to opt out). The ledger is where beliefs
+finally meet: `thinair.evaluate` reads it back and grades what the readings
+*earned* — did the instrument read the same cell the same way twice, did
+independently built beliefs converge, how did stated probabilities fare
+against outcomes that later proved out. The principle doing the work:
+**agreement is evidence exactly in proportion to how likely disagreement
+was.** Two prompts on one model agreeing is cheap; a model, a code check
+and a human converging on the same value is your best evidence you're onto
+something. Disagreement is signal too — it tells you exactly where to look.
+
+The separation is deliberate: reads stay fast and honest with one priced
+opinion; the verdict about *trust* comes later, from the record, in exact
+classical math that spends no model calls. And the record pays a second
+dividend — relaunch your program and everything certain is served straight
+from it; nothing you or your code established is ever asked twice.
 
 ## Install
 
