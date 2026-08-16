@@ -65,7 +65,7 @@ wheels = [
 
 [[package]]
 name = "thinair"
-version = "2.3.2"
+version = "2.4.0"
 source = { editable = "." }
 
 [package.optional-dependencies]
