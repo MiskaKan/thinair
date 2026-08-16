@@ -178,37 +178,55 @@ def test_a_def_that_claims_nothing_scores_nothing():
 
 
 # --------------------------------------------------------------------------
-# user-side folders
+# store-side defs: the client's supported models, beside its beliefs
 # --------------------------------------------------------------------------
 
-def test_a_user_folder_is_discovered_and_may_override_a_builtin(tmp_path, monkeypatch):
-    folder = tmp_path / "my_model"
-    folder.mkdir()
-    (folder / "__init__.py").write_text("")
-    (folder / "model.py").write_text(
+def test_a_store_side_def_is_discovered_and_may_override_a_builtin(tmp_path):
+    (tmp_path / "my_model.py").write_text(
         "from thinair.models import ModelDef\n"
         "MODEL = ModelDef(match=('my-model', 'qwen3-35b'), version='7',\n"
         "                 defaults=dict(temperature=0.9))\n")
 
-    monkeypatch.setenv("THINAIR_MODELS_PATH", str(tmp_path))
-    mine = resolve("my-model", models_path=[str(tmp_path)])
-    assert mine.version == "7"
+    M.load_dir(tmp_path)
+    assert resolve("my-model").version == "7"
     # an external def may override a built-in claim
-    assert resolve("qwen3-35b", models_path=[str(tmp_path)]).version == "7"
+    assert resolve("qwen3-35b").version == "7"
 
 
-def test_a_user_folder_changes_the_belief_id(tmp_path):
+def test_a_store_side_def_changes_the_belief_id(tmp_path):
     from thinair.beliefs import model
 
-    folder = tmp_path / "retuned"
-    folder.mkdir()
-    (folder / "__init__.py").write_text("")
-    (folder / "model.py").write_text(
+    (tmp_path / "retuned.py").write_text(
         "from thinair.models import ModelDef\n"
         "MODEL = ModelDef(match=('retuned-7b',), version='3')\n")
 
-    belief = model("retuned-7b", models_path=[str(tmp_path)])
-    assert "/v3" in belief.id
+    M.load_dir(tmp_path)
+    assert "/v3" in model("retuned-7b").id
+
+
+def test_defs_beside_the_default_store_load_by_themselves(tmp_path):
+    """The whole point: a client adds a supported model the way it adds a
+    custom belief, and ``resolve`` finds it with zero further wiring."""
+    from thinair import store
+    from thinair.ledger import default_ledger, set_default_ledger
+
+    (tmp_path / "models").mkdir()
+    (tmp_path / "models" / "housemodel.py").write_text(
+        "from thinair.models import ModelDef\n"
+        "MODEL = ModelDef(match=('house-model-9b',), version='9')\n")
+
+    previous = default_ledger()
+    try:
+        store.install(tmp_path / "opinions.db")
+        assert resolve("house-model-9b").version == "9"
+    finally:
+        set_default_ledger(previous)
+
+
+def test_a_def_file_without_a_model_raises(tmp_path):
+    (tmp_path / "empty_def.py").write_text("x = 1\n")
+    with pytest.raises(ValueError):
+        M.load_dir(tmp_path)
 
 
 # --------------------------------------------------------------------------

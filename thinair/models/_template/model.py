@@ -1,9 +1,15 @@
-"""Copy-me starting point for a new model folder.
+"""Copy-me starting point for a new model def.
 
-Recipe:
+Recipe, built-in (this repository):
     1. copy ``models/_template`` to ``models/<your_model>``
     2. rename nothing else; fill in ``MODEL`` below
     3. run ``pytest tests/test_models.py``
+
+Recipe, client-side (a project using thinair):
+    1. copy this file anywhere as ``<your_model>.py``; fill in ``MODEL``
+    2. ``thinair model add <your_model>.py`` -- it lands in
+       ``.thinair/models/`` beside the store and loads automatically,
+       exactly like a custom belief file
 Done.
 
 This folder is skipped by auto-discovery (its name starts with ``_``), so an

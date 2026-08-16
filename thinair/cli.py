@@ -13,6 +13,8 @@ commands are deliberate copies:
     thinair blame <entity>                      every cell: who set it, when
     thinair belief add|rm|list [file]           custom beliefs the client can
                                                 call (.thinair/beliefs/)
+    thinair model add|rm|list [file]            model defs the client
+                                                supports (.thinair/models/)
     thinair evaluate [commit] [belief]          consult beliefs against a
                                                 commit's state -- spends
                                                 calls, records corroborations
@@ -1080,6 +1082,82 @@ def cmd_belief(ledger, args):
     print(f"Removed {os.path.basename(target)}.")
 
 
+# -- custom models: the defs this store's client supports ------------------
+
+def _models_dir(ledger):
+    """``<store dir>/models`` -- next to opinions.db; archives have none."""
+    path = getattr(ledger, "path", None)
+    if not path:
+        return None
+    return os.path.join(os.path.dirname(os.path.abspath(path)), "models")
+
+
+def _load_models(ledger):
+    """Register the store's model defs, so ``model(name)`` resolves them
+    even when ``--store`` points away from the process default."""
+    from .models import load_dir
+
+    directory = _models_dir(ledger)
+    if directory and os.path.isdir(directory):
+        load_dir(directory)
+
+
+def _model_def_of(path):
+    """The file's ``MODEL`` def, or ``None`` when it does not import or
+    defines none -- ``thinair model list`` shows the damage."""
+    module = _import_module(path)
+    if module is None:
+        return None
+    from .models import ModelDef
+
+    definition = getattr(module, "MODEL", None)
+    return definition if isinstance(definition, ModelDef) else None
+
+
+def cmd_model(ledger, args):
+    """``thinair model add <file.py> | rm <name> | list`` -- the model defs
+    this store's client supports, kept in ``.thinair/models/`` exactly like
+    the custom beliefs next door."""
+    import glob
+    import shutil
+
+    directory = _models_dir(ledger)
+    if directory is None:
+        sys.exit("fatal: supported models live beside a store; archives "
+                 "have none")
+    if args.action == "list":
+        for path in sorted(glob.glob(os.path.join(directory, "*.py"))):
+            definition = _model_def_of(path)
+            if definition is None:
+                print(f"  {os.path.basename(path):<24} (defines no MODEL)")
+                continue
+            print(f"  {os.path.basename(path):<24} "
+                  f"claims {', '.join(definition.match)}  v{definition.version}")
+        return
+    if not args.name:
+        sys.exit(f"fatal: thinair model {args.action} needs a name")
+    if args.action == "add":
+        if not os.path.exists(args.name):
+            sys.exit(f"fatal: no such file: {args.name}")
+        os.makedirs(directory, exist_ok=True)
+        target = os.path.join(directory, os.path.basename(args.name))
+        shutil.copyfile(args.name, target)
+        definition = _model_def_of(target)
+        if definition is None:
+            os.remove(target)
+            sys.exit(f"fatal: {args.name} defines no MODEL = ModelDef(...); "
+                     "not registered")
+        print(f"Registered {os.path.basename(target)}: "
+              f"claims {', '.join(definition.match)}")
+        return
+    target = os.path.join(directory, args.name if args.name.endswith(".py")
+                          else args.name + ".py")
+    if not os.path.exists(target):
+        sys.exit(f"error: no registered model file '{args.name}'")
+    os.remove(target)
+    print(f"Removed {os.path.basename(target)}.")
+
+
 class _HeldValue:
     """A stub proposer serving the record's held value, so a rebuilt judge
     has a candidate to judge -- the tree speaks for itself."""
@@ -1178,6 +1256,7 @@ def cmd_evaluate(ledger, args):
     frozen_by = {attr: spec[3] for attr, spec in cells.items() if spec[2]}
     include = getattr(args, "include_frozen", None)
     custom = _load_custom(ledger)
+    _load_models(ledger)
     instruments = [model(name) for name in names]
     if belief_arg == "*":
         instruments += _reconstructible_judges(ledger, custom)
@@ -1481,6 +1560,23 @@ Registered classes rebuild from the record's stored configurations, so
 at the attachment site gains a veto at read time; registered-only
 beliefs corroborate, never gate.
 
+Teach the client a new model through the identical door -- a def file
+is data for the one transport:
+
+    # housemodel.py
+    from thinair.models import ModelDef
+
+    MODEL = ModelDef(match=("housemodel-9b",), version="1",
+                     defaults=dict(temperature=0.2, max_tokens=2048),
+                     structured_output="prompted")
+
+    $ thinair model add housemodel.py       # copies into .thinair/models/
+    $ thinair model list                    # and: thinair model rm <name>
+
+An unknown model name already works (the generic OpenAI-compat def
+serves it); a def only improves one.  Its `version` hashes into every
+belief id, so retuning the def mints fresh ids.
+
 ### Declare (in the application's Python, not the CLI)
 
 Docstrings are prompt material: the class docstring is the entity's
@@ -1574,6 +1670,14 @@ def main(argv=None) -> int:
     belief.add_argument("action", choices=("add", "rm", "list"))
     belief.add_argument("name", nargs="?", default=None)
     belief.set_defaults(run=cmd_belief)
+
+    model_ = sub.add_parser(
+        "model", aliases=["models"],
+        help="model defs the client supports: add <file.py> / "
+             "rm <name> / list")
+    model_.add_argument("action", choices=("add", "rm", "list"))
+    model_.add_argument("name", nargs="?", default=None)
+    model_.set_defaults(run=cmd_model)
 
     evaluate = sub.add_parser(
         "evaluate", help="consult beliefs against a commit's state "

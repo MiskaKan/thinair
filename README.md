@@ -149,6 +149,15 @@ $ thinair belief add checks.py     # lives in .thinair/beliefs/
 $ thinair belief list
 ```
 
+Models register the same way. A def file (`MODEL = ModelDef(...)`)
+teaches thinair a model's request shape — defaults, structured output
+mode, quirks — and travels with the store:
+
+```console
+$ thinair model add housemodel.py  # lives in .thinair/models/
+$ thinair model list
+```
+
 ## Built for agents
 
 One command gives a coding agent everything: the measurement theory,

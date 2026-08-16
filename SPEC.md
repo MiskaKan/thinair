@@ -265,7 +265,8 @@ belief resolving to model `default` against the fallback base URL raises
 the same way — misconfiguration fails loudly, never by posting to
 localhost; `THINAIR_PROGRESS=1` narrates each model call on stderr as it
 starts and lands; `THINAIR_STORE` as above and `THINAIR_PAGER` below;
-`THINAIR_MODELS_PATH` adds model folders; `NO_COLOR` wins over color.
+`NO_COLOR` wins over color.  (Model defs are not an environment knob:
+a client's supported models live in `<store dir>/models/`, §11.)
 
 The store also keeps a `belief` table: id, kind, `necessary`, `veto_line`,
 `proposes`, description — written once per speaking belief, read back via
@@ -277,7 +278,8 @@ settle any record without reconstructing the strategy's classes.
 The `thinair` command inspects any store or `ledger.json` archive
 git-style — `log`, `show [commit]`, `status`, `branch [-d name]` (entities
 are branches), `blame`, `diff A...B` (two trees, cell by cell),
-`belief add <file.py> | rm <name> | list` (custom instruments, below) — a
+`belief add <file.py> | rm <name> | list` (custom instruments, below),
+`model add <file.py> | rm <name> | list` (supported model defs, below) — a
 pure derivation over §12's `history`, spending nothing.  (`source` and
 `beliefs` were folded into `show`, which renders the annotated tree and
 the panel.)  A *commit*
@@ -409,7 +411,16 @@ copies a belief module into `<store dir>/beliefs/`, and `evaluate`
 imports every registered file before rebuilding — classes resolve by
 kind exactly like the built-ins, and module-level instances register
 under their durable ids and are used live.  `belief rm` and
-`belief list` manage the folder; it travels with the store.  On a
+`belief list` manage the folder; it travels with the store.  Model
+configuration walks the identical door: `thinair model add <file.py>`
+copies a def module (`MODEL = ModelDef(...)`, the same shape as a
+built-in folder's `model.py`) into `<store dir>/models/`, and
+`models.resolve` loads the directory beside the default store
+automatically — a client's supported models travel with its store,
+exactly like its custom beliefs; `model rm` and `model list` manage the
+folder.  A def file that does not import, or defines no `MODEL`, raises
+at load — a def claims names into belief identity (invariant 6), so
+misconfiguration fails loudly.  On a
 terminal it is the matrix answering itself: the table sits below the log
 and fills in one cell at a time (`…` marks the consultation in flight,
 `?` becomes a colored p as each reading lands); piped output stays plain

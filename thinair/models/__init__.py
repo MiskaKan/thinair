@@ -1,9 +1,15 @@
-"""The model folder registry.
+"""The model registry.
 
-Adding a model costs one folder, one file, zero edits elsewhere.  Folders are
-**data**, never behavior: a ``ModelDef`` is consumed by the one transport in
-``engine/`` and by ``engine/prompts.py``.  A genuinely new wire format is a new
-transport, selected by ``ModelDef.transport``.
+Adding a model costs one file, zero edits elsewhere.  Defs are **data**,
+never behavior: a ``ModelDef`` is consumed by the one transport in
+``engine/`` and by ``engine/prompts.py``.  A genuinely new wire format is a
+new transport, selected by ``ModelDef.transport``.
+
+Built-in models are folders here; a client adds its own supported models
+exactly the way it adds custom beliefs: ``thinair model add <file.py>``
+copies a def module into ``<store dir>/models/`` beside ``opinions.db``,
+and :func:`resolve` loads that directory automatically -- the models travel
+with the store, no environment variable, no package edit.
 
 Imported only by ``ModelBelief`` (invariant 7).
 """
@@ -17,8 +23,8 @@ import os
 import pkgutil
 from dataclasses import dataclass, field, replace
 
-__all__ = ["ModelDef", "resolve", "registry", "register", "load_path",
-           "GENERIC", "KNOWN_QUIRKS", "STRUCTURED_OUTPUT_MODES"]
+__all__ = ["ModelDef", "resolve", "registry", "register", "load_dir",
+           "store_dir", "GENERIC", "KNOWN_QUIRKS", "STRUCTURED_OUTPUT_MODES"]
 
 KNOWN_QUIRKS = frozenset({
     "no_system_role",       # fold the system message into the first user turn
@@ -175,29 +181,43 @@ def _discover_builtin() -> None:
         register(definition, name=info.name)
 
 
-def load_path(paths) -> list[ModelDef]:
-    """Load user-side model folders (``THINAIR_MODELS_PATH`` / ``models_path=``)."""
-    if isinstance(paths, (str, os.PathLike)):
-        paths = [paths]
+def store_dir() -> str | None:
+    """``<store dir>/models`` -- beside ``opinions.db``, exactly where custom
+    beliefs live; ``None`` when the default ledger has no file."""
+    from ..ledger import default_ledger
+
+    path = getattr(default_ledger(), "path", None)
+    if not path:
+        return None
+    return os.path.join(os.path.dirname(os.path.abspath(path)), "models")
+
+
+def load_dir(directory) -> list[ModelDef]:
+    """Load a store-side models directory: flat ``*.py`` files, each defining
+    ``MODEL = ModelDef(...)`` (the same shape as a built-in folder's
+    ``model.py``).  A file that does not import, or defines no ``MODEL``,
+    raises -- a def claims names into belief identity, so misconfiguration
+    fails loudly, never by silently minting different ids."""
+    directory = os.fspath(directory)
     out = []
-    for root in paths:
-        root = os.fspath(root)
-        if not os.path.isdir(root) or root in _LOADED_PATHS:
+    if not os.path.isdir(directory):
+        return out
+    for entry in sorted(os.listdir(directory)):
+        if entry.startswith("_") or entry.startswith(".") \
+                or not entry.endswith(".py"):
             continue
-        _LOADED_PATHS.add(root)
-        for entry in sorted(os.listdir(root)):
-            if entry.startswith("_") or entry.startswith("."):
-                continue
-            path = os.path.join(root, entry, "model.py")
-            if not os.path.isfile(path):
-                continue
-            spec = importlib.util.spec_from_file_location(f"_thinair_model_{entry}", path)
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
-            definition = getattr(module, "MODEL", None)
-            if definition is None:
-                raise ValueError(f"{path} defines no MODEL")
-            out.append(register(replace(definition, origin="external"), name=entry))
+        path = os.path.realpath(os.path.join(directory, entry))
+        if path in _LOADED_PATHS:
+            continue
+        _LOADED_PATHS.add(path)
+        name = entry[:-3]
+        spec = importlib.util.spec_from_file_location(f"_thinair_model_{name}", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        definition = getattr(module, "MODEL", None)
+        if definition is None:
+            raise ValueError(f"{path} defines no MODEL")
+        out.append(register(replace(definition, origin="external"), name=name))
     return out
 
 
@@ -205,13 +225,15 @@ def registry() -> dict[str, ModelDef]:
     return dict(_REGISTRY)
 
 
-def resolve(model_name: str, models_path=None) -> ModelDef:
-    """Most-specific claim wins; no claim -> the generic OpenAI-compat fallback."""
-    if models_path:
-        load_path(models_path)
-    env = os.environ.get("THINAIR_MODELS_PATH")
-    if env:
-        load_path([p for p in env.split(os.pathsep) if p])
+def resolve(model_name: str) -> ModelDef:
+    """Most-specific claim wins; no claim -> the generic OpenAI-compat fallback.
+
+    The store's own models load first (:func:`store_dir`), so a client's
+    supported models are simply *there*, the way its custom beliefs are.
+    """
+    directory = store_dir()
+    if directory:
+        load_dir(directory)
     candidates = [d for d in _REGISTRY.values() if d.claims(model_name)]
     if not candidates:
         return GENERIC

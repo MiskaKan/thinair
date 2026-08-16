@@ -894,6 +894,55 @@ def test_belief_add_refuses_files_without_beliefs(store, tmp_path):
         main(["--store", store, "belief", "add", str(source)])
 
 
+# --------------------------------------------------------------------------
+# supported models: registered with the client, resolved by name
+# --------------------------------------------------------------------------
+
+CUSTOM_MODEL = '''\
+from thinair.models import ModelDef
+
+MODEL = ModelDef(match=("housemodel-9b",), version="9",
+                 defaults=dict(temperature=0.1))
+'''
+
+
+def test_model_add_list_rm(store, tmp_path, capsys):
+    source = tmp_path / "housemodel.py"
+    source.write_text(CUSTOM_MODEL)
+
+    main(["--store", store, "model", "add", str(source)])
+    assert "housemodel-9b" in capsys.readouterr().out
+
+    main(["--store", store, "model", "list"])
+    listed = capsys.readouterr().out
+    assert "housemodel.py" in listed and "housemodel-9b" in listed
+
+    # the def resolves through the registry once the store's models load --
+    # the same door evaluate walks
+    from thinair.cli import _load_models
+    from thinair.models import resolve
+
+    _load_models(SqliteLedger(store))
+    assert resolve("housemodel-9b").version == "9"
+
+    main(["--store", store, "model", "rm", "housemodel"])
+    capsys.readouterr()
+    main(["--store", store, "model", "list"])
+    assert "housemodel" not in capsys.readouterr().out
+
+    with pytest.raises(SystemExit):
+        main(["--store", store, "model", "rm", "housemodel"])
+    with pytest.raises(SystemExit):
+        main(["--store", store, "model", "add", str(tmp_path / "nope.py")])
+
+
+def test_model_add_refuses_files_without_a_def(store, tmp_path):
+    source = tmp_path / "no_def.py"
+    source.write_text("x = 1\n")
+    with pytest.raises(SystemExit):
+        main(["--store", store, "model", "add", str(source)])
+
+
 def test_evaluate_consults_registered_custom_beliefs(store, tmp_path,
                                                      capsys):
     """A custom belief the app used is rebuildable once its file is

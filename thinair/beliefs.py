@@ -575,15 +575,13 @@ class ModelBelief(Belief):
     def __init__(self, name: str | None = None, *, think: bool = False,
                  temperature: float | None = None, engine: Any = None,
                  max_tokens: int | None = None, template: str | None = None,
-                 owner: Any = None, models_path: Any = None,
-                 **options: Any) -> None:
+                 owner: Any = None, **options: Any) -> None:
         from .models import resolve                     # lazy: invariant 7
         from .engine import prompts
 
         self.model_name = (name or config("model")
                            or os.environ.get("THINAIR_MODEL") or "default")
-        self.models_path = models_path or config("models_path", owner)
-        self.definition = resolve(self.model_name, self.models_path)
+        self.definition = resolve(self.model_name)
         self.think = bool(think)
         self.temperature = float(
             temperature if temperature is not None
