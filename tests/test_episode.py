@@ -259,18 +259,37 @@ def test_a_committed_changeset_triggers_a_fresh_episode():
 def test_a_changed_thing_argument_triggers_a_fresh_episode():
     """The argument's snapshot is part of what the episode saw, so its state
     is part of the repetition key -- a changed argument must invalidate the
-    memo exactly like an interleaved assignment on the host does."""
+    memo exactly like an interleaved assignment on the host does.  What the
+    episode saw is the argument's *boundary* view (§4), so the changing
+    cell must be public to be part of the episode's input at all."""
     inv, engine, ledger = invoice([ret("prioritize it"), ret("drop everything")])
 
     class Doc(Thing):
         __beliefs__ = [human("desk")]
-        title: str
+        title = Thing(str, public=True)
 
     doc = Doc(__entity__="doc-1", __ledger__=ledger, title="Q3 report")
     assert +inv.operate(doc) == "prioritize it"
     doc.title = "URGENT: building on fire"
     assert +inv.operate(doc) == "drop everything"
     assert engine.call_count == 2
+
+
+def test_a_privately_changed_thing_argument_hits_the_memo():
+    """The dual guarantee: movement the episode's snapshot cannot carry (a
+    private cell on an argument) changes nothing the episode saw, so the
+    memo holds and no byte-identical prompt is re-run (§9)."""
+    inv, engine, ledger = invoice([ret("prioritize it"), ret("never asked")])
+
+    class Doc(Thing):
+        __beliefs__ = [human("desk")]
+        title: str                            # private by default
+
+    doc = Doc(__entity__="doc-1", __ledger__=ledger, title="Q3 report")
+    assert +inv.operate(doc) == "prioritize it"
+    doc.title = "URGENT: building on fire"    # imperceptible across §4
+    assert +inv.operate(doc) == "prioritize it"
+    assert engine.call_count == 1
 
 
 def test_an_unchanged_thing_argument_still_hits_the_memo():

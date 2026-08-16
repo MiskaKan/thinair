@@ -192,7 +192,8 @@ short-circuit make this free on a warm record).
 Calling an undefined name runs an episode: a pure function from a state
 snapshot to `(changeset, return_value, p)`.
 
-* Grammar: `get <attr>`, `call <real_method>(args)`, `return {changes, value, p}`.
+* Grammar: `get <attr>`, `call <real_method>(args)`,
+  `tell <entity>.<verb>(args)` (§15), `return {changes, value, p}`.
   There is no freeze action, and a return carrying `frozen` is rejected.
 * Acting on another object is a **code-only capability**: `call` resolves
   method names against the host alone — never against a Thing-valued
@@ -206,10 +207,13 @@ snapshot to `(changeset, return_value, p)`.
 * Every write must target a declared, unfrozen attribute and pass the full
   per-attribute pipeline.  Commit is atomic: all of it or none of it.
 * Repetition keys on `(entity, state hash, call expression)`, where the
-  state hash covers the host *and every Thing-valued argument* — an argument
-  whose state changed invalidates the memo exactly like an interleaved
-  assignment on the host.  `returns=` is stripped from the identity — it
-  governs acceptance, not identity.
+  state hash covers the host *and every Thing-valued argument's boundary
+  view* (§4) — an argument whose perceivable state changed invalidates the
+  memo exactly like an interleaved assignment on the host, while private
+  movement the episode's snapshot cannot carry changes nothing it saw and
+  so re-runs nothing: the key covers the pure function's input, and nothing
+  finer.  `returns=` is stripped from the identity — it governs acceptance,
+  not identity.
 
 Disambiguation: contract-declared name called → re-derivation; real method →
 real code; any other called name → episode.  Plain access never runs one.
@@ -537,3 +541,43 @@ order.
 **Permanently excluded:** model-served actuators; any freeze path reachable by
 a model; any narrative-memory runtime.  State plus the ledger is the whole
 story.
+
+## 15. Messages and rounds
+
+Minds interact by *addressed calls* that are messages, and a society runs on
+a round clock.  Two layers; the first exists without the second.
+
+**Messages.** The episode grammar gains one action:
+`tell <entity>.<verb>(args)` — an addressed, one-way utterance.  A tell is
+speech, not action: it lands as an ordinary opinion on the **sender's**
+record (`__tell__:` cells — framework records, never standing state),
+addressee and verb in `meta`, every named entity in `refs`, atomic with the
+episode's changeset — a turn that fails sends nothing, and a replayed turn
+re-sends nothing.  There is still no call path and no write path between
+minds: nothing comes back at the point of telling, and any reply is a later
+tell in the opposite direction.  Delivery runs the message as the call it
+names — `verb(*args, sender=...)` — answered by the addressee **on its own
+turn**; several messages arriving together are batched into one
+`receive([...])` turn, one turn per mind per round, so simultaneous voices
+are compared, never raced.  Mail to an entity with no live handle stays on
+the record, delivered by whichever scope next finds it: the society resumes
+mid-conversation from its ledger alone.
+
+**Rounds.** `with thinair.rounds(ledger) as clock:` opens round-time,
+scoped and exception-safe.  Inside it an undeclared method call *declares*
+a sealed pending turn instead of running; `clock.round()` evaluates
+everything pending against the state sealed at its start (commits stage, so
+no turn perceives another's same-round work — which also makes turns
+independent and parallelizable by construction), then lands one atomic
+boundary: staged writes apply, queued tells are recorded and delivered as
+next round's turns, and a frozen `code:rounds` marker on the `__rounds__`
+entity advances the global clock and carries the delivery bookkeeping.
+`round()` returns whether anything happened, so `while clock.round():` runs
+a cascade to quiescence — the boundary that finds nothing.  Seeding is the
+caller's initiative (`anna.next_step()`, any verb — the verb is prompt
+material, never runtime vocabulary); an unchanged re-seed replays from the
+record for free, so idle epochs cost nothing.  Forcing a pending turn's
+value evaluates just that turn early, still against the seal.  Outside the
+scope nothing here exists: every call evaluates immediately, and leaving
+the block — however it is left — lands a final boundary, so the ledger is
+stateless between statements.

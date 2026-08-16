@@ -892,6 +892,14 @@ class Cell(Thing):
         contracts = type(parent).__contracts__
         if attr in contracts and not args and not kwargs:
             return _read(parent, attr, contracts[attr], force=True)
+        from .rounds import current_scope             # round-time (§15):
+
+        scope = current_scope(parent.__ledger__)
+        if scope is not None and not scope._evaluating:
+            # inside ``with ledger.rounds()`` a call declares a pending
+            # turn -- sealed input, evaluated at ``ledger.round()`` (or on
+            # forcing).  The scope's own evaluations pass through.
+            return scope.declare(parent, attr, args, kwargs)
         from .episode import run                      # imagined method call
 
         return run(parent, attr, args, kwargs)
@@ -1467,18 +1475,33 @@ def commit(thing, opinions):
     thing.__root__.__coerced__.clear()
 
 
-def state_hash(thing) -> str:
+def state_hash(thing, *, boundary: bool = False) -> str:
     """The state an episode is a pure function of.
 
     Frozen attributes *and* standing resolutions, because a committed
     changeset and an interleaved assignment must both invalidate a repeated
     call -- and a committed changeset lands as ordinary, unfrozen
     opinions.
+
+    ``boundary=True`` hashes the entity *as another mind perceives it* --
+    exactly the material :func:`boundary_snapshot` lets across (§4): public
+    standing cells, plus the carried value where a Cell crossing carries
+    one.  A pure function's repetition key must cover its input and nothing
+    finer: keying an episode on a Thing argument's full state re-runs
+    byte-identical prompts whenever the argument moved privately -- movement
+    the episode could never perceive.  The same alignment governs a society
+    runtime's wake check: what a peer cannot perceive must not wake it.
     """
     import hashlib
 
     from .ledger import normal_form
 
+    if boundary:
+        view = boundary_snapshot(thing)
+        material = repr((view.__entity__, sorted(
+            (attr, normal_form(opinion.value), opinion.p, opinion.frozen)
+            for attr, opinion in view.__attrs__().items())))
+        return hashlib.sha1(material.encode("utf-8")).hexdigest()[:12]
     cells = _standing(thing.__root__, thing.__entity__)
     material = repr(sorted(
         (attr, normal_form(opinion.value), opinion.p, opinion.frozen)

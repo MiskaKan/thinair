@@ -110,6 +110,7 @@ from .policy import (
     Unanimous,
     Unresolvable,
 )
+from .rounds import rounds
 from .thing import Cell, Snapshot, Thing, corroborate, snapshot
 from .validators import (
     CalculatorBelief,
@@ -162,6 +163,8 @@ __all__ = [
     "default_ledger", "set_default_ledger", "use_ledger", "values_equal",
     # functions as cells
     "fn", "freeze_call", "call_id",
+    # round-time: sealed simultaneous turns over one ledger (§15)
+    "rounds",
     # policies and what they raise
     "ResolutionPolicy", "Proposed", "Consulted", "Unanimous", "Threshold",
     "LowConfidence", "Unresolvable", "Disagreement",

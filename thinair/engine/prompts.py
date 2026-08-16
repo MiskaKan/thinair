@@ -17,10 +17,10 @@ __all__ = ["ATTRIBUTE_TEMPLATE", "EPISODE_TEMPLATE", "AGENT_TEMPLATE",
 
 #: Bump on *any* edit to the corresponding builder (invariant 6).
 ATTRIBUTE_TEMPLATE = "extract-v4"
-EPISODE_TEMPLATE = "episode-v2"
+EPISODE_TEMPLATE = "episode-v3"
 #: The open agentic turn -- "you are this entity; act" -- is its own
 #: template, versioned separately: a variant, never an edit.
-AGENT_TEMPLATE = "agent-v1"
+AGENT_TEMPLATE = "agent-v2"
 
 TRUNCATION_MARKER = " …[truncated]"
 MAX_RENDER = 2000
@@ -223,6 +223,10 @@ Actions:
       Read an attribute of the object. You get its value and its probability.
   {"action": "call", "method": "<name>", "args": [...], "kwargs": {...}}
       Run a real method or function that already exists. You get its result.
+  {"action": "tell", "entity": "<entity id>", "method": "<verb>", "args": [...]}
+      Send an addressed message to another entity -- a call delivered on that
+      entity's own later turn. Nothing comes back now; any reply arrives
+      later as a call to this object. Queued; it is sent only if you finish.
   {"action": "return", "changes": {"<attr>": <value>, ...}, "value": <result>,
    "p": <0.0-1.0>}
       Finish. "changes" are attribute writes you propose (use {} for none),
@@ -247,6 +251,12 @@ Actions:
       Read one of your attributes. You get its value and its probability.
   {"action": "call", "method": "<name>", "args": [...], "kwargs": {...}}
       Run one of your real methods. You get its result.
+  {"action": "tell", "entity": "<entity id>", "method": "<verb>", "args": [...]}
+      Send an addressed message to another entity -- name a verb that says
+      what you want of it, with any arguments. It is delivered as a call
+      that entity answers on its own later turn -- nothing comes back now;
+      any reply arrives later as a call to you. Queued; it is sent only if
+      you end your turn normally.
   {"action": "return", "changes": {"<attr>": <value>, ...}, "value": <note>,
    "p": <0.0-1.0>}
       End your turn. "changes" are writes to your own attributes (use {} for
@@ -255,15 +265,16 @@ Actions:
 
 Rules:
 - You may only write your own declared, unfrozen attributes. Acting on
-  another entity is not yours to do: to reach one, write a message on your
-  own public attributes naming its exact entity id, and it will read your
-  public state and decide for itself.
+  another entity is never yours to do directly: to reach one, "tell" it,
+  using its exact entity id, and it will decide for itself on its own turn.
 - Other entities see only your public attributes; what you see of them is
   only their public state.
+- Tell an entity only when you want something of it; a turn that needs
+  nothing from nobody simply returns.
 - Proposed changes are validated after you return; if one is rejected you
   will be told why and asked again.
 - You cannot freeze, pin, or certify anything. You state beliefs; code decides.
-- You may not call another undefined (imagined) method.
+- You may not call another undefined (imagined) method on yourself.
 - If there is nothing worth doing, return {} changes and say so.
 - Budget: %(actions)d actions. Spend them; then return.
 """
@@ -310,8 +321,10 @@ def episode_schema(returns: Any = None) -> dict:
     return {
         "type": "object",
         "properties": {
-            "action": {"type": "string", "enum": ["get", "call", "return"]},
+            "action": {"type": "string",
+                       "enum": ["get", "call", "tell", "return"]},
             "attr": {"type": "string"},
+            "entity": {"type": "string"},
             "method": {"type": "string"},
             "args": {"type": "array"},
             "kwargs": {"type": "object"},

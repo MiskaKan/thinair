@@ -75,24 +75,34 @@ class Episode:
         self.entity = f"{thing.__entity__}.{self.expression}"
         self.state = self._state()
         self.cell = f"{self.entity}#{self.state}"
+        #: outgoing messages queued this attempt (SPEC.md §15): committed
+        #: with the changeset, atomically -- a vetoed turn sends nothing.
+        self.tells: list = []
 
     def _state(self) -> str:
-        """The state this episode is a pure function of -- all of it.
+        """The state this episode is a pure function of -- all of it, and
+        nothing finer.
 
         A Thing-valued argument's snapshot is part of what the episode saw,
         so its state belongs in the repetition key: an argument that changed
         must invalidate the memo exactly like an interleaved assignment on
-        the host does.  The expression alone cannot carry this -- it renders
-        a Thing by entity, which is stable across state changes on purpose.
-        With no Thing arguments the key is the host's hash alone, unchanged.
+        the host does.  But what the episode saw of an argument is its
+        *boundary* view (§4): identity, purpose, public cells.  Keying on
+        the argument's full state would re-run the episode on private
+        movement its prompt cannot carry -- a spurious miss on a pure
+        function, byte-identical prompt and all -- so the key hashes exactly
+        the perceivable: ``state_hash(argument, boundary=True)``.  The
+        expression alone cannot carry this -- it renders a Thing by entity,
+        which is stable across state changes on purpose.  With no Thing
+        arguments the key is the host's hash alone, unchanged.
         """
         material = [state_hash(self.thing)]
         for argument in self.args:
             if isinstance(argument, Thing):
-                material.append(state_hash(argument))
+                material.append(state_hash(argument, boundary=True))
         for _name, argument in sorted(self.kwargs.items()):
             if isinstance(argument, Thing):
-                material.append(state_hash(argument))
+                material.append(state_hash(argument, boundary=True))
         #: the host's own half, so §12's history can re-derive and check the
         #: parent tree even when Thing arguments widen the repetition key
         self.host_state = material[0]
@@ -115,6 +125,32 @@ class Episode:
             return "refused", f"there is no attribute {attr!r}"
         rendered = _short(value)
         return f"{attr}", {"value": rendered, "p": round(~cell, 4)}
+
+    def tell(self, entity, verb, args=()):
+        """``tell <entity>.<verb>(args)`` -- queue an addressed message.
+
+        A tell is speech, not action: it lands on the *sender's* record and
+        is delivered as a call the addressee answers on its own later turn
+        (SPEC.md §15).  Queued here; recorded only if the turn commits.
+        """
+        import re
+
+        if not isinstance(entity, str) or not entity:
+            return "refused", "tell needs an entity id"
+        if entity == self.thing.__entity__:
+            return "refused", ("that is yourself; write your own attributes "
+                               "instead of telling yourself things")
+        if not isinstance(verb, str) or not re.match(r"^[A-Za-z_]\w*$", verb):
+            return "refused", "tell needs a plain verb name (an identifier)"
+        try:
+            json.dumps(args)
+        except (TypeError, ValueError):
+            return "refused", "tell args must be plain JSON values"
+        self.tells.append({"to": entity, "verb": verb,
+                           "args": list(args or [])})
+        return "queued", {"to": entity, "verb": verb,
+                          "delivery": "on the addressee's own next turn; "
+                                      "nothing comes back now"}
 
     def call(self, method, args=(), kwargs=None):
         """``call <real_method>(args)`` -- actual code; its writes freeze."""
@@ -274,7 +310,18 @@ def run(thing, name, args=(), kwargs=None):
                     (episode.cell, "result"),
                     reason="the return value never matched the declared shape")
 
-        commit(thing, validated)
+        from .rounds import record_tells, staging
+
+        scope = staging(ledger)
+        if scope is not None:
+            # round-time (§15): the changeset and outbox land at the boundary,
+            # atomically with every other turn of this round.
+            scope.stage(thing, validated, episode.tells, route.name, ~got)
+        else:
+            commit(thing, validated)
+            if episode.tells:
+                record_tells(ledger, thing.__entity__, episode.tells,
+                             route.name, ~got)
         provenance = {
             "call": episode.expression,
             # the record holds plain values: a Thing argument reduces to its
@@ -293,6 +340,8 @@ def run(thing, name, args=(), kwargs=None):
         refs += [r for r in record_refs(+got, ledger) if r not in refs]
         if refs:
             provenance["refs"] = refs
+        if episode.tells:
+            provenance["tells"] = [dict(t) for t in episode.tells]
         for key in ("model", "actions", "why", "template", "exposure"):
             if key in (getattr(got, "meta", None) or {}):
                 provenance[key] = got.meta[key]

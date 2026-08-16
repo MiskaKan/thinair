@@ -397,13 +397,29 @@ expensive way:
   — the photo-desk instrument on the article with no photos. Read it as a coverage gap
   (`evaluate.coverage`), never as agreement; what an instrument cannot see is itself a
   finding.
-- **A society runtime is a scheduler, nothing more.** The three wake rules — you
-  moved, a held entity moved, something naming you moved — are one check: did this
-  (agent, peer) hash pair move since the agent last considered that peer. Order each
-  queue fresh-introductions-first-then-stalest (a busy acquaintance starves the rest);
-  make minds answer only what is addressed to them (else any mention re-triggers them
-  and the society churns instead of quiescing); never cache-bust — a recurring hash
-  pair is a livelock tell, and backing off is the runtime's job, not the mind's.
+- **A society runs on messages and rounds.** Minds reach each other
+  by `tell <entity>.<verb>(args)` — an addressed one-way call, recorded on the
+  *sender's* record and delivered as a turn the addressee answers on its own clock;
+  replies are later tells back. Wake needs no watching: a mind acts when its inbox
+  has mail or code moved its state, and every activation carries its cause. Run a
+  society as epochs of rounds:
+
+      with thinair.rounds(ledger) as clock:
+          anna.next_step(); dave.check_for_jobs()      # seed: any verbs, yours
+          while clock.round():                         # cascade to quiescence
+              pass
+
+  Inside the scope a call declares a sealed pending turn; `clock.round()` evaluates
+  everything pending against one seal (no turn sees another's same-round work — so
+  first-in-the-loop never means first-in-the-world), then lands one boundary:
+  writes apply, mail delivers as next round's turns — simultaneous voices batched
+  into one `receive` inbox, compared, never raced — and a frozen marker on
+  `__rounds__` advances the global clock. Quiescence is the boundary that finds
+  nothing; an unchanged re-seed replays free, so idle epochs cost nothing. Standing
+  interest is a *registration the service remembers in its own cells* (tell the
+  forum `add_me_as_mechanic()`; notifying the registered is the forum's own act on
+  its turn), never runtime pub-sub. Undelivered mail stays on the record for the
+  next scope: the society resumes from its ledger alone.
 
 Layer 2 — scoring beliefs by dissimilarity-weighted agreement — remains deferred
 (SPEC.md §14). Its design evidence comes from these experiments: the ledger of every

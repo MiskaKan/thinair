@@ -249,7 +249,7 @@ def test_an_acting_turn_uses_the_agent_template():
     assert +result == "nothing worth doing"
     prompt = engine.calls[0]["messages"][0]["content"]
     assert "You are the entity shown below" in prompt
-    assert result.__opinion__.meta["template"] == "agent-v1"
+    assert result.__opinion__.meta["template"] == "agent-v2"
 
 
 def test_acting_is_framing_not_identity():

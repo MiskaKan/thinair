@@ -697,6 +697,7 @@ class ModelBelief(Belief):
         engine = self.engine(getattr(e, "__owner__", None))
         exposure = _exposure(convo)          # the state the episode set out from
         actions_left = episode.action_budget
+        episode.tells = []                   # a retry starts with a clean outbox
         transcript: list[dict] = []
         while True:
             if actions_left <= 0:
@@ -732,6 +733,12 @@ class ModelBelief(Belief):
                                             step.get("kwargs") or {})
                 convo.append(prompts.episode_observation(kind, detail, actions_left))
                 continue
+            if action == "tell":
+                kind, detail = episode.tell(step.get("entity"),
+                                            step.get("method"),
+                                            step.get("args") or [])
+                convo.append(prompts.episode_observation(kind, detail, actions_left))
+                continue
             if action == "return":
                 if "frozen" in step or "frozen" in (step.get("changes") or {}):
                     # invariant 4: the grammar has no freeze action, and a
@@ -757,7 +764,8 @@ class ModelBelief(Belief):
                                    "exposure": exposure})
                 return Judgment(step.get("value"), p, provenance)
             convo.append({"role": "user", "content":
-                          f"Unknown action {action!r}. Use get, call or return."})
+                          f"Unknown action {action!r}. "
+                          f"Use get, call, tell or return."})
 
 
 def _trace_action(e: Any, step: Any) -> None:
