@@ -100,6 +100,29 @@ def test_a_tell_to_yourself_is_refused_but_costs_only_the_action():
     assert "refused" in observation
 
 
+def test_a_failed_attempts_speech_never_rides_the_escalated_answer():
+    """The outbox resets per attempt, whoever answers it: a model attempt
+    that tells and then fails must not have its speech committed by the
+    escalation's (non-model) accepted answer."""
+
+    class CodeAnswer:
+        necessary = False
+        veto_line = 0.5
+        proposes = True
+        frozen = False
+        id = short = "code-esc:1"
+
+        def __call__(self, e, attr):
+            return (42, 1.0)
+
+    ledger = Ledger()
+    engine = FakeEngine([tell("bob", "greet")])       # tells forever, never
+    alice = mind(ledger, "alice", engine)             # returns; escalates
+    alice += CodeAnswer()
+    assert +alice.next_step() == 42
+    assert tells_of(ledger) == []
+
+
 def test_the_tell_is_not_resent_on_replay():
     """A repeated call replays from the record: same result, no second
     message, zero engine calls."""
@@ -175,6 +198,95 @@ def test_forcing_a_pending_turn_evaluates_early_against_the_seal():
     assert engine.call_count == 1                  # not run twice
 
 
+def test_a_real_methods_write_is_sealed_from_round_mates():
+    """A real method called during a turn writes through the same seal as
+    the changeset: its own turn sees the write, a round-mate does not, and
+    it lands at the boundary with everything else."""
+    ledger = Ledger()
+    seen = []
+
+    class Marker(Thing):
+        """A mind with one real move."""
+
+        __beliefs__ = []
+        note = Thing(str, public=True)
+
+        def mark(self):
+            """Write, then read back."""
+            self.note = "MARKED"
+            seen.append(+self.note)
+            return "marked"
+
+    a_engine = FakeEngine([{"action": "call", "method": "mark", "args": []},
+                           ret("done")])
+    b_engine = FakeEngine([ret("looked")])
+    Marker.__beliefs__ = [model("scripted-alice", engine=a_engine)]
+    alice = Marker(__entity__="alice", __ledger__=ledger)
+    bob = mind(ledger, "bob", b_engine)
+    alice.note = "quiet"
+    with rounds(ledger) as clock:
+        alice.act()
+        bob.consider(alice)
+        clock.round()
+        assert seen == ["MARKED"]              # the turn saw its own write
+    b_prompt = "\n".join(m["content"] for m in b_engine.calls[0]["messages"])
+    assert "quiet" in b_prompt                 # the round-mate saw the seal
+    assert "MARKED" not in b_prompt
+    assert +alice.note == "MARKED"             # landed at the boundary
+
+
+def test_forcing_a_turn_from_inside_a_turn_keeps_the_outer_seal():
+    """Re-entrancy: a real method that forces another pending turn must not
+    tear the staging seam -- the outer turn's commit still stages, and a
+    round-mate still sees the seal."""
+    ledger = Ledger()
+    held = {}
+
+    class Forcer(Thing):
+        """A mind that pulls on another's pending turn."""
+
+        __beliefs__ = []
+        note = Thing(str, public=True)
+
+        def poke(self):
+            """Force the held turn early."""
+            return +held["turn"]
+
+    a_engine = FakeEngine([{"action": "call", "method": "poke", "args": []},
+                           ret("done", {"note": "OUTER"})])
+    b_engine = FakeEngine([ret("looked")])
+    Forcer.__beliefs__ = [model("scripted-alice", engine=a_engine)]
+    alice = Forcer(__entity__="alice", __ledger__=ledger)
+    carol = mind(ledger, "carol", FakeEngine([ret("inner")]))
+    bob = mind(ledger, "bob", b_engine)
+    with rounds(ledger) as clock:
+        alice.act()                    # runs first, forcing carol's mid-turn
+        held["turn"] = carol.next_step()
+        bob.consider(alice)
+        clock.round()
+    b_prompt = "\n".join(m["content"] for m in b_engine.calls[0]["messages"])
+    assert "OUTER" not in b_prompt                 # the seal held
+    assert +alice.note == "OUTER"                  # landed at the boundary
+
+
+def test_a_failed_turn_reaches_the_record_and_forcing_it_raises():
+    """A round whose only event is a failure still lands a marker carrying
+    it -- the ledger, not the exception, is the story -- and forcing the
+    failed turn answers exactly as the immediate path would: by raising."""
+    ledger = Ledger()
+    engine = FakeEngine([tell("bob", "greet")])       # never returns
+    alice = mind(ledger, "alice", engine)
+    with rounds(ledger) as clock:
+        turn = alice.next_step()
+        assert clock.round() is True                  # a failure happened
+        marks = markers_of(ledger)
+        assert marks and marks[-1].value["failures"]
+        assert marks[-1].value["failures"][0]["turn"] == "alice.next_step"
+        with pytest.raises(Unresolvable):
+            +turn
+        assert clock.round() is False                 # then, quiescence
+
+
 def test_round_outside_scope_is_not_a_thing():
     ledger = Ledger()
     with pytest.raises(Exception):
@@ -241,6 +353,91 @@ def test_mail_to_an_absent_entity_stays_on_the_record():
     delivered = [d for m in markers_of(ledger)
                  for d in m.value.get("delivered", ())]
     assert delivered == []
+
+
+def test_delivery_is_speech_heard_not_code_invoked():
+    """A tell naming the addressee's *real method* is still answered by the
+    addressee's episode (SPEC.md §15): arriving mail never re-enters §9
+    dispatch, and the real code runs only if the mind chooses to call it."""
+    ledger = Ledger()
+    ran = []
+
+    class Registrar(Thing):
+        """A service with a real registration method."""
+
+        __beliefs__ = []
+        note = Thing(str, public=True)
+
+        def register(self, sender=None):
+            """Remember the sender."""
+            ran.append(sender)
+            return "registered"
+
+    a_engine = FakeEngine([tell("desk", "register"), ret("asked")])
+    b_engine = FakeEngine([ret("chose not to", {"note": "declined"})])
+    alice = mind(ledger, "alice", a_engine)
+    Registrar.__beliefs__ = [model("scripted-desk", engine=b_engine)]
+    desk = Registrar(__entity__="desk", __ledger__=ledger)
+    with rounds(ledger) as clock:
+        alice.next_step()
+        while clock.round():
+            pass
+    assert b_engine.call_count == 1                # the mind answered
+    assert ran == []                               # the code never auto-ran
+    assert +desk.note == "declined"
+
+
+def test_mail_queued_but_never_answered_is_not_lost():
+    """A scope that ends before the delivery round drops the queued turn
+    *unstamped*: the message stays on the record and the next scope
+    delivers it -- leaving early never loses a message."""
+    ledger = Ledger()
+    a_engine = FakeEngine([tell("bob", "ping"), ret("pinged")])
+    b_engine = FakeEngine([ret("ponged", {"note": "pong"})])
+    alice = mind(ledger, "alice", a_engine)
+    bob = mind(ledger, "bob", b_engine)
+    with rounds(ledger) as clock:
+        alice.next_step()
+        clock.round()                              # delivery queued, then --
+    assert b_engine.call_count == 0                # -- the scope ends early
+    with rounds(ledger) as clock:
+        while clock.round():
+            pass
+    assert b_engine.call_count == 1
+    assert +bob.note == "pong"
+
+
+def test_fresh_words_over_unmoving_state_back_off():
+    """Two minds replying to each other with ever-new content but no state
+    movement is a livelock tell: the runtime parks the mail, notes the
+    backoff on the boundary, and the cascade quiesces instead of spending
+    forever."""
+
+    def chatter(target):
+        state = {"i": 0}
+
+        def script(messages):
+            state["i"] += 1
+            if state["i"] % 2 == 1:
+                return {"action": "tell", "entity": target, "method": "chat",
+                        "args": [state["i"]]}
+            return {"action": "return", "changes": {},
+                    "value": f"said {state['i']}", "p": 0.8}
+
+        return script
+
+    ledger = Ledger()
+    alice = mind(ledger, "alice", FakeEngine(chatter("bob")))
+    bob = mind(ledger, "bob", FakeEngine(chatter("alice")))
+    with rounds(ledger) as clock:
+        alice.next_step()
+        spent = 0
+        while clock.round():
+            spent += 1
+            assert spent < 10                      # must quiesce
+    backoffs = [b for m in markers_of(ledger)
+                for b in m.value.get("backoff", ())]
+    assert backoffs                                # parked, on the record
 
 
 def test_layer_one_mail_is_delivered_by_the_next_scope():

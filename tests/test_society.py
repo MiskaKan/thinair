@@ -431,3 +431,71 @@ def test_a_repeated_sweep_is_free(society):
     assert sweeper.run(max_sweeps=3) == 1                # one quiet pass
     assert {name: len(engine.calls)
             for name, engine in society["engines"].items()} == spent
+
+
+def test_the_sweep_delivers_mail_and_marks_it_on_the_clock():
+    """An undelivered tell reaches its addressee as a turn the addressee's
+    own episode answers, delivery is marked on the shared clock entity, and
+    a fresh Sweep on the same ledger -- a restart -- redelivers nothing."""
+    from sweep import Sweep
+    from thinair.rounds import CLOCK
+
+    ledger = Ledger()
+    a_engine = FakeEngine([
+        {"action": "tell", "entity": "beth", "method": "greet",
+         "args": ["hello"]},
+        ret("greeted"),
+    ])
+    b_engine = FakeEngine([ret("heard", {"saying": "alma said hello"})])
+
+    class Voice(Thing):
+        """A person with a public voice."""
+
+        __beliefs__ = [human("desk")]
+        saying = Thing(str, public=True)
+
+    alma = Voice(__entity__="alma", __ledger__=ledger,
+                 __beliefs__=[model("scripted-alma", engine=a_engine),
+                              human("desk")])
+    beth = Voice(__entity__="beth", __ledger__=ledger,
+                 __beliefs__=[model("scripted-beth", engine=b_engine),
+                              human("desk")])
+    alma.next_step()                                 # immediate: mail recorded
+
+    sweeper = Sweep([alma, beth])
+    sweeper.run(max_sweeps=5)
+    first = "\n".join(m["content"] for m in b_engine.calls[0]["messages"])
+    assert "greet" in first and "alma" in first      # beth's episode answered
+    assert +beth.saying == "alma said hello"
+    marks = [o for o in ledger if o.entity == CLOCK]
+    assert marks and marks[0].value["delivered"]
+
+    spent = b_engine.call_count
+    again = Sweep([alma, beth])                      # a restart: the fold and
+    again.run(max_sweeps=3)                          # the markers are the memory
+    assert b_engine.call_count == spent
+
+
+def test_the_naming_graph_survives_a_restart():
+    """Rule 3 folds standing public cells from the tape, so a fresh Sweep on
+    the same ledger keeps every acquaintance a committed changeset made."""
+    from sweep import Sweep
+
+    ledger = Ledger()
+    engine = FakeEngine([ret("addressed", {"to": "bea"})])
+
+    class Speaker(Thing):
+        """A person."""
+
+        __beliefs__ = [human("desk")]
+        to = Thing(str, public=True)
+
+    ana = Speaker(__entity__="ana", __ledger__=ledger,
+                  __beliefs__=[model("scripted-ana", engine=engine),
+                               human("desk")])
+    bea = Speaker(__entity__="bea", __ledger__=ledger)
+    ana.reach_out()                                  # commits to = "bea"
+
+    sweeper = Sweep([ana, bea])                      # built after the fact:
+    assert sweeper._public_refs(ana) == ["bea"]      # the tape alone suffices
+    assert "ana" in sweeper._candidates(bea)

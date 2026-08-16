@@ -547,37 +547,61 @@ story.
 Minds interact by *addressed calls* that are messages, and a society runs on
 a round clock.  Two layers; the first exists without the second.
 
+**Two layers, kept distinct.**  §9 governs *execution*: what a Python call
+means on the entity you hold — contract-declared name → re-derivation, real
+method → real code, undefined name → episode.  Messages are the
+*communication* layer, and arriving mail never re-enters §9: delivery is
+speech heard, not code invoked.  The addressee answers on its own turn,
+through its own episode — the verb is material for its mind, never a
+dispatch table — and it honours a message with real code only by choosing
+to `call` its own method during that turn.
+
 **Messages.** The episode grammar gains one action:
 `tell <entity>.<verb>(args)` — an addressed, one-way utterance.  A tell is
 speech, not action: it lands as an ordinary opinion on the **sender's**
 record (`__tell__:` cells — framework records, never standing state),
 addressee and verb in `meta`, every named entity in `refs`, atomic with the
-episode's changeset — a turn that fails sends nothing, and a replayed turn
+episode's changeset — a turn that fails sends nothing (an escalated
+attempt's answer carries no earlier attempt's speech), and a replayed turn
 re-sends nothing.  There is still no call path and no write path between
 minds: nothing comes back at the point of telling, and any reply is a later
-tell in the opposite direction.  Delivery runs the message as the call it
-names — `verb(*args, sender=...)` — answered by the addressee **on its own
-turn**; several messages arriving together are batched into one
+tell in the opposite direction.  Delivery presents the message as an
+addressed turn — `verb(*args, sender=...)`, answered by the addressee's
+episode as above; several messages arriving together are batched into one
 `receive([...])` turn, one turn per mind per round, so simultaneous voices
-are compared, never raced.  Mail to an entity with no live handle stays on
-the record, delivered by whichever scope next finds it: the society resumes
+are compared, never raced.  An addressee that cannot take a turn (no
+generative belief) fails its delivery turn, and the failure is the round's
+record: mail is heard once, never retried.  A message is stamped delivered
+only when its turn has actually been taken, so mail a scope queued but
+never got to — and mail to an entity with no live handle — stays on the
+record, delivered by whichever scope next finds it: the society resumes
 mid-conversation from its ledger alone.
 
 **Rounds.** `with thinair.rounds(ledger) as clock:` opens round-time,
 scoped and exception-safe.  Inside it an undeclared method call *declares*
 a sealed pending turn instead of running; `clock.round()` evaluates
-everything pending against the state sealed at its start (commits stage, so
-no turn perceives another's same-round work — which also makes turns
-independent and parallelizable by construction), then lands one atomic
-boundary: staged writes apply, queued tells are recorded and delivered as
-next round's turns, and a frozen `code:rounds` marker on the `__rounds__`
-entity advances the global clock and carries the delivery bookkeeping.
-`round()` returns whether anything happened, so `while clock.round():` runs
-a cascade to quiescence — the boundary that finds nothing.  Seeding is the
-caller's initiative (`anna.next_step()`, any verb — the verb is prompt
-material, never runtime vocabulary); an unchanged re-seed replays from the
-record for free, so idle epochs cost nothing.  Forcing a pending turn's
-value evaluates just that turn early, still against the seal.  Outside the
-scope nothing here exists: every call evaluates immediately, and leaving
-the block — however it is left — lands a final boundary, so the ledger is
-stateless between statements.
+everything pending against the state sealed at its start (commits stage —
+changesets, tells, and assignments made during a turn alike, a real
+method's side effects included: a turn's own writes stay visible to it and
+land at the boundary, so no turn perceives another's same-round work —
+which also makes turns independent and parallelizable by construction),
+then lands one atomic boundary: staged writes apply, queued tells are
+recorded and delivered as next round's turns, and a frozen `code:rounds`
+marker on the `__rounds__` entity advances the global clock and carries the
+delivery bookkeeping.  `round()` returns whether anything happened, so
+`while clock.round():` runs a cascade to quiescence — the boundary that
+finds nothing; a round whose only events are failures still lands a marker
+carrying them, because the ledger, not the exception, is the story
+(forcing a failed turn's value raises, exactly as the immediate path
+would).  The cascade is budgeted by physics, not patience: a delivery
+whose (addressee, sender-boundary) state-hash pair recurs is a livelock
+tell — the runtime parks that mail on the record and the boundary notes
+the backoff, so two minds exchanging fresh words over unmoving state
+quiesce instead of spending forever.  Seeding is the caller's initiative
+(`anna.next_step()`, any verb — the verb is prompt material, never runtime
+vocabulary); an unchanged re-seed replays from the record for free, so
+idle epochs cost nothing.  Forcing a pending turn's value evaluates just
+that turn early, still against the seal.  Outside the scope nothing here
+exists: every call evaluates immediately, and leaving the block — however
+it is left — lands a final boundary, so the ledger is stateless between
+statements.

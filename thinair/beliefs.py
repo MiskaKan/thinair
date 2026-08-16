@@ -697,7 +697,6 @@ class ModelBelief(Belief):
         engine = self.engine(getattr(e, "__owner__", None))
         exposure = _exposure(convo)          # the state the episode set out from
         actions_left = episode.action_budget
-        episode.tells = []                   # a retry starts with a clean outbox
         transcript: list[dict] = []
         while True:
             if actions_left <= 0:

@@ -232,6 +232,10 @@ def run(thing, name, args=(), kwargs=None):
     objections: list[dict] = []
 
     while True:
+        # A turn that fails sends nothing (§15): every attempt starts with a
+        # clean outbox, whichever belief answers it -- a vetoed attempt's
+        # queued speech must not ride out on the escalation's answer.
+        episode.tells = []
         memo, active = {}, set()
         entries = [MemoBelief(b, memo, active) for b in route.panel(panel)]
         e = _build_snapshot(thing, name, beliefs=entries, objections=objections,

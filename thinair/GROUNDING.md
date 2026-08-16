@@ -398,11 +398,13 @@ expensive way:
   (`evaluate.coverage`), never as agreement; what an instrument cannot see is itself a
   finding.
 - **A society runs on messages and rounds.** Minds reach each other
-  by `tell <entity>.<verb>(args)` — an addressed one-way call, recorded on the
-  *sender's* record and delivered as a turn the addressee answers on its own clock;
-  replies are later tells back. Wake needs no watching: a mind acts when its inbox
-  has mail or code moved its state, and every activation carries its cause. Run a
-  society as epochs of rounds:
+  by `tell <entity>.<verb>(args)` — an addressed one-way utterance, recorded on the
+  *sender's* record and delivered as a turn the addressee answers on its own clock,
+  through its own episode: speech heard, never code invoked — the verb is material
+  for the addressee's mind, and real code runs only if that mind chooses to `call`
+  its own method on its turn. Replies are later tells back. Wake needs no watching:
+  a mind acts when its inbox has mail or code moved its state, and every activation
+  carries its cause. Run a society as epochs of rounds:
 
       with thinair.rounds(ledger) as clock:
           anna.next_step(); dave.check_for_jobs()      # seed: any verbs, yours
@@ -415,7 +417,9 @@ expensive way:
   writes apply, mail delivers as next round's turns — simultaneous voices batched
   into one `receive` inbox, compared, never raced — and a frozen marker on
   `__rounds__` advances the global clock. Quiescence is the boundary that finds
-  nothing; an unchanged re-seed replays free, so idle epochs cost nothing. Standing
+  nothing; an unchanged re-seed replays free, so idle epochs cost nothing; and a
+  recurring state-hash pair is a livelock tell — backing off is the runtime's job,
+  so fresh words over unmoving state park on the record instead of spending. Standing
   interest is a *registration the service remembers in its own cells* (tell the
   forum `add_me_as_mechanic()`; notifying the registered is the forum's own act on
   its turn), never runtime pub-sub. Undelivered mail stays on the record for the

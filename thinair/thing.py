@@ -671,10 +671,21 @@ class Thing(metaclass=ThingMeta):
         refs = references(value)
         if refs:
             meta["refs"] = refs
-        self.__ledger__.add(Opinion(
+        opinion = Opinion(
             belief=author.id, entity=self.__entity__, attr=name,
             value=plain, p=1.0, frozen=True,
-            meta=meta))
+            meta=meta)
+        from .rounds import staging
+
+        scope = staging(self.__ledger__)
+        if scope is not None:
+            # Round-time (§15): a write made during a turn -- a real method's
+            # side effect included -- is that turn's work.  It stays visible
+            # to its own turn and lands at the boundary with everything else,
+            # so no round-mate perceives it early.
+            scope.stage_frozen(self, opinion)
+            return
+        self.__ledger__.add(opinion)
         self.__root__.__resolved__.pop((self.__entity__, name), None)
         self.__root__.__coerced__.clear()
 
@@ -1154,7 +1165,17 @@ def _read(thing, attr, contract=None, *, force=False):
     cell = (entity, attr)
     ledger = thing.__ledger__
 
-    # 0. frozen short-circuit: no consultation, no model call, ever
+    # 0. frozen short-circuit: no consultation, no model call, ever.  Under
+    # round-time a turn's own staged assignments come first: visible to the
+    # turn that made them, invisible to its round-mates (§15).
+    if not force:
+        from .rounds import staging
+
+        scope = staging(ledger)
+        if scope is not None:
+            staged = scope.turn_frozen(entity, attr)
+            if staged is not None:
+                return Cell(thing, attr, opinion=staged, contract=contract)
     pinned = ledger.latest_frozen(entity, attr)
     if pinned is not None and not force:
         return Cell(thing, attr, opinion=pinned, contract=contract)
