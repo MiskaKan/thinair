@@ -618,12 +618,20 @@ def test_show_paints_the_belief_by_attribute_matrix(store, monkeypatch,
                                                          # one green
 
 
-def test_ground_appends_the_builtin_roster(tmp_path, monkeypatch, capsys):
+def test_ground_serves_the_builtin_roster_on_demand(tmp_path, monkeypatch,
+                                                    capsys):
+    """The roster is reference, not orientation: its own section (and
+    --full), while the default tier says where to find it."""
     monkeypatch.chdir(tmp_path)
-    main(["ground"])
+    main(["ground", "roster"])
     out = capsys.readouterr().out
-    assert "built-in beliefs" in out
+    assert out.startswith("## Appendix: built-in beliefs")
     assert "`TokenSubsetBelief`" in out and "`RangeBelief`" in out
+
+    main(["ground"])
+    default = capsys.readouterr().out
+    assert "`TokenSubsetBelief`" not in default
+    assert "ground roster" in default                # discoverable from it
     assert not (tmp_path / ".thinair").exists()
 
 
@@ -1378,10 +1386,11 @@ def test_ground_demands_a_running_program(tmp_path, monkeypatch, capsys):
 
 
 def test_ground_is_tiered(tmp_path, monkeypatch, capsys):
-    """Default ground dumps the content as-is -- pillars, moves, framework,
-    roster, manual; no meta explaining the file to its reader -- minus
-    only the strategy-design stretch (anchors + Part 2), sized to land
-    whole in a harness's inline tool output.  --full restores the cut."""
+    """Default ground is the orientation tier -- pillars, moves, framework,
+    manual; no meta explaining the file to its reader -- minus the
+    strategy-design stretch (anchors + Part 2) and the reference stretch
+    (belief roster, the spelled-out surface), sized to land whole in a
+    harness's inline tool output.  --full restores every cut."""
     monkeypatch.chdir(tmp_path)
     main(["ground"])
     out = capsys.readouterr().out
@@ -1391,16 +1400,53 @@ def test_ground_is_tiered(tmp_path, monkeypatch, capsys):
     assert "# Part 3 " in out                            # the framework
     assert "\n# Part 2 " not in out                      # protocol is --full
     assert "Mathematical anchors" not in out             # citations too
+    assert "built-in beliefs" not in out                 # reference tier
+    assert "The surface, spelled out" not in out         # reference tier
     assert "Link it, as-is" not in out                   # no meta preamble
+    # the acting-critical rules survive the surface demotion in the manual
+    assert "second opinion" in out and "corroborate" in out
     # fits inline: harness tool-output limits sit far above this; the budget
     # tracks the folded content (§13 rule 7 grows it) with modest headroom
-    assert len(out.encode()) < 34_000
+    assert len(out.encode()) < 32_000
 
     main(["ground", "--full"])
     full = capsys.readouterr().out
     assert "\n# Part 2 " in full                         # protocol restored
     assert "Mathematical anchors" in full
+    assert "## Appendix: built-in beliefs" in full       # reference restored
+    assert "### The surface, spelled out" in full
     assert "the thinair client, for agents" in full      # manual still there
+
+
+def test_ground_serves_single_sections(tmp_path, monkeypatch, capsys):
+    """`thinair ground <section>` re-fetches one part on demand -- the
+    growth valve: rule-7 folds land in a tier or a section, never back in
+    one ever-fatter blob."""
+    monkeypatch.chdir(tmp_path)
+    main(["ground", "moves"])
+    moves = capsys.readouterr().out
+    assert moves.startswith("## The moves")
+    assert "Prefer comparisons" in moves
+    assert "Pillar I " not in moves                      # just the section
+
+    main(["ground", "verify"])
+    verify = capsys.readouterr().out
+    assert verify.startswith("### Verify")
+    assert "`agree=` near 1.00" in verify
+    assert "### Extend" not in verify                    # sliced at siblings
+
+    main(["ground", "protocol"])                         # a --full-only part
+    assert capsys.readouterr().out.startswith("# Part 2 ")
+
+    main(["ground", "surface"])
+    surface = capsys.readouterr().out
+    assert "never `t += belief`" in surface
+    assert "## The mapping" not in surface
+
+    with pytest.raises(SystemExit) as caught:
+        main(["ground", "nonsense"])
+    assert "roster" in str(caught.value)                 # the menu is the error
+    assert not (tmp_path / ".thinair").exists()
 
 
 def test_the_held_row_colors_earned_agreement_and_dims_unopposed(

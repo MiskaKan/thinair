@@ -332,28 +332,31 @@ of it:
   episode: the model proposes actions against a sealed snapshot, the resulting
   changeset commits atomically as ordinary opinions, and the return value faces the
   panel like any other candidate. Chained calls operate on fresh child things.
-- **The Thing carries the whole surface.** An attribute is declared in the class body
-  with a shape — `total = Thing(float, extracted_from="source_text", range=(0, 1e6))`
-  — which attaches the validators the shape implies (a bare annotation
-  `source_text: str` declares too). The panel changes through operators — `t += belief`
-  / `t -= belief` in place, `t + belief` / `t - belief` for a fresh handle — and every
-  change is recorded: the strategy is part of the history. So **never `t += belief`
-  just for a second opinion** — `corroborate(t, beliefs=[...])` consults any belief,
-  on or off the panel; `+=` declares a new strategy (a `[belief]` commit, a real
-  negotiating member), and the next run records the removal: churn, not strategy.
-  `Thing.__default__ = model("...")` names the generative belief any panel without one
-  falls back to. Pinning is a property of the *belief* (`frozen=True`), never a verb on
-  the Thing: **a value code already knows is assigned, never asked** — `t.axis = value`
-  records it frozen, free, and consults no panel. The remaining module verbs are
-  `model`, `human`, `corroborate` (consult the beliefs the read never asked, recording
-  second opinions into the same cells for settlement) and `fn` — functions as cells: a
-  call is a read of a `(call_id, "result")` cell; pure code freezes it (memoization),
-  model-served calls stay opinions.
 - **Settlement ships with the framework**: `thinair.evaluate` reads the
   ledger back — veto-aware readings, scale-licensed agreement, chance-corrected
   kappa, Bradley–Terry, reliability, drift, discrimination, concordance with the
   frozen ground, calibration, budget tiers. Never re-implement it in a strategy, and
   never ask the model to compute what it computes.
+
+### The surface, spelled out
+
+The Thing carries the whole surface. An attribute is declared in the class body
+with a shape — `total = Thing(float, extracted_from="source_text", range=(0, 1e6))`
+— which attaches the validators the shape implies (a bare annotation
+`source_text: str` declares too). The panel changes through operators — `t += belief`
+/ `t -= belief` in place, `t + belief` / `t - belief` for a fresh handle — and every
+change is recorded: the strategy is part of the history. So **never `t += belief`
+just for a second opinion** — `corroborate(t, beliefs=[...])` consults any belief,
+on or off the panel; `+=` declares a new strategy (a `[belief]` commit, a real
+negotiating member), and the next run records the removal: churn, not strategy.
+`Thing.__default__ = model("...")` names the generative belief any panel without one
+falls back to. Pinning is a property of the *belief* (`frozen=True`), never a verb on
+the Thing: **a value code already knows is assigned, never asked** — `t.axis = value`
+records it frozen, free, and consults no panel. The remaining module verbs are
+`model`, `human`, `corroborate` (consult the beliefs the read never asked, recording
+second opinions into the same cells for settlement) and `fn` — functions as cells: a
+call is a read of a `(call_id, "result")` cell; pure code freezes it (memoization),
+model-served calls stay opinions.
 
 ## The mapping
 

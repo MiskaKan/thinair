@@ -379,19 +379,26 @@ exactly where they diverge; a commit's Date is the first time its state
 was reached.  The tree itself stays the bare state hash episodes point at.
 Output colors only a terminal; `NO_COLOR` wins.  `thinair ground`
 dumps the shipped GROUNDING.md as-is — no meta explaining the file to
-its reader — minus the strategy-design-only stretches (the mathematical
-anchors, Part 2 — the experiment protocol — and the Layer 2 outlook), so
-the pillars, the moves, and the framework land whole in an agent
-harness's inline tool output; `--full` restores the cuts.  Both close with two generated
-appendices — the built-in
-belief roster, and a client manual for agents (a runnable program
-skeleton — the deliverable is a running program, and the manual demands
-nothing of the project's structure: no file is required reading and
-none has to exist — the command set, `--ai-readable`, the verify loop:
-debug through the record and finish only when `agree=` is high with the
-matrix asked full, how to add beliefs, what the marks mean) — store-free
-and pipe-pure, so an agentic session's first command can be its own
-grounding *and* its own tool manual.  Two commands write.  `evaluate [commit] [belief|*]`
+its reader — in three tiers.  The default is the orientation tier:
+GROUNDING.md minus the strategy-design stretches (the mathematical
+anchors, Part 2 — the experiment protocol — and the Layer 2 outlook)
+and minus the reference stretches (the generated built-in belief
+roster, the spelled-out Thing surface), so the pillars, the moves, and
+the framework land whole in an agent harness's inline tool output;
+`--full` restores every cut; and `ground <section>` re-fetches any one
+part on demand (`pillars`, `moves`, `protocol`, `anchors`, `framework`,
+`surface`, `mapping`, `roster`, `manual`, and the manual's `build`,
+`inspect`, `measure`, `verify`, `extend`, `declare`) — the growth
+valve: what rule 7 folds in lands in a tier or a section, never back
+in one ever-fatter blob.  Every tier closes with the generated client
+manual for agents (a runnable program skeleton — the deliverable is a
+running program, and the manual demands nothing of the project's
+structure: no file is required reading and none has to exist — the
+command set, `--ai-readable`, the verify loop: debug through the
+record and finish only when `agree=` is high with the matrix asked
+full, how to add beliefs, what the marks mean, and the section index
+itself) — store-free and pipe-pure, so an agentic session's first
+command can be its own grounding *and* its own tool manual.  Two commands write.  `evaluate [commit] [belief|*]`
 rebuilds the commit's tree as a sealed snapshot, consults reconstructible
 beliefs, and records the answers as corroborations, idempotent per
 (commit, belief, cell) — a collapsed commit's refs share one evaluation,

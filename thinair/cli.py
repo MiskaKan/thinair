@@ -37,6 +37,7 @@ import argparse
 import contextlib
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -1433,6 +1434,13 @@ validators, humans, notes: all voices count the same;
 `expect-violated` (a declared expectation was missed).  Without it you
 are blind to half the output.
 
+This output is re-fetchable at any time, whole or by part:
+`thinair ground <section>` prints one section -- pillars, moves,
+framework, surface (the Thing's full surface, spelled out), mapping,
+roster (every built-in validator), manual, build, inspect, measure,
+verify, extend, declare -- and `--full` adds the experiment-design
+tier (protocol, anchors).
+
 ### Build -- the deliverable is a running program
 
 Whatever plan you hold, it measures nothing until it executes: build
@@ -1536,7 +1544,8 @@ store already holds what every belief saw and said.  After each run:
 
 ### Extend
 
-Add your own instrument when nothing built-in checks what matters:
+Add your own instrument when nothing built-in checks what matters
+(`thinair ground roster` lists every built-in validator first):
 
     # sentences.py
     from thinair.beliefs import Discriminative
@@ -1589,35 +1598,101 @@ to the model; `enum=`, `range=`, ... are shorthand for this.
 into the record and judged there, never shown to the answering belief,
 never a gate.  `eager=True` resolves at construction.  The panel is
 part of the history: `t += belief` / `t -= belief` land as `[belief]`
-commits.  The theory is above; this output is the whole grounding.
+commits -- so **never `+=` just for a second opinion**:
+`corroborate(t, beliefs=[...])` consults any belief, on or off the
+panel, without declaring a new strategy.  `fn` makes a function a
+cell: pure code freezes its result (memoization); a model-served
+`@fn` stays an opinion.  The theory is above; this output is the
+whole grounding.
 '''
+
+
+#: ``thinair ground <section>`` -- each name marks a heading in the
+#: assembled document (grounding + roster + manual); the slice runs to the
+#: next heading of the same or higher level.
+GROUND_SECTIONS = {
+    "pillars": "# Part 1",
+    "moves": "## The moves",
+    "protocol": "# Part 2",
+    "anchors": "## Mathematical anchors",
+    "framework": "## The framework in brief",
+    "surface": "### The surface, spelled out",
+    "mapping": "## The mapping",
+    "roster": "## Appendix: built-in beliefs",
+    "manual": "## Appendix: the thinair client",
+    "build": "### Build",
+    "inspect": "### Inspect",
+    "measure": "### Measure",
+    "verify": "### Verify",
+    "extend": "### Extend",
+    "declare": "### Declare",
+}
+
+
+def _ground_whole() -> str:
+    """The complete assembled document: GROUNDING.md as shipped, then the
+    two generated appendices.  Every section lives here; the tiers and the
+    section slicer both cut from this one text."""
+    from importlib.resources import files
+
+    text = files("thinair").joinpath("GROUNDING.md").read_text(
+        encoding="utf-8")
+    return text + _builtin_roster() + _client_manual()
+
+
+def _cut(text, marker, until):
+    """Drop ``marker``..``until`` (the end marker survives)."""
+    head, found, rest = text.partition(marker)
+    if not found:
+        return text
+    _skip, mark, tail = rest.partition(until)
+    return head + mark + tail if mark else head
+
+
+def _ground_section(text, name) -> str:
+    """One section: from its heading to the next heading of the same or
+    higher level (end of text for the last)."""
+    marker = GROUND_SECTIONS[name]
+    match = re.search(rf"(?m)^{re.escape(marker)}\b.*$", text)
+    if match is None:                                # pragma: no cover
+        sys.exit(f"fatal: section {name!r} not found in the grounding")
+    level = len(marker) - len(marker.lstrip("#"))
+    tail = text[match.start():]
+    end = re.search(rf"(?m)^#{{1,{level}}} ", tail[match.end() - match.start():])
+    if end is None:
+        return tail.rstrip("\n") + "\n"
+    return tail[:match.end() - match.start() + end.start()].rstrip("\n") + "\n"
 
 
 def cmd_ground(_ledger, args):
     """The grounding, dumped as-is -- no meta, no explaining the file to
-    its reader.  Default: GROUNDING.md minus the strategy-design-only
-    stretches (the mathematical anchors, Part 2 -- the experiment
-    protocol -- and the Layer 2 outlook), plus two generated appendices
-    -- the built-in belief roster and the client manual for agents --
-    sized so a harness shows it inline instead of truncating to a file.
-    `--full` restores the cuts.  Nothing else on stdout, so the output
-    pipes straight into an agent's context; the first command of an
-    agentic session."""
-    from importlib.resources import files
-    text = files("thinair").joinpath("GROUNDING.md").read_text(
-        encoding="utf-8")
+    its reader.  Default: the orientation tier -- GROUNDING.md minus the
+    strategy-design stretches (the mathematical anchors, Part 2 -- the
+    experiment protocol -- and the Layer 2 outlook) and minus the
+    reference stretches (the built-in belief roster, the spelled-out
+    Thing surface), plus the client manual for agents -- sized so a
+    harness shows it inline instead of truncating to a file.  `--full`
+    restores every cut; ``ground <section>`` re-fetches any one part on
+    demand.  Nothing else on stdout, so the output pipes straight into an
+    agent's context; the first command of an agentic session."""
+    text = _ground_whole()
+    section = getattr(args, "section", None)
+    if section is not None:
+        if section not in GROUND_SECTIONS:
+            sys.exit(f"fatal: unknown section {section!r}; one of: "
+                     + ", ".join(GROUND_SECTIONS))
+        sys.stdout.write(_ground_section(text, section))
+        return
     if not getattr(args, "full", False):
-        head, cut, rest = text.partition("## Mathematical anchors")
-        _skip, mark, tail = rest.partition("# Part 3 ")
-        if cut and mark:
-            text = head + mark + tail
-        head, cut, rest = text.partition("Layer 2 — scoring beliefs")
+        text = _cut(text, "## Mathematical anchors", "# Part 3 ")
+        head, found, rest = text.partition("Layer 2 — scoring beliefs")
         _skip, mark, tail = rest.partition("\n---\n")
-        if cut and mark:
+        if found and mark:
             text = head + tail.lstrip("\n")
+        text = _cut(text, "### The surface, spelled out", "## The mapping")
+        text = _cut(text, "\n---\n\n## Appendix: built-in beliefs",
+                    "\n---\n\n## Appendix: the thinair client")
     sys.stdout.write(text)
-    sys.stdout.write(_builtin_roster())
-    sys.stdout.write(_client_manual())
 
 
 def main(argv=None) -> int:
@@ -1700,10 +1775,15 @@ def main(argv=None) -> int:
 
     ground = sub.add_parser(
         "ground", help="print the measurement grounding; pipe it to an agent")
+    ground.add_argument("section", nargs="?", default=None,
+                        metavar="section",
+                        help="print one section on demand: "
+                             + ", ".join(GROUND_SECTIONS))
     ground.add_argument("--full", action="store_true",
-                        help="include the experiment protocol (Part 2), the "
-                             "mathematical anchors and the Layer 2 outlook: "
-                             "for designing a strategy from raw data")
+                        help="include every cut tier: the experiment "
+                             "protocol (Part 2), the mathematical anchors, "
+                             "the Layer 2 outlook, the belief roster and "
+                             "the spelled-out surface")
     ground.set_defaults(run=cmd_ground, needs_store=False)
 
     help_ = sub.add_parser("help", help="show help for thinair or a command")
