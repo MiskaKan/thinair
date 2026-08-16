@@ -372,6 +372,9 @@ Every element of a strategy is a thinair construct:
 | Budget tiers | Rounds / escalation, runtime-owned policy; recounted by `evaluate.tiers` |
 | Exposed weights | Human belief / frozen assignments — never a model output |
 | Declared expectations | `Thing(..., p=, deviation=)` — stamped into the record and judged there, **never shown to the answering belief** (a belief told what to be sure of inflates) and never a gate: a reading is not wrong alone; the spread between readings is the signal |
+| Agent | a *role a Thing plays*: the panel is its mind, `public=True` cells its voice, `meta.refs` its acquaintances — no Agent class |
+| Perception between minds | the boundary snapshot: identity, purpose, public cells only — default private, fail closed, never derives |
+| Acting on another mind | not a construct: code only; a mind writes its own cells and is read — asking ends the turn, conversations are alternating commits |
 
 Four structural facts the machinery expects, stated so nobody rediscovers them the
 expensive way:
@@ -391,6 +394,13 @@ expensive way:
   — the photo-desk instrument on the article with no photos. Read it as a coverage gap
   (`evaluate.coverage`), never as agreement; what an instrument cannot see is itself a
   finding.
+- **A society runtime is a scheduler, nothing more.** The three wake rules — you
+  moved, a held entity moved, something naming you moved — are one check: did this
+  (agent, peer) hash pair move since the agent last considered that peer. Order each
+  queue fresh-introductions-first-then-stalest (a busy acquaintance starves the rest);
+  make minds answer only what is addressed to them (else any mention re-triggers them
+  and the society churns instead of quiescing); never cache-bust — a recurring hash
+  pair is a livelock tell, and backing off is the runtime's job, not the mind's.
 
 Layer 2 — scoring beliefs by dissimilarity-weighted agreement — remains deferred
 (SPEC.md §14). Its design evidence comes from these experiments: the ledger of every

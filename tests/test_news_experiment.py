@@ -240,7 +240,7 @@ def test_the_ledger_alone_answers_who_said_what():
     authors = {o.belief for o in ledger.opinions(entity="n01", attr="country")}
     assert belief.id in authors
     assert any(a.startswith("isoCountry") for a in authors)
-    assert any("deepseek-v4-flash" in a and "T0.2" in a and "extract-v3" in a
+    assert any("deepseek-v4-flash" in a and "T0.2" in a and "extract-v4" in a
                for a in authors)
 
 

@@ -65,10 +65,24 @@ class Belief:
 | `e.__contracts__` `__methods__` `__arguments__` `__objections__` | what a proposer is told |
 | `e.__episode__` `__call_arguments__` | present only for episodes and call-cells |
 | `e.__attrs__()` `e.__opinion__(attr)` | the resolved cells |
+| `e.__peers__` `e.__boundary__` | held references' boundary views; whether this snapshot *is* one |
 
 Two guarantees, both invisible at the interface: panel entries are memoized
 (one evaluation per belief per cell per round), and re-entry yields `None`
 (cycles resolve instead of recursing).
+
+**The entity boundary.**  A snapshot crossing an entity boundary — a
+Thing-valued episode argument, a held reference rendered as a peer — carries
+identity, purpose (the class docstring) and **public cells only**: no panel,
+no ledger slice, no contracts, no methods, no private cells.  Public is
+declared (`Thing(..., public=True)`); everything else — bare annotations and
+assigned-but-undeclared cells included — is private by default, and the
+filter fails closed.  Building a boundary view never derives: an unresolved
+public cell is absent, not consulted into existence.  References are
+capabilities: an entity id in a standing cell's `meta.refs` renders as that
+entity's boundary view in `e.__peers__`, dereferenced fresh at render time —
+never remembered — and an id with no live handle on the same ledger renders
+as the bare id.
 
 ## 5. The read pipeline
 
@@ -144,8 +158,8 @@ same address.
 ## 8. Declarations
 
 `Thing(template, extracted_from=, range=, enum=, length=, format=,
-checksum=, sums_to=, unique=, elaborates=, necessary=, beliefs=, doc=)` in
-a class body declares an attribute: it appends scoped beliefs to
+checksum=, sums_to=, unique=, elaborates=, necessary=, beliefs=, doc=,
+public=)` in a class body declares an attribute: it appends scoped beliefs to
 `__beliefs__` and nothing else.  A bare annotation (`source_text: str`) is
 a declaration too.  `beliefs=` entries are first-class declarations, not
 second-class attachments: each is auto-scoped to the attribute, keeps its
@@ -159,6 +173,9 @@ same object that constrains the engine's structured output and performs the
 post-hoc check.  Docstrings are prompt material: the class docstring is the
 snapshot's `purpose`, `doc=` joins the declaration's description, and a real
 method's first docstring line rides along with its signature.
+
+`public=True` marks the attribute as part of what crosses an entity boundary
+(§4); everything else stays private, fail closed.
 
 Three more options never reach the prompt.  `p=` (a floor, or `(lo, hi)`
 bounds) and `deviation=` (a max spread) declare **expectations** — Layer 2
@@ -177,6 +194,13 @@ snapshot to `(changeset, return_value, p)`.
 
 * Grammar: `get <attr>`, `call <real_method>(args)`, `return {changes, value, p}`.
   There is no freeze action, and a return carrying `frozen` is rejected.
+* Acting on another object is a **code-only capability**: `call` resolves
+  method names against the host alone — never against a Thing-valued
+  argument — and there is no write path and no call path between minds.  A
+  mind reaches another only by writing its own cells and being read (§4).
+* `acting=True` (reserved and stripped, like `returns=`; framing, not
+  identity) puts the same grammar under the open agentic frame — "you are
+  this entity; act" — with its own template version.
 * Budgets: 8 actions, 3 corrections, depth 1.
 * The return value faces the discriminative panel like any other candidate.
 * Every write must target a declared, unfrozen attribute and pass the full
@@ -422,8 +446,9 @@ stay invisible to the instrument.  Model opinions carry an `exposure`
 fingerprint in `meta` (a hash of the rendered context), so dissimilarity in
 mechanism AND exposure is computable from the ledger after the fact.  Where
 a Thing or Cell crosses into the record — assignment, episode arguments,
-`fn` arguments — `meta.refs` keeps the durable addresses (`entity`,
-`entity#attr`) that value-reduction would otherwise destroy; the record's
+`fn` arguments, and a model changeset or answer whose value is (or contains,
+exactly) a known entity's id — `meta.refs` keeps the durable addresses
+(`entity`, `entity#attr`) that value-reduction would otherwise destroy; the record's
 dependency graph is thereby a pure derivation, never a stored structure.
 
 **Second opinions.**  The module verb `corroborate(thing, attrs=, beliefs=)`

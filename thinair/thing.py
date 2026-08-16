@@ -29,6 +29,7 @@ from __future__ import annotations
 import contextlib
 import inspect
 import uuid
+import weakref
 from typing import Any
 
 from .beliefs import (Belief, HumanBelief, MemoBelief, Scoped,
@@ -47,8 +48,8 @@ from .policy import (
 )
 
 __all__ = ["Thing", "Cell", "Snapshot", "ThingMeta", "corroborate",
-           "snapshot", "LowConfidence", "Unresolvable", "Disagreement",
-           "resident_human"]
+           "snapshot", "boundary_snapshot", "LowConfidence", "Unresolvable",
+           "Disagreement", "resident_human"]
 
 #: how the framework spells itself on a Thing.  Anything matching this is the
 #: framework's; everything else is the user's domain.
@@ -91,8 +92,12 @@ class Contract:
                  enum=None, length=None, format=None, checksum=None,
                  sums_to=None, unique=False, elaborates=False,
                  necessary=True, describe=None, beliefs=(), doc=None,
-                 p=None, deviation=None, eager=False):
+                 p=None, deviation=None, eager=False, public=False):
         self.template = template
+        #: whether this cell crosses an entity boundary (SPEC.md §4).
+        #: Default private, fail closed: only a declared ``public=True``
+        #: attribute is part of what another entity perceives.
+        self.public = bool(public)
         self.extracted_from = extracted_from
         self.range = range
         self.enum = enum
@@ -376,12 +381,13 @@ class Snapshot:
     __slots__ = ("__entity__", "__beliefs__", "__ledger__", "__value__", "__p__",
                  "__contracts__", "__methods__", "__arguments__", "__objections__",
                  "__owner__", "__episode__", "__call_arguments__", "__class_name__",
-                 "__provenance__", "__purpose__", "__round__", "_cells")
+                 "__provenance__", "__purpose__", "__round__", "__peers__",
+                 "__boundary__", "_cells")
 
     def __init__(self, *, entity, beliefs=(), ledger=None, cells=None, value=None,
                  p=0.0, contracts=None, methods=(), arguments=None, objections=(),
                  owner=None, episode=None, call_arguments=None, class_name="Thing",
-                 provenance=(), purpose="", round=0):
+                 provenance=(), purpose="", round=0, peers=None, boundary=False):
         set = object.__setattr__
         set(self, "__entity__", entity)
         set(self, "__beliefs__", list(beliefs))
@@ -399,6 +405,8 @@ class Snapshot:
         set(self, "__provenance__", tuple(provenance))
         set(self, "__purpose__", purpose or "")
         set(self, "__round__", round)
+        set(self, "__peers__", dict(peers or {}))
+        set(self, "__boundary__", bool(boundary))
         set(self, "_cells", dict(cells or {}))
 
     # -- the ordinary public interface ------------------------------------
@@ -447,6 +455,8 @@ class Snapshot:
             tuple(sorted((k, v.__fingerprint__()) for k, v in self.__arguments__.items())),
             tuple(repr(o) for o in self.__objections__),
             repr(self.__call_arguments__),
+            tuple(sorted((k, v.__fingerprint__()) for k, v in self.__peers__.items())),
+            self.__boundary__,
         )
 
     def __repr__(self) -> str:                       # pragma: no cover - cosmetic
@@ -464,6 +474,109 @@ def snapshot(thing, attr=None) -> Snapshot:
     memo, active = {}, set()
     entries = [MemoBelief(b, memo, active) for b in thing.__beliefs__]
     return _build_snapshot(thing, attr, beliefs=entries)
+
+
+# --------------------------------------------------------------------------
+# the entity boundary: perception between minds (SPEC.md §4)
+# --------------------------------------------------------------------------
+
+#: live root Things by entity id, weakly held.  A reference is a capability:
+#: dereferencing an entity id at render time means finding its live handle
+#: and reading its *current* standing state -- never a remembered copy.  The
+#: registry keeps no state itself; the state is always read fresh.
+_LIVE: "weakref.WeakValueDictionary[str, Thing]" = weakref.WeakValueDictionary()
+
+
+def public_attrs(cls) -> set:
+    """The attributes of ``cls`` declared ``public=True`` -- nothing else
+    crosses an entity boundary.  Default private, fail closed."""
+    return {name for name, declared in
+            (getattr(cls, "__contracts__", {}) or {}).items()
+            if getattr(declared, "public", False)}
+
+
+def boundary_snapshot(thing) -> Snapshot:
+    """The view of ``thing`` that crosses an entity boundary (SPEC.md §4).
+
+    Perception between minds is deliberately poorer than self-knowledge:
+    identity, purpose (the class docstring) and **public** cells only -- no
+    panel, no ledger slice, no contracts, no methods, no private cells.  An
+    attribute crosses only if declared ``public=True``; an assigned but
+    undeclared cell is private like everything else.  Building this view
+    never derives: an unresolved public cell is simply absent.
+    """
+    if isinstance(thing, Cell):
+        # A cell crossing carries its already-resolved value only if its
+        # attribute is public on the parent; never __resolve__ -- perception
+        # must not trigger derivation.
+        opinion = thing.__opinion__
+        cells = {}
+        if opinion is not None and \
+                thing.__attr__ in public_attrs(type(thing.__parent__)):
+            cells = {thing.__attr__: opinion}
+        return Snapshot(entity=thing.__entity__, cells=cells,
+                        class_name=type(thing.__parent__).__name__,
+                        purpose="", boundary=True)
+    allowed = public_attrs(type(thing))
+    cells = {attr: opinion for attr, opinion in
+             _standing(thing.__root__, thing.__entity__).items()
+             if attr in allowed}
+    return Snapshot(entity=thing.__entity__, cells=cells,
+                    class_name=type(thing).__name__,
+                    purpose=(type(thing).__doc__ or "").strip(),
+                    boundary=True)
+
+
+def _peer_views(thing, cells) -> dict:
+    """Held references, dereferenced fresh at snapshot time (SPEC.md §4).
+
+    An entity id in a standing cell's ``meta.refs`` renders as that entity's
+    *boundary* view, looked up live -- never remembered.  An id with no live
+    handle on this same ledger fails closed to the bare id: identity without
+    state.
+    """
+    ledger = thing.__ledger__
+    out: dict[str, Snapshot] = {}
+    for opinion in cells.values():
+        for ref in (opinion.meta or {}).get("refs", ()):
+            base = str(ref).split("#", 1)[0]
+            if base == thing.__entity__ or base in out:
+                continue
+            live = _LIVE.get(base)
+            if live is not None and live.__ledger__ is ledger:
+                out[base] = boundary_snapshot(live)
+            else:
+                out[base] = Snapshot(entity=base, class_name="", boundary=True)
+    return out
+
+
+def record_refs(value, ledger) -> list:
+    """Entity ids carried by a *plain* value crossing into the record.
+
+    The inverse of the Thing→id reduction (:func:`references`): a model that
+    was shown an entity id can only hand it back as a string, so a changeset
+    write whose value is -- or contains, walking containers -- a string equal
+    to a known entity's id (or ``entity#attr`` address) earns the same
+    ``meta["refs"]`` stamp an assignment of the live Thing would carry.
+    Exact string match only: a mention inside prose is prose, not a
+    capability.
+    """
+    known = {cell[0] for cell in ledger.cells()}
+    out: list[str] = []
+
+    def walk(v):
+        if isinstance(v, str):
+            if v in known or v.split("#", 1)[0] in known:
+                out.append(v)
+        elif isinstance(v, dict):
+            for x in v.values():
+                walk(x)
+        elif isinstance(v, (list, tuple, set, frozenset)):
+            for x in v:
+                walk(x)
+
+    walk(value)
+    return list(dict.fromkeys(out))
 
 
 # --------------------------------------------------------------------------
@@ -510,6 +623,7 @@ class Thing(metaclass=ThingMeta):
         beliefs = kwargs.pop("__beliefs__", None)
         if beliefs is not None:
             set(self, "__beliefs__", list(beliefs))
+        _LIVE[self.__entity__] = self
         _declare_panel(self)
         # constructor kwargs are assignments, and assignment is the human
         # speaking
@@ -985,9 +1099,11 @@ def _build_snapshot(thing, attr=None, *, beliefs=(), objections=(), round=0,
         value = thing.__opinion__.value if thing.__opinion__ is not None else None
         p = thing.__opinion__.p if thing.__opinion__ is not None else 0.0
         provenance = _provenance(thing)
+        peers = {}
     else:
         cells = _standing(owner, entity, deriving=attr)
         value, p, provenance = None, 0.0, ()
+        peers = _peer_views(thing, cells)
     return Snapshot(
         entity=entity,
         beliefs=list(beliefs),
@@ -1007,6 +1123,7 @@ def _build_snapshot(thing, attr=None, *, beliefs=(), objections=(), round=0,
         purpose=(getattr(thing, "__purpose__", None)
                  or (type(thing).__doc__ or "").strip()),
         round=round,
+        peers=peers,
     )
 
 
@@ -1334,6 +1451,12 @@ def propose(thing, attr, value, p=1.0, meta=None):
         return None, [("thinair:frozen", 0.0,
                        f"{attr!r} is frozen at {pinned.value!r} "
                        f"(per {pinned.belief}) and cannot be overwritten")]
+    # A changeset write whose value carries a known entity id is a reference
+    # like any other: stamp the address the value-reduction cannot carry.
+    meta = dict(meta or {})
+    refs = record_refs(value, thing.__ledger__)
+    if refs:
+        meta.setdefault("refs", refs)
     return review(thing, attr, value, p, meta=meta)
 
 
@@ -1525,4 +1648,5 @@ def _recast(thing, cls):
     set(recast, "__root__", recast)
     set(recast, "__resolved__", {})          # cached resolutions invalidate
     set(recast, "__coerced__", {})
+    _LIVE[recast.__entity__] = recast
     return recast

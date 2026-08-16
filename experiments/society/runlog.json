@@ -1,0 +1,365 @@
+{
+  "outcome": {
+    "mode": "scripted",
+    "preregistration": {
+      "STRATEGY.md": "00fdf9e66e67",
+      "cast.py": "77a3d211fd99",
+      "sweep.py": "05fe03f83794",
+      "minds.py": "eefaf0371c97",
+      "run.py": "8a0f6e865aa8"
+    },
+    "sweeps_to_quiescence": 14,
+    "opinions": 114,
+    "accepted_quote": 260.0,
+    "mechanic": "mech-tom",
+    "wall_seconds": 0.0
+  },
+  "turns": [
+    {
+      "sweep": 1,
+      "agent": "anna",
+      "peer": "anna",
+      "cause": "self moved",
+      "outcome": "turn",
+      "value": "asked the internet for help",
+      "p": 0.9
+    },
+    {
+      "sweep": 1,
+      "agent": "internet",
+      "peer": "anna",
+      "cause": "anna moved",
+      "outcome": "turn",
+      "value": "referred the asker to the marketplace",
+      "p": 0.85
+    },
+    {
+      "sweep": 2,
+      "agent": "anna",
+      "peer": "internet",
+      "cause": "internet moved",
+      "outcome": "turn",
+      "value": "followed the referral",
+      "p": 0.85
+    },
+    {
+      "sweep": 2,
+      "agent": "internet",
+      "peer": "internet",
+      "cause": "self moved",
+      "outcome": "turn",
+      "value": "nothing to do alone",
+      "p": 0.85
+    },
+    {
+      "sweep": 2,
+      "agent": "forum",
+      "peer": "internet",
+      "cause": "internet moved",
+      "outcome": "turn",
+      "value": "not addressed to me",
+      "p": 0.8
+    },
+    {
+      "sweep": 3,
+      "agent": "anna",
+      "peer": "forum",
+      "cause": "forum moved",
+      "outcome": "turn",
+      "value": "nothing to do",
+      "p": 0.8
+    },
+    {
+      "sweep": 3,
+      "agent": "internet",
+      "peer": "forum",
+      "cause": "forum moved",
+      "outcome": "turn",
+      "value": "not addressed to me",
+      "p": 0.8
+    },
+    {
+      "sweep": 3,
+      "agent": "forum",
+      "peer": "anna",
+      "cause": "anna moved",
+      "outcome": "turn",
+      "value": "posted the job",
+      "p": 0.85
+    },
+    {
+      "sweep": 3,
+      "agent": "mech-dave",
+      "peer": "forum",
+      "cause": "forum moved",
+      "outcome": "turn",
+      "value": "quoted an open job",
+      "p": 0.85
+    },
+    {
+      "sweep": 3,
+      "agent": "mech-tom",
+      "peer": "forum",
+      "cause": "forum moved",
+      "outcome": "turn",
+      "value": "quoted an open job",
+      "p": 0.85
+    },
+    {
+      "sweep": 4,
+      "agent": "anna",
+      "peer": "mech-dave",
+      "cause": "mech-dave moved",
+      "outcome": "turn",
+      "value": "declined: the quote is over budget",
+      "p": 0.9
+    },
+    {
+      "sweep": 4,
+      "agent": "internet",
+      "peer": "anna",
+      "cause": "anna moved",
+      "outcome": "turn",
+      "value": "not addressed to me",
+      "p": 0.8
+    },
+    {
+      "sweep": 4,
+      "agent": "forum",
+      "peer": "forum",
+      "cause": "self moved",
+      "outcome": "turn",
+      "value": "nothing to do alone",
+      "p": 0.85
+    },
+    {
+      "sweep": 4,
+      "agent": "mech-dave",
+      "peer": "mech-dave",
+      "cause": "self moved",
+      "outcome": "turn",
+      "value": "nothing to do alone",
+      "p": 0.85
+    },
+    {
+      "sweep": 4,
+      "agent": "mech-tom",
+      "peer": "mech-tom",
+      "cause": "self moved",
+      "outcome": "turn",
+      "value": "nothing to do alone",
+      "p": 0.85
+    },
+    {
+      "sweep": 5,
+      "agent": "anna",
+      "peer": "mech-tom",
+      "cause": "mech-tom moved",
+      "outcome": "turn",
+      "value": "accepting the quote from mech-tom",
+      "p": 0.85
+    },
+    {
+      "sweep": 5,
+      "agent": "internet",
+      "peer": "forum",
+      "cause": "forum moved",
+      "outcome": "turn",
+      "value": "not addressed to me",
+      "p": 0.8
+    },
+    {
+      "sweep": 5,
+      "agent": "forum",
+      "peer": "mech-dave",
+      "cause": "mech-dave moved",
+      "outcome": "turn",
+      "value": "not addressed to me",
+      "p": 0.8
+    },
+    {
+      "sweep": 5,
+      "agent": "mech-dave",
+      "peer": "anna",
+      "cause": "anna moved",
+      "outcome": "turn",
+      "value": "not addressed to me",
+      "p": 0.8
+    },
+    {
+      "sweep": 5,
+      "agent": "mech-tom",
+      "peer": "anna",
+      "cause": "anna moved",
+      "outcome": "turn",
+      "value": "booked the job",
+      "p": 0.9
+    },
+    {
+      "sweep": 6,
+      "agent": "anna",
+      "peer": "anna",
+      "cause": "self moved",
+      "outcome": "turn",
+      "value": "nothing more to do alone",
+      "p": 0.85
+    },
+    {
+      "sweep": 6,
+      "agent": "internet",
+      "peer": "anna",
+      "cause": "anna moved",
+      "outcome": "turn",
+      "value": "not addressed to me",
+      "p": 0.8
+    },
+    {
+      "sweep": 6,
+      "agent": "forum",
+      "peer": "mech-tom",
+      "cause": "mech-tom moved",
+      "outcome": "turn",
+      "value": "not addressed to me",
+      "p": 0.8
+    },
+    {
+      "sweep": 6,
+      "agent": "mech-tom",
+      "peer": "forum",
+      "cause": "forum moved",
+      "outcome": "turn",
+      "value": "no new job on the board",
+      "p": 0.8
+    },
+    {
+      "sweep": 7,
+      "agent": "anna",
+      "peer": "internet",
+      "cause": "internet moved",
+      "outcome": "turn",
+      "value": "nothing new from the internet",
+      "p": 0.8
+    },
+    {
+      "sweep": 7,
+      "agent": "forum",
+      "peer": "internet",
+      "cause": "internet moved",
+      "outcome": "turn",
+      "value": "not addressed to me",
+      "p": 0.8
+    },
+    {
+      "sweep": 7,
+      "agent": "mech-tom",
+      "peer": "mech-tom",
+      "cause": "self moved",
+      "outcome": "turn",
+      "value": "nothing to do alone",
+      "p": 0.85
+    },
+    {
+      "sweep": 8,
+      "agent": "anna",
+      "peer": "forum",
+      "cause": "forum moved",
+      "outcome": "turn",
+      "value": "nothing to do",
+      "p": 0.8
+    },
+    {
+      "sweep": 8,
+      "agent": "forum",
+      "peer": "anna",
+      "cause": "anna moved",
+      "outcome": "turn",
+      "value": "not addressed to me",
+      "p": 0.8
+    },
+    {
+      "sweep": 9,
+      "agent": "anna",
+      "peer": "mech-dave",
+      "cause": "mech-dave moved",
+      "outcome": "turn",
+      "value": "declined: already booked",
+      "p": 0.85
+    },
+    {
+      "sweep": 9,
+      "agent": "internet",
+      "peer": "anna",
+      "cause": "anna moved",
+      "outcome": "turn",
+      "value": "not addressed to me",
+      "p": 0.8
+    },
+    {
+      "sweep": 9,
+      "agent": "forum",
+      "peer": "anna",
+      "cause": "anna moved",
+      "outcome": "turn",
+      "value": "not addressed to me",
+      "p": 0.8
+    },
+    {
+      "sweep": 9,
+      "agent": "mech-dave",
+      "peer": "anna",
+      "cause": "anna moved",
+      "outcome": "turn",
+      "value": "letting it go",
+      "p": 0.8
+    },
+    {
+      "sweep": 9,
+      "agent": "mech-tom",
+      "peer": "anna",
+      "cause": "anna moved",
+      "outcome": "turn",
+      "value": "not addressed to me",
+      "p": 0.8
+    },
+    {
+      "sweep": 10,
+      "agent": "anna",
+      "peer": "mech-tom",
+      "cause": "mech-tom moved",
+      "outcome": "turn",
+      "value": "waiting for the repair",
+      "p": 0.8
+    },
+    {
+      "sweep": 11,
+      "agent": "anna",
+      "peer": "anna",
+      "cause": "self moved",
+      "outcome": "turn",
+      "value": "nothing more to do alone",
+      "p": 0.85
+    },
+    {
+      "sweep": 12,
+      "agent": "anna",
+      "peer": "internet",
+      "cause": "internet moved",
+      "outcome": "turn",
+      "value": "nothing new from the internet",
+      "p": 0.8
+    },
+    {
+      "sweep": 13,
+      "agent": "anna",
+      "peer": "forum",
+      "cause": "forum moved",
+      "outcome": "turn",
+      "value": "nothing to do",
+      "p": 0.8
+    },
+    {
+      "sweep": 14,
+      "outcome": "quiescent"
+    }
+  ]
+}

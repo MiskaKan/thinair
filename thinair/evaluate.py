@@ -1066,7 +1066,10 @@ def history(ledger: Ledger, entity: str | None = None) -> list[dict]:
             events.append(dict(
                 t=o.t, entity=host, kind="episode", author=o.belief,
                 message=meta["call"], changes=changes,
-                returned=(o.value, o.p), recorded_parent=meta["state"],
+                returned=(o.value, o.p),
+                # with Thing-valued arguments the repetition key is wider
+                # than the host tree; the host half is recorded separately
+                recorded_parent=meta.get("host_state", meta["state"]),
                 rounds=1, vetoes=[], unknown_judges=[], end=o.t))
             continue
         if o.frozen:

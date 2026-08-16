@@ -687,10 +687,14 @@ class ModelBelief(Belief):
         from .engine import complete_json, ParseFailure
         from .engine import prompts
 
+        acting = bool(getattr(episode, "acting", False))
+        template = prompts.AGENT_TEMPLATE if acting else self.episode_template
         convo = prompts.episode_messages(
             e, episode.expression, returns=episode.returns,
             action_budget=episode.action_budget,
-            dialect=self.definition.prompt_dialect)
+            dialect=self.definition.prompt_dialect,
+            objections=list(getattr(e, "__objections__", ()) or ()),
+            acting=acting)
         schema = prompts.episode_schema(episode.returns)
         engine = self.engine(getattr(e, "__owner__", None))
         exposure = _exposure(convo)          # the state the episode set out from
@@ -751,7 +755,7 @@ class ModelBelief(Belief):
                 provenance = dict(meta)
                 provenance.update({"model": self.model_name, "changes": changes,
                                    "actions": transcript,
-                                   "template": self.episode_template,
+                                   "template": template,
                                    "exposure": exposure})
                 return Judgment(step.get("value"), p, provenance)
             convo.append({"role": "user", "content":

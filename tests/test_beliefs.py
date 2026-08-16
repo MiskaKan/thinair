@@ -453,8 +453,8 @@ def test_constructing_a_model_belief_touches_no_network():
 
     belief = model("qwen3-35b", temperature=0.2)
     assert belief.proposes is True
-    assert belief.id == "model:qwen3-35b@T0.2/extract-v3/qwen3_35b/v1"
-    assert belief.short == "model/extract-v3"
+    assert belief.id == "model:qwen3-35b@T0.2/extract-v4/qwen3_35b/v1"
+    assert belief.short == "model/extract-v4"
 
 
 def test_model_identity_includes_every_knob(monkeypatch):

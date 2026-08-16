@@ -618,7 +618,7 @@ def test_source_renders_frozen_plain_and_believed_annotated():
     inv.vendor = "ACME Oy"
     text = inv.__source__
     assert "vendor = 'ACME Oy'" in text
-    assert "total = 1249.50  # p=0.93 ← model/extract-v3" in text
+    assert "total = 1249.50  # p=0.93 ← model/extract-v4" in text
 
 
 def test_source_costs_nothing():

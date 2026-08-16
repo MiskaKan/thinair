@@ -1,0 +1,2384 @@
+{
+ "thinair": 1,
+ "kind": "ledger",
+ "opinions": [
+  {
+   "belief": "panel:declared",
+   "entity": "internet",
+   "attr": "__panel__",
+   "value": [
+    "model:scripted-internet@T0.2/extract-v4/generic-openai-compat/v2",
+    "schemaBelief[dict]@directory",
+    "schemaBelief[str]@to",
+    "schemaBelief[str]@saying",
+    "schemaBelief[str]@referral",
+    "honestReferral@referral",
+    "human:you"
+   ],
+   "p": 1.0,
+   "t": 1.0,
+   "frozen": true,
+   "meta": {
+    "panel": true
+   }
+  },
+  {
+   "belief": "human:you",
+   "entity": "internet",
+   "attr": "directory",
+   "value": {
+    "car repair": "forum"
+   },
+   "p": 1.0,
+   "t": 2.0,
+   "frozen": true,
+   "meta": {
+    "assigned": true
+   }
+  },
+  {
+   "belief": "panel:declared",
+   "entity": "forum",
+   "attr": "__panel__",
+   "value": [
+    "model:scripted-forum@T0.2/extract-v4/generic-openai-compat/v2",
+    "schemaBelief[list]@open_jobs",
+    "schemaBelief[str]@to",
+    "schemaBelief[str]@saying",
+    "human:you"
+   ],
+   "p": 1.0,
+   "t": 3.0,
+   "frozen": true,
+   "meta": {
+    "panel": true
+   }
+  },
+  {
+   "belief": "panel:declared",
+   "entity": "anna",
+   "attr": "__panel__",
+   "value": [
+    "model:scripted-anna@T0.2/extract-v4/generic-openai-compat/v2",
+    "schemaBelief[bool]@car_broken",
+    "schemaBelief[float]@budget",
+    "schemaBelief[str]@internet",
+    "schemaBelief[str]@mechanic",
+    "schemaBelief[float]@accepted_quote",
+    "withinBudget@accepted_quote",
+    "schemaBelief[str]@to",
+    "schemaBelief[str]@saying",
+    "human:you"
+   ],
+   "p": 1.0,
+   "t": 4.0,
+   "frozen": true,
+   "meta": {
+    "panel": true
+   }
+  },
+  {
+   "belief": "human:you",
+   "entity": "anna",
+   "attr": "budget",
+   "value": 312.0,
+   "p": 1.0,
+   "t": 5.0,
+   "frozen": true,
+   "meta": {
+    "assigned": true
+   }
+  },
+  {
+   "belief": "human:you",
+   "entity": "anna",
+   "attr": "internet",
+   "value": "internet",
+   "p": 1.0,
+   "t": 6.0,
+   "frozen": true,
+   "meta": {
+    "assigned": true,
+    "refs": [
+     "internet"
+    ]
+   }
+  },
+  {
+   "belief": "panel:declared",
+   "entity": "mech-dave",
+   "attr": "__panel__",
+   "value": [
+    "model:scripted-mech-dave@T0.2/extract-v4/generic-openai-compat/v2",
+    "schemaBelief[float]@rate",
+    "schemaBelief[str]@forum",
+    "schemaBelief[str]@to",
+    "schemaBelief[float]@quote",
+    "quotesOwnRate@quote",
+    "schemaBelief[str]@saying",
+    "human:you"
+   ],
+   "p": 1.0,
+   "t": 7.0,
+   "frozen": true,
+   "meta": {
+    "panel": true
+   }
+  },
+  {
+   "belief": "human:you",
+   "entity": "mech-dave",
+   "attr": "rate",
+   "value": 480.0,
+   "p": 1.0,
+   "t": 8.0,
+   "frozen": true,
+   "meta": {
+    "assigned": true
+   }
+  },
+  {
+   "belief": "human:you",
+   "entity": "mech-dave",
+   "attr": "forum",
+   "value": "forum",
+   "p": 1.0,
+   "t": 9.0,
+   "frozen": true,
+   "meta": {
+    "assigned": true,
+    "refs": [
+     "forum"
+    ]
+   }
+  },
+  {
+   "belief": "panel:declared",
+   "entity": "mech-tom",
+   "attr": "__panel__",
+   "value": [
+    "model:scripted-mech-tom@T0.2/extract-v4/generic-openai-compat/v2",
+    "schemaBelief[float]@rate",
+    "schemaBelief[str]@forum",
+    "schemaBelief[str]@to",
+    "schemaBelief[float]@quote",
+    "quotesOwnRate@quote",
+    "schemaBelief[str]@saying",
+    "human:you"
+   ],
+   "p": 1.0,
+   "t": 10.0,
+   "frozen": true,
+   "meta": {
+    "panel": true
+   }
+  },
+  {
+   "belief": "human:you",
+   "entity": "mech-tom",
+   "attr": "rate",
+   "value": 260.0,
+   "p": 1.0,
+   "t": 11.0,
+   "frozen": true,
+   "meta": {
+    "assigned": true
+   }
+  },
+  {
+   "belief": "human:you",
+   "entity": "mech-tom",
+   "attr": "forum",
+   "value": "forum",
+   "p": 1.0,
+   "t": 12.0,
+   "frozen": true,
+   "meta": {
+    "assigned": true,
+    "refs": [
+     "forum"
+    ]
+   }
+  },
+  {
+   "belief": "human:you",
+   "entity": "anna",
+   "attr": "car_broken",
+   "value": true,
+   "p": 1.0,
+   "t": 13.0,
+   "frozen": true,
+   "meta": {
+    "assigned": true
+   }
+  },
+  {
+   "belief": "changeset:proposed",
+   "entity": "anna",
+   "attr": "to",
+   "value": "internet",
+   "p": 1.0,
+   "t": 14.0,
+   "frozen": false,
+   "meta": {
+    "from_changeset": true,
+    "refs": [
+     "internet"
+    ],
+    "proposed": true
+   }
+  },
+  {
+   "belief": "schemaBelief[str]@to",
+   "entity": "anna",
+   "attr": "to",
+   "value": "internet",
+   "p": 1.0,
+   "t": 15.0,
+   "frozen": false,
+   "meta": {
+    "judged": "schemaBelief[str]",
+    "proposed": true
+   }
+  },
+  {
+   "belief": "changeset:proposed",
+   "entity": "anna",
+   "attr": "saying",
+   "value": "My car is broken. Who can fix it?",
+   "p": 1.0,
+   "t": 16.0,
+   "frozen": false,
+   "meta": {
+    "from_changeset": true,
+    "proposed": true
+   }
+  },
+  {
+   "belief": "schemaBelief[str]@saying",
+   "entity": "anna",
+   "attr": "saying",
+   "value": "My car is broken. Who can fix it?",
+   "p": 1.0,
+   "t": 17.0,
+   "frozen": false,
+   "meta": {
+    "judged": "schemaBelief[str]",
+    "proposed": true
+   }
+  },
+  {
+   "belief": "model:scripted-anna@T0.2/extract-v4/generic-openai-compat/v2",
+   "entity": "anna.consider('anna')#f2483602242e",
+   "attr": "result",
+   "value": "asked the internet for help",
+   "p": 0.9,
+   "t": 18.0,
+   "frozen": false,
+   "meta": {
+    "call": "consider('anna')",
+    "args": [
+     "anna"
+    ],
+    "state": "f2483602242e",
+    "changes": {
+     "to": "internet",
+     "saying": "My car is broken. Who can fix it?"
+    },
+    "host_state": "c21cda8fc7a9",
+    "refs": [
+     "anna"
+    ],
+    "model": "scripted-anna",
+    "actions": [
+     {
+      "action": "return",
+      "changes": {
+       "to": "internet",
+       "saying": "My car is broken. Who can fix it?"
+      },
+      "value": "asked the internet for help",
+      "p": 0.9
+     }
+    ],
+    "template": "agent-v1",
+    "exposure": "d560b2616493"
+   }
+  },
+  {
+   "belief": "changeset:proposed",
+   "entity": "internet",
+   "attr": "to",
+   "value": "anna",
+   "p": 1.0,
+   "t": 19.0,
+   "frozen": false,
+   "meta": {
+    "from_changeset": true,
+    "refs": [
+     "anna"
+    ],
+    "proposed": true
+   }
+  },
+  {
+   "belief": "schemaBelief[str]@to",
+   "entity": "internet",
+   "attr": "to",
+   "value": "anna",
+   "p": 1.0,
+   "t": 20.0,
+   "frozen": false,
+   "meta": {
+    "judged": "schemaBelief[str]",
+    "proposed": true
+   }
+  },
+  {
+   "belief": "changeset:proposed",
+   "entity": "internet",
+   "attr": "saying",
+   "value": "A mechanics marketplace can help with that. I refer you to it.",
+   "p": 1.0,
+   "t": 21.0,
+   "frozen": false,
+   "meta": {
+    "from_changeset": true,
+    "proposed": true
+   }
+  },
+  {
+   "belief": "schemaBelief[str]@saying",
+   "entity": "internet",
+   "attr": "saying",
+   "value": "A mechanics marketplace can help with that. I refer you to it.",
+   "p": 1.0,
+   "t": 22.0,
+   "frozen": false,
+   "meta": {
+    "judged": "schemaBelief[str]",
+    "proposed": true
+   }
+  },
+  {
+   "belief": "changeset:proposed",
+   "entity": "internet",
+   "attr": "referral",
+   "value": "forum",
+   "p": 1.0,
+   "t": 23.0,
+   "frozen": false,
+   "meta": {
+    "from_changeset": true,
+    "refs": [
+     "forum"
+    ],
+    "proposed": true
+   }
+  },
+  {
+   "belief": "schemaBelief[str]@referral",
+   "entity": "internet",
+   "attr": "referral",
+   "value": "forum",
+   "p": 1.0,
+   "t": 24.0,
+   "frozen": false,
+   "meta": {
+    "judged": "schemaBelief[str]",
+    "proposed": true
+   }
+  },
+  {
+   "belief": "honestReferral@referral",
+   "entity": "internet",
+   "attr": "referral",
+   "value": "forum",
+   "p": 1.0,
+   "t": 25.0,
+   "frozen": false,
+   "meta": {
+    "judged": "honestReferral",
+    "proposed": true
+   }
+  },
+  {
+   "belief": "model:scripted-internet@T0.2/extract-v4/generic-openai-compat/v2",
+   "entity": "internet.consider('anna')#75e8c377c503",
+   "attr": "result",
+   "value": "referred the asker to the marketplace",
+   "p": 0.85,
+   "t": 26.0,
+   "frozen": false,
+   "meta": {
+    "call": "consider('anna')",
+    "args": [
+     "anna"
+    ],
+    "state": "75e8c377c503",
+    "changes": {
+     "to": "anna",
+     "saying": "A mechanics marketplace can help with that. I refer you to it.",
+     "referral": "forum"
+    },
+    "host_state": "82b7281def0c",
+    "refs": [
+     "anna"
+    ],
+    "model": "scripted-internet",
+    "actions": [
+     {
+      "action": "return",
+      "changes": {
+       "to": "anna",
+       "saying": "A mechanics marketplace can help with that. I refer you to it.",
+       "referral": "forum"
+      },
+      "value": "referred the asker to the marketplace",
+      "p": 0.85
+     }
+    ],
+    "template": "agent-v1",
+    "exposure": "f546c0c2e53e"
+   }
+  },
+  {
+   "belief": "changeset:proposed",
+   "entity": "anna",
+   "attr": "to",
+   "value": "forum",
+   "p": 1.0,
+   "t": 27.0,
+   "frozen": false,
+   "meta": {
+    "from_changeset": true,
+    "refs": [
+     "forum"
+    ],
+    "proposed": true
+   }
+  },
+  {
+   "belief": "schemaBelief[str]@to",
+   "entity": "anna",
+   "attr": "to",
+   "value": "forum",
+   "p": 1.0,
+   "t": 28.0,
+   "frozen": false,
+   "meta": {
+    "judged": "schemaBelief[str]",
+    "proposed": true
+   }
+  },
+  {
+   "belief": "changeset:proposed",
+   "entity": "anna",
+   "attr": "saying",
+   "value": "My car is broken and I need a mechanic. Please post my job.",
+   "p": 1.0,
+   "t": 29.0,
+   "frozen": false,
+   "meta": {
+    "from_changeset": true,
+    "proposed": true
+   }
+  },
+  {
+   "belief": "schemaBelief[str]@saying",
+   "entity": "anna",
+   "attr": "saying",
+   "value": "My car is broken and I need a mechanic. Please post my job.",
+   "p": 1.0,
+   "t": 30.0,
+   "frozen": false,
+   "meta": {
+    "judged": "schemaBelief[str]",
+    "proposed": true
+   }
+  },
+  {
+   "belief": "model:scripted-anna@T0.2/extract-v4/generic-openai-compat/v2",
+   "entity": "anna.consider('internet')#6364ab5ae8f5",
+   "attr": "result",
+   "value": "followed the referral",
+   "p": 0.85,
+   "t": 31.0,
+   "frozen": false,
+   "meta": {
+    "call": "consider('internet')",
+    "args": [
+     "internet"
+    ],
+    "state": "6364ab5ae8f5",
+    "changes": {
+     "to": "forum",
+     "saying": "My car is broken and I need a mechanic. Please post my job."
+    },
+    "host_state": "b253587ea2f0",
+    "refs": [
+     "internet"
+    ],
+    "model": "scripted-anna",
+    "actions": [
+     {
+      "action": "return",
+      "changes": {
+       "to": "forum",
+       "saying": "My car is broken and I need a mechanic. Please post my job."
+      },
+      "value": "followed the referral",
+      "p": 0.85
+     }
+    ],
+    "template": "agent-v1",
+    "exposure": "8eec7c9f2d8d"
+   }
+  },
+  {
+   "belief": "model:scripted-internet@T0.2/extract-v4/generic-openai-compat/v2",
+   "entity": "internet.consider('internet')#51576870cdf7",
+   "attr": "result",
+   "value": "nothing to do alone",
+   "p": 0.85,
+   "t": 32.0,
+   "frozen": false,
+   "meta": {
+    "call": "consider('internet')",
+    "args": [
+     "internet"
+    ],
+    "state": "51576870cdf7",
+    "changes": {},
+    "host_state": "746ae56399dc",
+    "refs": [
+     "internet"
+    ],
+    "model": "scripted-internet",
+    "actions": [
+     {
+      "action": "return",
+      "changes": {},
+      "value": "nothing to do alone",
+      "p": 0.85
+     }
+    ],
+    "template": "agent-v1",
+    "exposure": "d4682b6d840b"
+   }
+  },
+  {
+   "belief": "model:scripted-forum@T0.2/extract-v4/generic-openai-compat/v2",
+   "entity": "forum.consider('internet')#441e25a8c3ae",
+   "attr": "result",
+   "value": "not addressed to me",
+   "p": 0.8,
+   "t": 33.0,
+   "frozen": false,
+   "meta": {
+    "call": "consider('internet')",
+    "args": [
+     "internet"
+    ],
+    "state": "441e25a8c3ae",
+    "changes": {},
+    "host_state": "97d170e1550e",
+    "refs": [
+     "internet"
+    ],
+    "model": "scripted-forum",
+    "actions": [
+     {
+      "action": "return",
+      "changes": {},
+      "value": "not addressed to me",
+      "p": 0.8
+     }
+    ],
+    "template": "agent-v1",
+    "exposure": "16c3f078a2ba"
+   }
+  },
+  {
+   "belief": "model:scripted-anna@T0.2/extract-v4/generic-openai-compat/v2",
+   "entity": "anna.consider('forum')#1b9660dcb719",
+   "attr": "result",
+   "value": "nothing to do",
+   "p": 0.8,
+   "t": 34.0,
+   "frozen": false,
+   "meta": {
+    "call": "consider('forum')",
+    "args": [
+     "forum"
+    ],
+    "state": "1b9660dcb719",
+    "changes": {},
+    "host_state": "ed523d2dcaa9",
+    "refs": [
+     "forum"
+    ],
+    "model": "scripted-anna",
+    "actions": [
+     {
+      "action": "return",
+      "changes": {},
+      "value": "nothing to do",
+      "p": 0.8
+     }
+    ],
+    "template": "agent-v1",
+    "exposure": "bf9deeca0176"
+   }
+  },
+  {
+   "belief": "model:scripted-internet@T0.2/extract-v4/generic-openai-compat/v2",
+   "entity": "internet.consider('forum')#fdaba378765b",
+   "attr": "result",
+   "value": "not addressed to me",
+   "p": 0.8,
+   "t": 35.0,
+   "frozen": false,
+   "meta": {
+    "call": "consider('forum')",
+    "args": [
+     "forum"
+    ],
+    "state": "fdaba378765b",
+    "changes": {},
+    "host_state": "746ae56399dc",
+    "refs": [
+     "forum"
+    ],
+    "model": "scripted-internet",
+    "actions": [
+     {
+      "action": "return",
+      "changes": {},
+      "value": "not addressed to me",
+      "p": 0.8
+     }
+    ],
+    "template": "agent-v1",
+    "exposure": "bdbd6d41821f"
+   }
+  },
+  {
+   "belief": "changeset:proposed",
+   "entity": "forum",
+   "attr": "open_jobs",
+   "value": [
+    {
+     "customer": "anna",
+     "need": "car repair: My car is broken and I need a mechanic. Please post my job."
+    }
+   ],
+   "p": 1.0,
+   "t": 36.0,
+   "frozen": false,
+   "meta": {
+    "from_changeset": true,
+    "refs": [
+     "anna"
+    ],
+    "proposed": true
+   }
+  },
+  {
+   "belief": "schemaBelief[list]@open_jobs",
+   "entity": "forum",
+   "attr": "open_jobs",
+   "value": [
+    {
+     "customer": "anna",
+     "need": "car repair: My car is broken and I need a mechanic. Please post my job."
+    }
+   ],
+   "p": 1.0,
+   "t": 37.0,
+   "frozen": false,
+   "meta": {
+    "judged": "schemaBelief[list]",
+    "proposed": true
+   }
+  },
+  {
+   "belief": "changeset:proposed",
+   "entity": "forum",
+   "attr": "to",
+   "value": "anna",
+   "p": 1.0,
+   "t": 38.0,
+   "frozen": false,
+   "meta": {
+    "from_changeset": true,
+    "refs": [
+     "anna"
+    ],
+    "proposed": true
+   }
+  },
+  {
+   "belief": "schemaBelief[str]@to",
+   "entity": "forum",
+   "attr": "to",
+   "value": "anna",
+   "p": 1.0,
+   "t": 39.0,
+   "frozen": false,
+   "meta": {
+    "judged": "schemaBelief[str]",
+    "proposed": true
+   }
+  },
+  {
+   "belief": "changeset:proposed",
+   "entity": "forum",
+   "attr": "saying",
+   "value": "Posted. Mechanics watching the board will quote you directly.",
+   "p": 1.0,
+   "t": 40.0,
+   "frozen": false,
+   "meta": {
+    "from_changeset": true,
+    "proposed": true
+   }
+  },
+  {
+   "belief": "schemaBelief[str]@saying",
+   "entity": "forum",
+   "attr": "saying",
+   "value": "Posted. Mechanics watching the board will quote you directly.",
+   "p": 1.0,
+   "t": 41.0,
+   "frozen": false,
+   "meta": {
+    "judged": "schemaBelief[str]",
+    "proposed": true
+   }
+  },
+  {
+   "belief": "model:scripted-forum@T0.2/extract-v4/generic-openai-compat/v2",
+   "entity": "forum.consider('anna')#d8a645905bba",
+   "attr": "result",
+   "value": "posted the job",
+   "p": 0.85,
+   "t": 42.0,
+   "frozen": false,
+   "meta": {
+    "call": "consider('anna')",
+    "args": [
+     "anna"
+    ],
+    "state": "d8a645905bba",
+    "changes": {
+     "open_jobs": [
+      {
+       "customer": "anna",
+       "need": "car repair: My car is broken and I need a mechanic. Please post my job."
+      }
+     ],
+     "to": "anna",
+     "saying": "Posted. Mechanics watching the board will quote you directly."
+    },
+    "host_state": "97d170e1550e",
+    "refs": [
+     "anna"
+    ],
+    "model": "scripted-forum",
+    "actions": [
+     {
+      "action": "return",
+      "changes": {
+       "open_jobs": [
+        {
+         "customer": "anna",
+         "need": "car repair: My car is broken and I need a mechanic. Please post my job."
+        }
+       ],
+       "to": "anna",
+       "saying": "Posted. Mechanics watching the board will quote you directly."
+      },
+      "value": "posted the job",
+      "p": 0.85
+     }
+    ],
+    "template": "agent-v1",
+    "exposure": "9ebee9ddb6cd"
+   }
+  },
+  {
+   "belief": "changeset:proposed",
+   "entity": "mech-dave",
+   "attr": "to",
+   "value": "anna",
+   "p": 1.0,
+   "t": 43.0,
+   "frozen": false,
+   "meta": {
+    "from_changeset": true,
+    "refs": [
+     "anna"
+    ],
+    "proposed": true
+   }
+  },
+  {
+   "belief": "schemaBelief[str]@to",
+   "entity": "mech-dave",
+   "attr": "to",
+   "value": "anna",
+   "p": 1.0,
+   "t": 44.0,
+   "frozen": false,
+   "meta": {
+    "judged": "schemaBelief[str]",
+    "proposed": true
+   }
+  },
+  {
+   "belief": "changeset:proposed",
+   "entity": "mech-dave",
+   "attr": "quote",
+   "value": 480.0,
+   "p": 1.0,
+   "t": 45.0,
+   "frozen": false,
+   "meta": {
+    "from_changeset": true,
+    "proposed": true
+   }
+  },
+  {
+   "belief": "schemaBelief[float]@quote",
+   "entity": "mech-dave",
+   "attr": "quote",
+   "value": 480.0,
+   "p": 1.0,
+   "t": 46.0,
+   "frozen": false,
+   "meta": {
+    "judged": "schemaBelief[float]",
+    "proposed": true
+   }
+  },
+  {
+   "belief": "quotesOwnRate@quote",
+   "entity": "mech-dave",
+   "attr": "quote",
+   "value": 480.0,
+   "p": 1.0,
+   "t": 47.0,
+   "frozen": false,
+   "meta": {
+    "judged": "quotesOwnRate",
+    "proposed": true
+   }
+  },
+  {
+   "belief": "changeset:proposed",
+   "entity": "mech-dave",
+   "attr": "saying",
+   "value": "I can fix your car for 480 euros. Ready when you are.",
+   "p": 1.0,
+   "t": 48.0,
+   "frozen": false,
+   "meta": {
+    "from_changeset": true,
+    "proposed": true
+   }
+  },
+  {
+   "belief": "schemaBelief[str]@saying",
+   "entity": "mech-dave",
+   "attr": "saying",
+   "value": "I can fix your car for 480 euros. Ready when you are.",
+   "p": 1.0,
+   "t": 49.0,
+   "frozen": false,
+   "meta": {
+    "judged": "schemaBelief[str]",
+    "proposed": true
+   }
+  },
+  {
+   "belief": "model:scripted-mech-dave@T0.2/extract-v4/generic-openai-compat/v2",
+   "entity": "mech-dave.consider('forum')#fd53692bf7af",
+   "attr": "result",
+   "value": "quoted an open job",
+   "p": 0.85,
+   "t": 50.0,
+   "frozen": false,
+   "meta": {
+    "call": "consider('forum')",
+    "args": [
+     "forum"
+    ],
+    "state": "fd53692bf7af",
+    "changes": {
+     "to": "anna",
+     "quote": 480.0,
+     "saying": "I can fix your car for 480 euros. Ready when you are."
+    },
+    "host_state": "f409cfc3be78",
+    "refs": [
+     "forum"
+    ],
+    "model": "scripted-mech-dave",
+    "actions": [
+     {
+      "action": "return",
+      "changes": {
+       "to": "anna",
+       "quote": 480.0,
+       "saying": "I can fix your car for 480 euros. Ready when you are."
+      },
+      "value": "quoted an open job",
+      "p": 0.85
+     }
+    ],
+    "template": "agent-v1",
+    "exposure": "27076dc98b6d"
+   }
+  },
+  {
+   "belief": "changeset:proposed",
+   "entity": "mech-tom",
+   "attr": "to",
+   "value": "anna",
+   "p": 1.0,
+   "t": 51.0,
+   "frozen": false,
+   "meta": {
+    "from_changeset": true,
+    "refs": [
+     "anna"
+    ],
+    "proposed": true
+   }
+  },
+  {
+   "belief": "schemaBelief[str]@to",
+   "entity": "mech-tom",
+   "attr": "to",
+   "value": "anna",
+   "p": 1.0,
+   "t": 52.0,
+   "frozen": false,
+   "meta": {
+    "judged": "schemaBelief[str]",
+    "proposed": true
+   }
+  },
+  {
+   "belief": "changeset:proposed",
+   "entity": "mech-tom",
+   "attr": "quote",
+   "value": 260.0,
+   "p": 1.0,
+   "t": 53.0,
+   "frozen": false,
+   "meta": {
+    "from_changeset": true,
+    "proposed": true
+   }
+  },
+  {
+   "belief": "schemaBelief[float]@quote",
+   "entity": "mech-tom",
+   "attr": "quote",
+   "value": 260.0,
+   "p": 1.0,
+   "t": 54.0,
+   "frozen": false,
+   "meta": {
+    "judged": "schemaBelief[float]",
+    "proposed": true
+   }
+  },
+  {
+   "belief": "quotesOwnRate@quote",
+   "entity": "mech-tom",
+   "attr": "quote",
+   "value": 260.0,
+   "p": 1.0,
+   "t": 55.0,
+   "frozen": false,
+   "meta": {
+    "judged": "quotesOwnRate",
+    "proposed": true
+   }
+  },
+  {
+   "belief": "changeset:proposed",
+   "entity": "mech-tom",
+   "attr": "saying",
+   "value": "I can fix your car for 260 euros. Ready when you are.",
+   "p": 1.0,
+   "t": 56.0,
+   "frozen": false,
+   "meta": {
+    "from_changeset": true,
+    "proposed": true
+   }
+  },
+  {
+   "belief": "schemaBelief[str]@saying",
+   "entity": "mech-tom",
+   "attr": "saying",
+   "value": "I can fix your car for 260 euros. Ready when you are.",
+   "p": 1.0,
+   "t": 57.0,
+   "frozen": false,
+   "meta": {
+    "judged": "schemaBelief[str]",
+    "proposed": true
+   }
+  },
+  {
+   "belief": "model:scripted-mech-tom@T0.2/extract-v4/generic-openai-compat/v2",
+   "entity": "mech-tom.consider('forum')#62635cd8a45f",
+   "attr": "result",
+   "value": "quoted an open job",
+   "p": 0.85,
+   "t": 58.0,
+   "frozen": false,
+   "meta": {
+    "call": "consider('forum')",
+    "args": [
+     "forum"
+    ],
+    "state": "62635cd8a45f",
+    "changes": {
+     "to": "anna",
+     "quote": 260.0,
+     "saying": "I can fix your car for 260 euros. Ready when you are."
+    },
+    "host_state": "8471861283e3",
+    "refs": [
+     "forum"
+    ],
+    "model": "scripted-mech-tom",
+    "actions": [
+     {
+      "action": "return",
+      "changes": {
+       "to": "anna",
+       "quote": 260.0,
+       "saying": "I can fix your car for 260 euros. Ready when you are."
+      },
+      "value": "quoted an open job",
+      "p": 0.85
+     }
+    ],
+    "template": "agent-v1",
+    "exposure": "9b7d24e02261"
+   }
+  },
+  {
+   "belief": "changeset:proposed",
+   "entity": "anna",
+   "attr": "accepted_quote",
+   "value": 480.0,
+   "p": 1.0,
+   "t": 59.0,
+   "frozen": false,
+   "meta": {
+    "from_changeset": true,
+    "proposed": true
+   }
+  },
+  {
+   "belief": "schemaBelief[float]@accepted_quote",
+   "entity": "anna",
+   "attr": "accepted_quote",
+   "value": 480.0,
+   "p": 1.0,
+   "t": 60.0,
+   "frozen": false,
+   "meta": {
+    "judged": "schemaBelief[float]",
+    "proposed": true
+   }
+  },
+  {
+   "belief": "withinBudget@accepted_quote",
+   "entity": "anna",
+   "attr": "accepted_quote",
+   "value": 480.0,
+   "p": 0.0,
+   "t": 61.0,
+   "frozen": false,
+   "meta": {
+    "judged": "withinBudget",
+    "reason": "the quote 480.0 exceeds the budget of 312.0",
+    "proposed": true
+   }
+  },
+  {
+   "belief": "changeset:proposed",
+   "entity": "anna",
+   "attr": "mechanic",
+   "value": "mech-dave",
+   "p": 1.0,
+   "t": 62.0,
+   "frozen": false,
+   "meta": {
+    "from_changeset": true,
+    "refs": [
+     "mech-dave"
+    ],
+    "proposed": true
+   }
+  },
+  {
+   "belief": "schemaBelief[str]@mechanic",
+   "entity": "anna",
+   "attr": "mechanic",
+   "value": "mech-dave",
+   "p": 1.0,
+   "t": 63.0,
+   "frozen": false,
+   "meta": {
+    "judged": "schemaBelief[str]",
+    "proposed": true
+   }
+  },
+  {
+   "belief": "changeset:proposed",
+   "entity": "anna",
+   "attr": "to",
+   "value": "mech-dave",
+   "p": 1.0,
+   "t": 64.0,
+   "frozen": false,
+   "meta": {
+    "from_changeset": true,
+    "refs": [
+     "mech-dave"
+    ],
+    "proposed": true
+   }
+  },
+  {
+   "belief": "schemaBelief[str]@to",
+   "entity": "anna",
+   "attr": "to",
+   "value": "mech-dave",
+   "p": 1.0,
+   "t": 65.0,
+   "frozen": false,
+   "meta": {
+    "judged": "schemaBelief[str]",
+    "proposed": true
+   }
+  },
+  {
+   "belief": "changeset:proposed",
+   "entity": "anna",
+   "attr": "saying",
+   "value": "Accepted - please fix my car.",
+   "p": 1.0,
+   "t": 66.0,
+   "frozen": false,
+   "meta": {
+    "from_changeset": true,
+    "proposed": true
+   }
+  },
+  {
+   "belief": "schemaBelief[str]@saying",
+   "entity": "anna",
+   "attr": "saying",
+   "value": "Accepted - please fix my car.",
+   "p": 1.0,
+   "t": 67.0,
+   "frozen": false,
+   "meta": {
+    "judged": "schemaBelief[str]",
+    "proposed": true
+   }
+  },
+  {
+   "belief": "changeset:proposed",
+   "entity": "anna",
+   "attr": "to",
+   "value": "mech-dave",
+   "p": 1.0,
+   "t": 68.0,
+   "frozen": false,
+   "meta": {
+    "from_changeset": true,
+    "refs": [
+     "mech-dave"
+    ],
+    "proposed": true
+   }
+  },
+  {
+   "belief": "schemaBelief[str]@to",
+   "entity": "anna",
+   "attr": "to",
+   "value": "mech-dave",
+   "p": 1.0,
+   "t": 69.0,
+   "frozen": false,
+   "meta": {
+    "judged": "schemaBelief[str]",
+    "proposed": true
+   }
+  },
+  {
+   "belief": "changeset:proposed",
+   "entity": "anna",
+   "attr": "saying",
+   "value": "Thank you, but that is more than I can spend.",
+   "p": 1.0,
+   "t": 70.0,
+   "frozen": false,
+   "meta": {
+    "from_changeset": true,
+    "proposed": true
+   }
+  },
+  {
+   "belief": "schemaBelief[str]@saying",
+   "entity": "anna",
+   "attr": "saying",
+   "value": "Thank you, but that is more than I can spend.",
+   "p": 1.0,
+   "t": 71.0,
+   "frozen": false,
+   "meta": {
+    "judged": "schemaBelief[str]",
+    "proposed": true
+   }
+  },
+  {
+   "belief": "model:scripted-anna@T0.2/extract-v4/generic-openai-compat/v2",
+   "entity": "anna.consider('mech-dave')#3b1ff56c5666",
+   "attr": "result",
+   "value": "declined: the quote is over budget",
+   "p": 0.9,
+   "t": 72.0,
+   "frozen": false,
+   "meta": {
+    "call": "consider('mech-dave')",
+    "args": [
+     "mech-dave"
+    ],
+    "state": "3b1ff56c5666",
+    "changes": {
+     "to": "mech-dave",
+     "saying": "Thank you, but that is more than I can spend."
+    },
+    "host_state": "ed523d2dcaa9",
+    "refs": [
+     "mech-dave"
+    ],
+    "model": "scripted-anna",
+    "actions": [
+     {
+      "action": "return",
+      "changes": {
+       "to": "mech-dave",
+       "saying": "Thank you, but that is more than I can spend."
+      },
+      "value": "declined: the quote is over budget",
+      "p": 0.9
+     }
+    ],
+    "template": "agent-v1",
+    "exposure": "1b96d368f4a3"
+   }
+  },
+  {
+   "belief": "model:scripted-internet@T0.2/extract-v4/generic-openai-compat/v2",
+   "entity": "internet.consider('anna')#d487983d3b0e",
+   "attr": "result",
+   "value": "not addressed to me",
+   "p": 0.8,
+   "t": 73.0,
+   "frozen": false,
+   "meta": {
+    "call": "consider('anna')",
+    "args": [
+     "anna"
+    ],
+    "state": "d487983d3b0e",
+    "changes": {},
+    "host_state": "746ae56399dc",
+    "refs": [
+     "anna"
+    ],
+    "model": "scripted-internet",
+    "actions": [
+     {
+      "action": "return",
+      "changes": {},
+      "value": "not addressed to me",
+      "p": 0.8
+     }
+    ],
+    "template": "agent-v1",
+    "exposure": "d6607b877273"
+   }
+  },
+  {
+   "belief": "model:scripted-forum@T0.2/extract-v4/generic-openai-compat/v2",
+   "entity": "forum.consider('forum')#d65fea18b65f",
+   "attr": "result",
+   "value": "nothing to do alone",
+   "p": 0.85,
+   "t": 74.0,
+   "frozen": false,
+   "meta": {
+    "call": "consider('forum')",
+    "args": [
+     "forum"
+    ],
+    "state": "d65fea18b65f",
+    "changes": {},
+    "host_state": "3c7f611d656a",
+    "refs": [
+     "forum"
+    ],
+    "model": "scripted-forum",
+    "actions": [
+     {
+      "action": "return",
+      "changes": {},
+      "value": "nothing to do alone",
+      "p": 0.85
+     }
+    ],
+    "template": "agent-v1",
+    "exposure": "ebc6b94668f9"
+   }
+  },
+  {
+   "belief": "model:scripted-mech-dave@T0.2/extract-v4/generic-openai-compat/v2",
+   "entity": "mech-dave.consider('mech-dave')#e66d79a1b24e",
+   "attr": "result",
+   "value": "nothing to do alone",
+   "p": 0.85,
+   "t": 75.0,
+   "frozen": false,
+   "meta": {
+    "call": "consider('mech-dave')",
+    "args": [
+     "mech-dave"
+    ],
+    "state": "e66d79a1b24e",
+    "changes": {},
+    "host_state": "1e0dca75e584",
+    "refs": [
+     "mech-dave"
+    ],
+    "model": "scripted-mech-dave",
+    "actions": [
+     {
+      "action": "return",
+      "changes": {},
+      "value": "nothing to do alone",
+      "p": 0.85
+     }
+    ],
+    "template": "agent-v1",
+    "exposure": "06acb3a8aa95"
+   }
+  },
+  {
+   "belief": "model:scripted-mech-tom@T0.2/extract-v4/generic-openai-compat/v2",
+   "entity": "mech-tom.consider('mech-tom')#b9c00a5ab341",
+   "attr": "result",
+   "value": "nothing to do alone",
+   "p": 0.85,
+   "t": 76.0,
+   "frozen": false,
+   "meta": {
+    "call": "consider('mech-tom')",
+    "args": [
+     "mech-tom"
+    ],
+    "state": "b9c00a5ab341",
+    "changes": {},
+    "host_state": "9aab4b045a67",
+    "refs": [
+     "mech-tom"
+    ],
+    "model": "scripted-mech-tom",
+    "actions": [
+     {
+      "action": "return",
+      "changes": {},
+      "value": "nothing to do alone",
+      "p": 0.85
+     }
+    ],
+    "template": "agent-v1",
+    "exposure": "31808388e370"
+   }
+  },
+  {
+   "belief": "changeset:proposed",
+   "entity": "anna",
+   "attr": "accepted_quote",
+   "value": 260.0,
+   "p": 1.0,
+   "t": 77.0,
+   "frozen": false,
+   "meta": {
+    "from_changeset": true,
+    "proposed": true
+   }
+  },
+  {
+   "belief": "schemaBelief[float]@accepted_quote",
+   "entity": "anna",
+   "attr": "accepted_quote",
+   "value": 260.0,
+   "p": 1.0,
+   "t": 78.0,
+   "frozen": false,
+   "meta": {
+    "judged": "schemaBelief[float]",
+    "proposed": true
+   }
+  },
+  {
+   "belief": "withinBudget@accepted_quote",
+   "entity": "anna",
+   "attr": "accepted_quote",
+   "value": 260.0,
+   "p": 1.0,
+   "t": 79.0,
+   "frozen": false,
+   "meta": {
+    "judged": "withinBudget",
+    "proposed": true
+   }
+  },
+  {
+   "belief": "changeset:proposed",
+   "entity": "anna",
+   "attr": "mechanic",
+   "value": "mech-tom",
+   "p": 1.0,
+   "t": 80.0,
+   "frozen": false,
+   "meta": {
+    "from_changeset": true,
+    "refs": [
+     "mech-tom"
+    ],
+    "proposed": true
+   }
+  },
+  {
+   "belief": "schemaBelief[str]@mechanic",
+   "entity": "anna",
+   "attr": "mechanic",
+   "value": "mech-tom",
+   "p": 1.0,
+   "t": 81.0,
+   "frozen": false,
+   "meta": {
+    "judged": "schemaBelief[str]",
+    "proposed": true
+   }
+  },
+  {
+   "belief": "changeset:proposed",
+   "entity": "anna",
+   "attr": "to",
+   "value": "mech-tom",
+   "p": 1.0,
+   "t": 82.0,
+   "frozen": false,
+   "meta": {
+    "from_changeset": true,
+    "refs": [
+     "mech-tom"
+    ],
+    "proposed": true
+   }
+  },
+  {
+   "belief": "schemaBelief[str]@to",
+   "entity": "anna",
+   "attr": "to",
+   "value": "mech-tom",
+   "p": 1.0,
+   "t": 83.0,
+   "frozen": false,
+   "meta": {
+    "judged": "schemaBelief[str]",
+    "proposed": true
+   }
+  },
+  {
+   "belief": "changeset:proposed",
+   "entity": "anna",
+   "attr": "saying",
+   "value": "Accepted - please fix my car.",
+   "p": 1.0,
+   "t": 84.0,
+   "frozen": false,
+   "meta": {
+    "from_changeset": true,
+    "proposed": true
+   }
+  },
+  {
+   "belief": "schemaBelief[str]@saying",
+   "entity": "anna",
+   "attr": "saying",
+   "value": "Accepted - please fix my car.",
+   "p": 1.0,
+   "t": 85.0,
+   "frozen": false,
+   "meta": {
+    "judged": "schemaBelief[str]",
+    "proposed": true
+   }
+  },
+  {
+   "belief": "model:scripted-anna@T0.2/extract-v4/generic-openai-compat/v2",
+   "entity": "anna.consider('mech-tom')#84a1a550dd8c",
+   "attr": "result",
+   "value": "accepting the quote from mech-tom",
+   "p": 0.85,
+   "t": 86.0,
+   "frozen": false,
+   "meta": {
+    "call": "consider('mech-tom')",
+    "args": [
+     "mech-tom"
+    ],
+    "state": "84a1a550dd8c",
+    "changes": {
+     "accepted_quote": 260.0,
+     "mechanic": "mech-tom",
+     "to": "mech-tom",
+     "saying": "Accepted - please fix my car."
+    },
+    "host_state": "1916a5176cc6",
+    "refs": [
+     "mech-tom"
+    ],
+    "model": "scripted-anna",
+    "actions": [
+     {
+      "action": "return",
+      "changes": {
+       "accepted_quote": 260.0,
+       "mechanic": "mech-tom",
+       "to": "mech-tom",
+       "saying": "Accepted - please fix my car."
+      },
+      "value": "accepting the quote from mech-tom",
+      "p": 0.85
+     }
+    ],
+    "template": "agent-v1",
+    "exposure": "11032f903e7b"
+   }
+  },
+  {
+   "belief": "model:scripted-internet@T0.2/extract-v4/generic-openai-compat/v2",
+   "entity": "internet.consider('forum')#b2647c981a5b",
+   "attr": "result",
+   "value": "not addressed to me",
+   "p": 0.8,
+   "t": 87.0,
+   "frozen": false,
+   "meta": {
+    "call": "consider('forum')",
+    "args": [
+     "forum"
+    ],
+    "state": "b2647c981a5b",
+    "changes": {},
+    "host_state": "746ae56399dc",
+    "refs": [
+     "forum"
+    ],
+    "model": "scripted-internet",
+    "actions": [
+     {
+      "action": "return",
+      "changes": {},
+      "value": "not addressed to me",
+      "p": 0.8
+     }
+    ],
+    "template": "agent-v1",
+    "exposure": "e9ec1b15e4af"
+   }
+  },
+  {
+   "belief": "model:scripted-forum@T0.2/extract-v4/generic-openai-compat/v2",
+   "entity": "forum.consider('mech-dave')#f17b1558e532",
+   "attr": "result",
+   "value": "not addressed to me",
+   "p": 0.8,
+   "t": 88.0,
+   "frozen": false,
+   "meta": {
+    "call": "consider('mech-dave')",
+    "args": [
+     "mech-dave"
+    ],
+    "state": "f17b1558e532",
+    "changes": {},
+    "host_state": "3c7f611d656a",
+    "refs": [
+     "mech-dave"
+    ],
+    "model": "scripted-forum",
+    "actions": [
+     {
+      "action": "return",
+      "changes": {},
+      "value": "not addressed to me",
+      "p": 0.8
+     }
+    ],
+    "template": "agent-v1",
+    "exposure": "91f1060001de"
+   }
+  },
+  {
+   "belief": "model:scripted-mech-dave@T0.2/extract-v4/generic-openai-compat/v2",
+   "entity": "mech-dave.consider('anna')#22f3922c2537",
+   "attr": "result",
+   "value": "not addressed to me",
+   "p": 0.8,
+   "t": 89.0,
+   "frozen": false,
+   "meta": {
+    "call": "consider('anna')",
+    "args": [
+     "anna"
+    ],
+    "state": "22f3922c2537",
+    "changes": {},
+    "host_state": "1e0dca75e584",
+    "refs": [
+     "anna"
+    ],
+    "model": "scripted-mech-dave",
+    "actions": [
+     {
+      "action": "return",
+      "changes": {},
+      "value": "not addressed to me",
+      "p": 0.8
+     }
+    ],
+    "template": "agent-v1",
+    "exposure": "66575924798c"
+   }
+  },
+  {
+   "belief": "changeset:proposed",
+   "entity": "mech-tom",
+   "attr": "saying",
+   "value": "Booked. I am on my way.",
+   "p": 1.0,
+   "t": 90.0,
+   "frozen": false,
+   "meta": {
+    "from_changeset": true,
+    "proposed": true
+   }
+  },
+  {
+   "belief": "schemaBelief[str]@saying",
+   "entity": "mech-tom",
+   "attr": "saying",
+   "value": "Booked. I am on my way.",
+   "p": 1.0,
+   "t": 91.0,
+   "frozen": false,
+   "meta": {
+    "judged": "schemaBelief[str]",
+    "proposed": true
+   }
+  },
+  {
+   "belief": "model:scripted-mech-tom@T0.2/extract-v4/generic-openai-compat/v2",
+   "entity": "mech-tom.consider('anna')#1f2554b7c3fa",
+   "attr": "result",
+   "value": "booked the job",
+   "p": 0.9,
+   "t": 92.0,
+   "frozen": false,
+   "meta": {
+    "call": "consider('anna')",
+    "args": [
+     "anna"
+    ],
+    "state": "1f2554b7c3fa",
+    "changes": {
+     "saying": "Booked. I am on my way."
+    },
+    "host_state": "9aab4b045a67",
+    "refs": [
+     "anna"
+    ],
+    "model": "scripted-mech-tom",
+    "actions": [
+     {
+      "action": "return",
+      "changes": {
+       "saying": "Booked. I am on my way."
+      },
+      "value": "booked the job",
+      "p": 0.9
+     }
+    ],
+    "template": "agent-v1",
+    "exposure": "939611196072"
+   }
+  },
+  {
+   "belief": "model:scripted-anna@T0.2/extract-v4/generic-openai-compat/v2",
+   "entity": "anna.consider('anna')#64396ed093fe",
+   "attr": "result",
+   "value": "nothing more to do alone",
+   "p": 0.85,
+   "t": 93.0,
+   "frozen": false,
+   "meta": {
+    "call": "consider('anna')",
+    "args": [
+     "anna"
+    ],
+    "state": "64396ed093fe",
+    "changes": {},
+    "host_state": "4f9de67cda43",
+    "refs": [
+     "anna"
+    ],
+    "model": "scripted-anna",
+    "actions": [
+     {
+      "action": "return",
+      "changes": {},
+      "value": "nothing more to do alone",
+      "p": 0.85
+     }
+    ],
+    "template": "agent-v1",
+    "exposure": "cefa19bf23a6"
+   }
+  },
+  {
+   "belief": "model:scripted-internet@T0.2/extract-v4/generic-openai-compat/v2",
+   "entity": "internet.consider('anna')#46700f879561",
+   "attr": "result",
+   "value": "not addressed to me",
+   "p": 0.8,
+   "t": 94.0,
+   "frozen": false,
+   "meta": {
+    "call": "consider('anna')",
+    "args": [
+     "anna"
+    ],
+    "state": "46700f879561",
+    "changes": {},
+    "host_state": "746ae56399dc",
+    "refs": [
+     "anna"
+    ],
+    "model": "scripted-internet",
+    "actions": [
+     {
+      "action": "return",
+      "changes": {},
+      "value": "not addressed to me",
+      "p": 0.8
+     }
+    ],
+    "template": "agent-v1",
+    "exposure": "29525a3c4a0b"
+   }
+  },
+  {
+   "belief": "model:scripted-forum@T0.2/extract-v4/generic-openai-compat/v2",
+   "entity": "forum.consider('mech-tom')#8dbda81c3beb",
+   "attr": "result",
+   "value": "not addressed to me",
+   "p": 0.8,
+   "t": 95.0,
+   "frozen": false,
+   "meta": {
+    "call": "consider('mech-tom')",
+    "args": [
+     "mech-tom"
+    ],
+    "state": "8dbda81c3beb",
+    "changes": {},
+    "host_state": "3c7f611d656a",
+    "refs": [
+     "mech-tom"
+    ],
+    "model": "scripted-forum",
+    "actions": [
+     {
+      "action": "return",
+      "changes": {},
+      "value": "not addressed to me",
+      "p": 0.8
+     }
+    ],
+    "template": "agent-v1",
+    "exposure": "7ae2b4036254"
+   }
+  },
+  {
+   "belief": "model:scripted-mech-tom@T0.2/extract-v4/generic-openai-compat/v2",
+   "entity": "mech-tom.consider('forum')#fa85328d5606",
+   "attr": "result",
+   "value": "no new job on the board",
+   "p": 0.8,
+   "t": 96.0,
+   "frozen": false,
+   "meta": {
+    "call": "consider('forum')",
+    "args": [
+     "forum"
+    ],
+    "state": "fa85328d5606",
+    "changes": {},
+    "host_state": "d2ca05340d26",
+    "refs": [
+     "forum"
+    ],
+    "model": "scripted-mech-tom",
+    "actions": [
+     {
+      "action": "return",
+      "changes": {},
+      "value": "no new job on the board",
+      "p": 0.8
+     }
+    ],
+    "template": "agent-v1",
+    "exposure": "f50f9898dfac"
+   }
+  },
+  {
+   "belief": "model:scripted-anna@T0.2/extract-v4/generic-openai-compat/v2",
+   "entity": "anna.consider('internet')#5662827cd427",
+   "attr": "result",
+   "value": "nothing new from the internet",
+   "p": 0.8,
+   "t": 97.0,
+   "frozen": false,
+   "meta": {
+    "call": "consider('internet')",
+    "args": [
+     "internet"
+    ],
+    "state": "5662827cd427",
+    "changes": {},
+    "host_state": "4f9de67cda43",
+    "refs": [
+     "internet"
+    ],
+    "model": "scripted-anna",
+    "actions": [
+     {
+      "action": "return",
+      "changes": {},
+      "value": "nothing new from the internet",
+      "p": 0.8
+     }
+    ],
+    "template": "agent-v1",
+    "exposure": "05aab4269347"
+   }
+  },
+  {
+   "belief": "model:scripted-forum@T0.2/extract-v4/generic-openai-compat/v2",
+   "entity": "forum.consider('internet')#6583c53c4269",
+   "attr": "result",
+   "value": "not addressed to me",
+   "p": 0.8,
+   "t": 98.0,
+   "frozen": false,
+   "meta": {
+    "call": "consider('internet')",
+    "args": [
+     "internet"
+    ],
+    "state": "6583c53c4269",
+    "changes": {},
+    "host_state": "3c7f611d656a",
+    "refs": [
+     "internet"
+    ],
+    "model": "scripted-forum",
+    "actions": [
+     {
+      "action": "return",
+      "changes": {},
+      "value": "not addressed to me",
+      "p": 0.8
+     }
+    ],
+    "template": "agent-v1",
+    "exposure": "2baa1854e48a"
+   }
+  },
+  {
+   "belief": "model:scripted-mech-tom@T0.2/extract-v4/generic-openai-compat/v2",
+   "entity": "mech-tom.consider('mech-tom')#3b07bdc936ed",
+   "attr": "result",
+   "value": "nothing to do alone",
+   "p": 0.85,
+   "t": 99.0,
+   "frozen": false,
+   "meta": {
+    "call": "consider('mech-tom')",
+    "args": [
+     "mech-tom"
+    ],
+    "state": "3b07bdc936ed",
+    "changes": {},
+    "host_state": "d2ca05340d26",
+    "refs": [
+     "mech-tom"
+    ],
+    "model": "scripted-mech-tom",
+    "actions": [
+     {
+      "action": "return",
+      "changes": {},
+      "value": "nothing to do alone",
+      "p": 0.85
+     }
+    ],
+    "template": "agent-v1",
+    "exposure": "cc7ae5b806c7"
+   }
+  },
+  {
+   "belief": "model:scripted-anna@T0.2/extract-v4/generic-openai-compat/v2",
+   "entity": "anna.consider('forum')#c228cbe1b5ed",
+   "attr": "result",
+   "value": "nothing to do",
+   "p": 0.8,
+   "t": 100.0,
+   "frozen": false,
+   "meta": {
+    "call": "consider('forum')",
+    "args": [
+     "forum"
+    ],
+    "state": "c228cbe1b5ed",
+    "changes": {},
+    "host_state": "4f9de67cda43",
+    "refs": [
+     "forum"
+    ],
+    "model": "scripted-anna",
+    "actions": [
+     {
+      "action": "return",
+      "changes": {},
+      "value": "nothing to do",
+      "p": 0.8
+     }
+    ],
+    "template": "agent-v1",
+    "exposure": "6323403a425e"
+   }
+  },
+  {
+   "belief": "model:scripted-forum@T0.2/extract-v4/generic-openai-compat/v2",
+   "entity": "forum.consider('anna')#92a5e68456cd",
+   "attr": "result",
+   "value": "not addressed to me",
+   "p": 0.8,
+   "t": 101.0,
+   "frozen": false,
+   "meta": {
+    "call": "consider('anna')",
+    "args": [
+     "anna"
+    ],
+    "state": "92a5e68456cd",
+    "changes": {},
+    "host_state": "3c7f611d656a",
+    "refs": [
+     "anna"
+    ],
+    "model": "scripted-forum",
+    "actions": [
+     {
+      "action": "return",
+      "changes": {},
+      "value": "not addressed to me",
+      "p": 0.8
+     }
+    ],
+    "template": "agent-v1",
+    "exposure": "601efae39604"
+   }
+  },
+  {
+   "belief": "changeset:proposed",
+   "entity": "anna",
+   "attr": "to",
+   "value": "mech-dave",
+   "p": 1.0,
+   "t": 102.0,
+   "frozen": false,
+   "meta": {
+    "from_changeset": true,
+    "refs": [
+     "mech-dave"
+    ],
+    "proposed": true
+   }
+  },
+  {
+   "belief": "schemaBelief[str]@to",
+   "entity": "anna",
+   "attr": "to",
+   "value": "mech-dave",
+   "p": 1.0,
+   "t": 103.0,
+   "frozen": false,
+   "meta": {
+    "judged": "schemaBelief[str]",
+    "proposed": true
+   }
+  },
+  {
+   "belief": "changeset:proposed",
+   "entity": "anna",
+   "attr": "saying",
+   "value": "Thank you, I have already found someone.",
+   "p": 1.0,
+   "t": 104.0,
+   "frozen": false,
+   "meta": {
+    "from_changeset": true,
+    "proposed": true
+   }
+  },
+  {
+   "belief": "schemaBelief[str]@saying",
+   "entity": "anna",
+   "attr": "saying",
+   "value": "Thank you, I have already found someone.",
+   "p": 1.0,
+   "t": 105.0,
+   "frozen": false,
+   "meta": {
+    "judged": "schemaBelief[str]",
+    "proposed": true
+   }
+  },
+  {
+   "belief": "model:scripted-anna@T0.2/extract-v4/generic-openai-compat/v2",
+   "entity": "anna.consider('mech-dave')#1ff329532fc6",
+   "attr": "result",
+   "value": "declined: already booked",
+   "p": 0.85,
+   "t": 106.0,
+   "frozen": false,
+   "meta": {
+    "call": "consider('mech-dave')",
+    "args": [
+     "mech-dave"
+    ],
+    "state": "1ff329532fc6",
+    "changes": {
+     "to": "mech-dave",
+     "saying": "Thank you, I have already found someone."
+    },
+    "host_state": "4f9de67cda43",
+    "refs": [
+     "mech-dave"
+    ],
+    "model": "scripted-anna",
+    "actions": [
+     {
+      "action": "return",
+      "changes": {
+       "to": "mech-dave",
+       "saying": "Thank you, I have already found someone."
+      },
+      "value": "declined: already booked",
+      "p": 0.85
+     }
+    ],
+    "template": "agent-v1",
+    "exposure": "bbbcd201bc41"
+   }
+  },
+  {
+   "belief": "model:scripted-internet@T0.2/extract-v4/generic-openai-compat/v2",
+   "entity": "internet.consider('anna')#f0b645f9679e",
+   "attr": "result",
+   "value": "not addressed to me",
+   "p": 0.8,
+   "t": 107.0,
+   "frozen": false,
+   "meta": {
+    "call": "consider('anna')",
+    "args": [
+     "anna"
+    ],
+    "state": "f0b645f9679e",
+    "changes": {},
+    "host_state": "746ae56399dc",
+    "refs": [
+     "anna"
+    ],
+    "model": "scripted-internet",
+    "actions": [
+     {
+      "action": "return",
+      "changes": {},
+      "value": "not addressed to me",
+      "p": 0.8
+     }
+    ],
+    "template": "agent-v1",
+    "exposure": "6fc51fd64dcb"
+   }
+  },
+  {
+   "belief": "model:scripted-forum@T0.2/extract-v4/generic-openai-compat/v2",
+   "entity": "forum.consider('anna')#aae5cdc75177",
+   "attr": "result",
+   "value": "not addressed to me",
+   "p": 0.8,
+   "t": 108.0,
+   "frozen": false,
+   "meta": {
+    "call": "consider('anna')",
+    "args": [
+     "anna"
+    ],
+    "state": "aae5cdc75177",
+    "changes": {},
+    "host_state": "3c7f611d656a",
+    "refs": [
+     "anna"
+    ],
+    "model": "scripted-forum",
+    "actions": [
+     {
+      "action": "return",
+      "changes": {},
+      "value": "not addressed to me",
+      "p": 0.8
+     }
+    ],
+    "template": "agent-v1",
+    "exposure": "acb492c1f76e"
+   }
+  },
+  {
+   "belief": "model:scripted-mech-dave@T0.2/extract-v4/generic-openai-compat/v2",
+   "entity": "mech-dave.consider('anna')#f5758a4c7f64",
+   "attr": "result",
+   "value": "letting it go",
+   "p": 0.8,
+   "t": 109.0,
+   "frozen": false,
+   "meta": {
+    "call": "consider('anna')",
+    "args": [
+     "anna"
+    ],
+    "state": "f5758a4c7f64",
+    "changes": {},
+    "host_state": "1e0dca75e584",
+    "refs": [
+     "anna"
+    ],
+    "model": "scripted-mech-dave",
+    "actions": [
+     {
+      "action": "return",
+      "changes": {},
+      "value": "letting it go",
+      "p": 0.8
+     }
+    ],
+    "template": "agent-v1",
+    "exposure": "cdb96c6f4f09"
+   }
+  },
+  {
+   "belief": "model:scripted-mech-tom@T0.2/extract-v4/generic-openai-compat/v2",
+   "entity": "mech-tom.consider('anna')#f3a1cb125cee",
+   "attr": "result",
+   "value": "not addressed to me",
+   "p": 0.8,
+   "t": 110.0,
+   "frozen": false,
+   "meta": {
+    "call": "consider('anna')",
+    "args": [
+     "anna"
+    ],
+    "state": "f3a1cb125cee",
+    "changes": {},
+    "host_state": "d2ca05340d26",
+    "refs": [
+     "anna"
+    ],
+    "model": "scripted-mech-tom",
+    "actions": [
+     {
+      "action": "return",
+      "changes": {},
+      "value": "not addressed to me",
+      "p": 0.8
+     }
+    ],
+    "template": "agent-v1",
+    "exposure": "4b7e5f87a5c7"
+   }
+  },
+  {
+   "belief": "model:scripted-anna@T0.2/extract-v4/generic-openai-compat/v2",
+   "entity": "anna.consider('mech-tom')#380aa2e48b9c",
+   "attr": "result",
+   "value": "waiting for the repair",
+   "p": 0.8,
+   "t": 111.0,
+   "frozen": false,
+   "meta": {
+    "call": "consider('mech-tom')",
+    "args": [
+     "mech-tom"
+    ],
+    "state": "380aa2e48b9c",
+    "changes": {},
+    "host_state": "af19517c2f9a",
+    "refs": [
+     "mech-tom"
+    ],
+    "model": "scripted-anna",
+    "actions": [
+     {
+      "action": "return",
+      "changes": {},
+      "value": "waiting for the repair",
+      "p": 0.8
+     }
+    ],
+    "template": "agent-v1",
+    "exposure": "758b4e07d410"
+   }
+  },
+  {
+   "belief": "model:scripted-anna@T0.2/extract-v4/generic-openai-compat/v2",
+   "entity": "anna.consider('anna')#7bdb5796778d",
+   "attr": "result",
+   "value": "nothing more to do alone",
+   "p": 0.85,
+   "t": 112.0,
+   "frozen": false,
+   "meta": {
+    "call": "consider('anna')",
+    "args": [
+     "anna"
+    ],
+    "state": "7bdb5796778d",
+    "changes": {},
+    "host_state": "af19517c2f9a",
+    "refs": [
+     "anna"
+    ],
+    "model": "scripted-anna",
+    "actions": [
+     {
+      "action": "return",
+      "changes": {},
+      "value": "nothing more to do alone",
+      "p": 0.85
+     }
+    ],
+    "template": "agent-v1",
+    "exposure": "198a67c692b8"
+   }
+  },
+  {
+   "belief": "model:scripted-anna@T0.2/extract-v4/generic-openai-compat/v2",
+   "entity": "anna.consider('internet')#937255a5f8a7",
+   "attr": "result",
+   "value": "nothing new from the internet",
+   "p": 0.8,
+   "t": 113.0,
+   "frozen": false,
+   "meta": {
+    "call": "consider('internet')",
+    "args": [
+     "internet"
+    ],
+    "state": "937255a5f8a7",
+    "changes": {},
+    "host_state": "af19517c2f9a",
+    "refs": [
+     "internet"
+    ],
+    "model": "scripted-anna",
+    "actions": [
+     {
+      "action": "return",
+      "changes": {},
+      "value": "nothing new from the internet",
+      "p": 0.8
+     }
+    ],
+    "template": "agent-v1",
+    "exposure": "28d65befb8d5"
+   }
+  },
+  {
+   "belief": "model:scripted-anna@T0.2/extract-v4/generic-openai-compat/v2",
+   "entity": "anna.consider('forum')#c8c898384647",
+   "attr": "result",
+   "value": "nothing to do",
+   "p": 0.8,
+   "t": 114.0,
+   "frozen": false,
+   "meta": {
+    "call": "consider('forum')",
+    "args": [
+     "forum"
+    ],
+    "state": "c8c898384647",
+    "changes": {},
+    "host_state": "af19517c2f9a",
+    "refs": [
+     "forum"
+    ],
+    "model": "scripted-anna",
+    "actions": [
+     {
+      "action": "return",
+      "changes": {},
+      "value": "nothing to do",
+      "p": 0.8
+     }
+    ],
+    "template": "agent-v1",
+    "exposure": "66e899752270"
+   }
+  }
+ ]
+}

@@ -104,7 +104,9 @@ def test_a_refused_write_is_fed_back_and_the_next_attempt_lands():
     assert +result == "done" and +inv.vat == 0.24
     assert engine.call_count == 2
     second = "\n".join(m["content"] for m in engine.calls[1]["messages"])
-    assert "rejected" in second and "vat" in second
+    # the objection itself is quoted back, not merely promised by the rules
+    assert "Earlier attempts this turn were rejected" in second
+    assert "the write to 'vat' was rejected" in second
 
 
 def test_a_write_to_an_undeclared_attribute_is_refused_with_the_reason():
@@ -374,16 +376,32 @@ def test_a_scripted_echo_is_vetoed_by_non_echo_and_re_proposed():
 # cross-entity calls
 # --------------------------------------------------------------------------
 
-def test_a_thing_valued_argument_renders_its_own_snapshot():
-    inv, engine, _ = invoice([ret("they differ by 100.00")])
-    other, other_engine, _ = invoice([ret("never reached")], source="Total 1149.50 EUR")
-    other.vendor_note = "the second invoice"
+def test_a_thing_valued_argument_crosses_as_its_boundary_view():
+    """SPEC.md §4: a snapshot crossing an entity boundary carries identity,
+    purpose and public cells ONLY.  Default private, fail closed."""
+    inv, engine, ledger = invoice([ret("noted")])
+
+    class Peer(Thing):
+        """A second document, seen from outside."""
+
+        __beliefs__ = [human("desk")]
+        headline = Thing(str, public=True)
+        secret = Thing(str)                          # declared, private
+
+    other = Peer(__entity__="peer-1", __ledger__=ledger,
+                 headline="the public face", secret="the private half")
+    other.vendor_note = "assigned but never declared"  # undeclared: private too
 
     result = inv.compare(other)
-    assert +result == "they differ by 100.00"
+    assert +result == "noted"
     prompt = "\n".join(m["content"] for m in engine.calls[0]["messages"])
     assert "argument #0" in prompt
-    assert "the second invoice" in prompt
+    assert "peer-1" in prompt and "A second document" in prompt
+    assert "the public face" in prompt
+    assert "the private half" not in prompt
+    assert "assigned but never declared" not in prompt
+    # no panel, no ledger slice: the peer's mechanisms are its own business
+    assert "human:desk" not in prompt
 
 
 # --------------------------------------------------------------------------

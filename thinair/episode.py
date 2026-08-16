@@ -19,8 +19,9 @@ from typing import Any
 from .beliefs import MemoBelief, as_judgment
 from .ledger import Opinion, arguments_id
 from .policy import Attempt, Route, Unresolvable
-from .thing import (Cell, Thing, _build_snapshot, commit, propose, references,
-                    review, state_hash)
+from .thing import (Cell, Thing, _build_snapshot, _plain, boundary_snapshot,
+                    commit, propose, record_refs, references, review,
+                    state_hash)
 
 __all__ = ["Episode", "run", "call_expression", "ACTION_BUDGET", "CORRECTIONS",
            "MAX_DEPTH", "MAX_OBSERVATION"]
@@ -58,10 +59,13 @@ class Episode:
     """
 
     def __init__(self, thing, name, args=(), kwargs=None, *, returns=None,
-                 action_budget=ACTION_BUDGET, functions=None):
+                 action_budget=ACTION_BUDGET, functions=None, acting=False):
         self.thing = thing
         self.functions = dict(functions or {})
         self.name = name
+        #: an open agentic turn -- "you are this entity; act" -- framed by its
+        #: own template version.  Same grammar, same budgets, same panel.
+        self.acting = bool(acting)
         self.args = tuple(args)
         self.kwargs = dict(kwargs or {})
         self.returns = returns
@@ -89,6 +93,9 @@ class Episode:
         for _name, argument in sorted(self.kwargs.items()):
             if isinstance(argument, Thing):
                 material.append(state_hash(argument))
+        #: the host's own half, so §12's history can re-derive and check the
+        #: parent tree even when Thing arguments widen the repetition key
+        self.host_state = material[0]
         if len(material) == 1:
             return material[0]
         import hashlib
@@ -158,6 +165,8 @@ def run(thing, name, args=(), kwargs=None):
 
     kwargs = dict(kwargs or {})
     returns_template = kwargs.pop("returns", None)     # reserved, and stripped
+    acting = bool(kwargs.pop("acting", False))         # reserved, and stripped:
+                                                       # framing, not identity
 
     if _depth >= MAX_DEPTH:
         raise Unresolvable(
@@ -167,7 +176,7 @@ def run(thing, name, args=(), kwargs=None):
     from .thing import Contract
 
     returns = Contract(returns_template) if returns_template is not None else None
-    episode = Episode(thing, name, args, kwargs, returns=returns)
+    episode = Episode(thing, name, args, kwargs, returns=returns, acting=acting)
     ledger = thing.__ledger__
 
     # 6. repetition: same entity, same frozen-state hash, same expression is
@@ -268,14 +277,23 @@ def run(thing, name, args=(), kwargs=None):
         commit(thing, validated)
         provenance = {
             "call": episode.expression,
-            "args": list(episode.args),
+            # the record holds plain values: a Thing argument reduces to its
+            # entity id (§7), and ``refs`` below keeps the address durable
+            "args": [_plain(a) for a in episode.args],
             "state": episode.state,
             "changes": {o.attr: o.value for o in validated},
         }
+        if episode.host_state != episode.state:
+            # the repetition key covered Thing-valued arguments; keep the
+            # host's own tree separately so the record stays checkable
+            provenance["host_state"] = episode.host_state
+        # References travel in answers too: an entity id inside the return
+        # value is an introduction, and the record keeps the address.
         refs = references((episode.args, episode.kwargs))
+        refs += [r for r in record_refs(+got, ledger) if r not in refs]
         if refs:
             provenance["refs"] = refs
-        for key in ("model", "actions", "why"):
+        for key in ("model", "actions", "why", "template", "exposure"):
             if key in (getattr(got, "meta", None) or {}):
                 provenance[key] = got.meta[key]
         opinion = ledger.add(Opinion(
@@ -315,14 +333,20 @@ def _check_return(thing, name, value, p, returns):
 
 
 def _argument_snapshots(episode):
-    """Thing-valued arguments contribute their own snapshots."""
+    """Thing-valued arguments contribute their *boundary* views (SPEC.md §4).
+
+    An argument is another entity, and its snapshot crosses an entity
+    boundary: identity, purpose, public cells only -- no panel, no ledger
+    slice, no private cells.  The full state still governs repetition
+    (:meth:`Episode._state`); what changes here is perception, not identity.
+    """
     out = {}
     for i, argument in enumerate(episode.args):
         if isinstance(argument, Thing):
-            out[f"#{i}"] = _build_snapshot(argument)
+            out[f"#{i}"] = boundary_snapshot(argument)
     for name, argument in episode.kwargs.items():
         if isinstance(argument, Thing):
-            out[name] = _build_snapshot(argument)
+            out[name] = boundary_snapshot(argument)
     return out
 
 

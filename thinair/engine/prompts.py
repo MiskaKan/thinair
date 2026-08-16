@@ -10,21 +10,28 @@ from __future__ import annotations
 import json
 from typing import Any
 
-__all__ = ["ATTRIBUTE_TEMPLATE", "EPISODE_TEMPLATE", "DIALECTS",
-           "attribute_messages", "episode_messages", "episode_observation",
-           "render_snapshot", "response_schema", "episode_schema",
-           "template_version"]
+__all__ = ["ATTRIBUTE_TEMPLATE", "EPISODE_TEMPLATE", "AGENT_TEMPLATE",
+           "DIALECTS", "attribute_messages", "episode_messages",
+           "episode_observation", "render_snapshot", "response_schema",
+           "episode_schema", "template_version"]
 
 #: Bump on *any* edit to the corresponding builder (invariant 6).
-ATTRIBUTE_TEMPLATE = "extract-v3"
-EPISODE_TEMPLATE = "episode-v1"
+ATTRIBUTE_TEMPLATE = "extract-v4"
+EPISODE_TEMPLATE = "episode-v2"
+#: The open agentic turn -- "you are this entity; act" -- is its own
+#: template, versioned separately: a variant, never an edit.
+AGENT_TEMPLATE = "agent-v1"
 
 TRUNCATION_MARKER = " …[truncated]"
 MAX_RENDER = 2000
 
 
 def template_version(kind: str = "attribute") -> str:
-    return EPISODE_TEMPLATE if kind == "episode" else ATTRIBUTE_TEMPLATE
+    if kind == "episode":
+        return EPISODE_TEMPLATE
+    if kind == "agent":
+        return AGENT_TEMPLATE
+    return ATTRIBUTE_TEMPLATE
 
 
 DIALECTS = {
@@ -51,8 +58,32 @@ def _short(value: Any, limit: int = MAX_RENDER) -> str:
     return text
 
 
+def _render_boundary(e: Any, limit: int) -> str:
+    """What crosses an entity boundary: identity, purpose, public cells only.
+
+    No panel, no ledger slice, no contracts, no methods, no belief
+    attribution -- another mind's mechanisms are its own business.
+    """
+    name = e.__class_name__ or ""
+    lines = [f"entity: {e.__entity__}" + (f" ({name})" if name else "")]
+    purpose = e.__purpose__
+    if purpose:
+        lines.append(f'purpose: "{purpose.strip()}"')
+    cells = e.__attrs__()
+    if cells:
+        lines.append("public state:")
+        for attr, opinion in cells.items():
+            lines.append(f"  {attr} = {_short(opinion.value, limit)}"
+                         f"   (p={opinion.p:.2f})")
+    else:
+        lines.append("public state: (nothing visible)")
+    return "\n".join(lines)
+
+
 def render_snapshot(e: Any, limit: int = MAX_RENDER) -> str:
     """The sealed snapshot as text.  State only -- never a transcript."""
+    if getattr(e, "__boundary__", False):
+        return _render_boundary(e, limit)
     lines: list[str] = []
     # Everything framework-side is a dunder so that no domain attribute is
     # ever shadowed.
@@ -101,6 +132,12 @@ def render_snapshot(e: Any, limit: int = MAX_RENDER) -> str:
         lines.append("real methods you may call:")
         for signature in e.__methods__:
             lines.append(f"  {signature}")
+    peers = getattr(e, "__peers__", None) or {}
+    if peers:
+        lines.append("entities you hold references to (their public view):")
+        for view in peers.values():
+            lines.append("  " + render_snapshot(view, limit=limit // 2)
+                         .replace("\n", "\n  "))
     for name, sub in (e.__arguments__ or {}).items():
         lines.append(f"argument {name}:")
         lines.append("  " + render_snapshot(sub, limit=limit // 2).replace("\n", "\n  "))
@@ -200,14 +237,58 @@ Rules:
 """
 
 
+_AGENT_SYSTEM = """\
+You are the entity shown below -- not an assistant describing it, the entity
+itself, deciding its own next move. You act in a bounded loop. Every reply is
+a single JSON object, one action, nothing else.
+
+Actions:
+  {"action": "get", "attr": "<name>"}
+      Read one of your attributes. You get its value and its probability.
+  {"action": "call", "method": "<name>", "args": [...], "kwargs": {...}}
+      Run one of your real methods. You get its result.
+  {"action": "return", "changes": {"<attr>": <value>, ...}, "value": <note>,
+   "p": <0.0-1.0>}
+      End your turn. "changes" are writes to your own attributes (use {} for
+      none), "value" is a short note on what you did, "p" is your honest
+      confidence.
+
+Rules:
+- You may only write your own declared, unfrozen attributes. Acting on
+  another entity is not yours to do: to reach one, write a message on your
+  own public attributes naming its exact entity id, and it will read your
+  public state and decide for itself.
+- Other entities see only your public attributes; what you see of them is
+  only their public state.
+- Proposed changes are validated after you return; if one is rejected you
+  will be told why and asked again.
+- You cannot freeze, pin, or certify anything. You state beliefs; code decides.
+- You may not call another undefined (imagined) method.
+- If there is nothing worth doing, return {} changes and say so.
+- Budget: %(actions)d actions. Spend them; then return.
+"""
+
+
 def episode_messages(e: Any, expression: str, returns: Any = None,
-                     action_budget: int = 8, dialect: str = "default") -> list[dict]:
-    body = ["State of the object:", render_snapshot(e), "",
-            f"The call to work out: {expression}"]
+                     action_budget: int = 8, dialect: str = "default",
+                     objections: list[dict] | None = None,
+                     acting: bool = False) -> list[dict]:
+    lead = "Your state:" if acting else "State of the object:"
+    body = [lead, render_snapshot(e), ""]
+    if acting:
+        body.append(f"Your turn. It was prompted by: {expression}")
+    else:
+        body.append(f"The call to work out: {expression}")
     if returns is not None:
         body.append(f"Its return value is declared as: {returns.describe()}")
+    if objections:
+        body.append("")
+        body.append("Earlier attempts this turn were rejected:")
+        body.extend("  - " + line for line in _objections(objections))
+        body.append("Do not repeat a rejected proposal. Address the objection.")
     body.append("Begin. One action per reply.")
-    system = _EPISODE_SYSTEM % {"actions": action_budget}
+    system = (_AGENT_SYSTEM if acting else _EPISODE_SYSTEM) % {
+        "actions": action_budget}
     preamble = _dialect(dialect).get("preamble")
     if preamble:
         system += "\n" + preamble

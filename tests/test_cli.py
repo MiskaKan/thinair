@@ -1343,7 +1343,9 @@ def test_ground_is_tiered(tmp_path, monkeypatch, capsys):
     assert "\n# Part 2 " not in out                      # protocol is --full
     assert "Mathematical anchors" not in out             # citations too
     assert "Link it, as-is" not in out                   # no meta preamble
-    assert len(out.encode()) < 30_000                    # fits inline
+    # fits inline: harness tool-output limits sit far above this; the budget
+    # tracks the folded content (§13 rule 7 grows it) with modest headroom
+    assert len(out.encode()) < 34_000
 
     main(["ground", "--full"])
     full = capsys.readouterr().out
